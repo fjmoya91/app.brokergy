@@ -57,6 +57,15 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
             .catch(() => setMiPrescriptor(null));
     }, [isPartner, user?.prescriptor_id]);
 
+    // Fase 3 de la app del instalador: fotos y textos de su página web que esperan
+    // revisión. Una lectura al entrar y al cambiar de pestaña (sin sondeo: el
+    // límite de peticiones del plan, ver el de WhatsApp más abajo).
+    const [escPend, setEscPend] = useState(0);
+    useEffect(() => {
+        if (!isStaff) return;
+        axios.get('/api/escaparate-revision/contador').then((r) => setEscPend(Number(r.data?.total) || 0)).catch(() => {});
+    }, [isStaff, activeTab]);
+
     // Tema de marca del portal: si el partner tiene color de landing, tiñe los
     // botones/acentos del portal con su color (mismo mecanismo que la landing).
     const accentVars = isPartner ? buildAccentVars(miPrescriptor?.landing_color_primary) : null;
@@ -278,6 +287,7 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                               d: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z' },
 
                             { id: 'prescriptores', grupo: 'fichas', label: esDistribuidor ? 'Instaladores' : 'Prescriptores', ver: isStaff || esDistribuidor,
+                              n: isStaff ? escPend : 0, nTitulo: 'fotos y textos de instaladores por revisar',
                               d: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
 
                             // Se abre FUERA para no perder el expediente que estés
@@ -344,6 +354,10 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                                                 {!isSidebarCollapsed && (
                                                     <>
                                                         <span className="truncate">{e.label}</span>
+                                                        {e.n > 0 && (
+                                                            <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-bkg-deep text-[10px] font-black grid place-items-center"
+                                                                title={`${e.n} ${e.nTitulo || ''}`} aria-label={`${e.n} ${e.nTitulo || ''}`}>{e.n}</span>
+                                                        )}
                                                         {e.nuevaPestana && (
                                                             <svg className="w-3 h-3 flex-shrink-0 opacity-50 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />

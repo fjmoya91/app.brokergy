@@ -5,6 +5,7 @@ import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
 import TarifasVerificacionPanel from './TarifasVerificacionPanel';
+import { RevisionEscaparate } from '../components/RevisionEscaparate';
 import { nombrePartner } from '../../../utils/tiposEmpresa';
 import { CAE_PRECIO_CLIENTE_NUEVAS } from '../../calculator/logic/calculation';
 import { pctDeComision, comisionDePct } from '../../calculator/logic/comisionPartner';
@@ -672,6 +673,8 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
     // Las notas internas las ve y edita el equipo (ADMIN o TRABAJADOR), no el partner.
     const isStaff = isAdmin || user?.rol?.toUpperCase() === 'TRABAJADOR';
+    // Fase 3 de la app del instalador: cuántas cosas suyas esperan revisión (fotos y textos).
+    const [pendEscaparate, setPendEscaparate] = useState(null);
     // Un partner puede ver/editar SU PROPIA ficha (con campos capados: sin toggle
     // de acceso, sin tipo/rol, sin toggle de autónomo — esos solo los toca un admin).
     const isOwnProfile = !!user?.prescriptor_id && user?.prescriptor_id === prescProp?.id_empresa;
@@ -1937,6 +1940,22 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </button>
                                         <span className="text-[10px] text-white/25">Las cifras (instalaciones, ayuda media) se recalculan solas cada 6 h.</span>
                                     </div>
+                                </Section>
+                            )}
+
+                            {/* Lo que el instalador propone para su página desde su app (fase 3).
+                                Lo VE el equipo interno; aprobar y rechazar, solo ADMIN. */}
+                            {isStaff && p.tipo_empresa === 'INSTALADOR' && p.id_empresa && (
+                                <Section
+                                    title="Pendiente de revisar"
+                                    iconPath="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z"
+                                    badge={pendEscaparate > 0 && (
+                                        <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/25">
+                                            {pendEscaparate} por revisar
+                                        </span>
+                                    )}
+                                >
+                                    <RevisionEscaparate instaladorId={p.id_empresa} puedeResolver={isAdmin} onContador={setPendEscaparate} />
                                 </Section>
                             )}
 

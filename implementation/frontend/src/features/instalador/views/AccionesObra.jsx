@@ -23,6 +23,7 @@ import { FacturaObraView } from '../../public/views/FacturaObraView';
 import { DocsManager } from '../../docs/DocsManager';
 import { API_DOCS_INSTALADOR } from '../../docs/docsApi';
 import { Icono, Esqueleto, AvisoError, eur } from '../ui/piezas';
+import { ElegirFotosView } from './ElegirFotosView';
 
 const mensaje = (e, porDefecto) => e?.response?.data?.error || e?.response?.data?.message || porDefecto;
 
@@ -417,9 +418,17 @@ export function TramitesAccion({ obra, api, alSubir, onCambio, foco }) {
 // sesión (API_DOCS_INSTALADOR: sin token en el navegador y sin enlaces de Drive) y en
 // la fase del instalador (el DESPUÉS). Lo que falta, arriba. No valida ni rechaza:
 // `canValidate` es del equipo interno.
-export function DocsAccion({ obra, api }) {
+// Fase 3: si su empresa es la INSTALADORA, debajo puede elegir qué fotos de ESTA obra
+// enseñar en su página web (ElegirFotosView filtrado a la obra; van «en revisión»).
+export function DocsAccion({ obra, api, alSubir, onMiPagina }) {
     const [res, setRes] = useState(null);
+    const [eligiendo, setEligiendo] = useState(false);
     const faltan = res ? Math.max(0, res.obligatorias - res.obligatoriasHechas) : null;
+    const puedeEnsenar = !!(obra.es_instaladora && api.escaparateObras && alSubir);
+    if (eligiendo) {
+        return <ElegirFotosView api={api} obra={obra.id} alSubir={alSubir} volverTexto="Fotos y papeles" incrustado
+            onVolver={() => setEligiendo(false)} onHecho={() => { setEligiendo(false); onMiPagina?.(); }} />;
+    }
     return (
         <>
             {res && (
@@ -437,6 +446,15 @@ export function DocsAccion({ obra, api }) {
                         embedded compacto onResumen={setRes} />
                 </div>
             </div>
+            {puedeEnsenar && (
+                <section className="ia-card ia-docs-web" aria-label="Tu página web">
+                    <p className="ia-eyebrow">Tu página web</p>
+                    <p>¿Alguna de estas fotos te sirve para enseñar tu trabajo? Elígela y la miramos antes de publicarla. Solo sale el pueblo.</p>
+                    <button type="button" className="ia-btn ia-btn-sec" onClick={() => setEligiendo(true)}>
+                        <Icono n="web" size={20} /> Enseñar fotos en mi página
+                    </button>
+                </section>
+            )}
         </>
     );
 }

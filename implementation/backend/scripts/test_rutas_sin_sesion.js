@@ -33,6 +33,7 @@ app.use('/api/pdf', require(path.join(B, 'routes/pdf')));
 app.use('/api/whatsapp', require(path.join(B, 'routes/whatsapp')));
 app.use('/api/expedientes', require(path.join(B, 'routes/expedientes')));
 app.use('/api/instalador-app', require(path.join(B, 'routes/instaladorApp')));
+app.use('/api/escaparate-revision', require(path.join(B, 'routes/escaparateRevision')));
 const srv = app.listen(0, async () => {
   const base = `http://127.0.0.1:${srv.address().port}`;
   const casos = [];
@@ -54,10 +55,25 @@ const srv = app.listen(0, async () => {
     ...[['GET', ''], ['POST', '/fin-obra'], ['PATCH', '/ventanas'], ['POST', '/FOTO_EQUIPO'], ['POST', '/FOTO_EQUIPO/batch'],
       ['POST', '/FOTO_EQUIPO/merge-pdf'], ['DELETE', '/FOTO_EQUIPO?driveId=abcdefghij123'],
     ].map(([m, r]) => [m, `/api/instalador-app/docs/26RES060_OP217${r}`]),
+    // Fase 3: «Tu página web» y la revisión del equipo interno.
+    ...[['GET', ''], ['GET', '/obras'], ['POST', '/fotos'], ['POST', '/fotos/subir'], ['DELETE', '/fotos/00000000-0000-4000-8000-000000000000'], ['PUT', '/textos'],
+    ].map(([m, r]) => [m, `/api/instalador-app/escaparate${r}`]),
+    ...[['GET', '/contador'], ['GET', '/instalador/00000000-0000-4000-8000-000000000000'],
+      ['POST', '/fotos/00000000-0000-4000-8000-000000000000/aprobar'], ['POST', '/fotos/00000000-0000-4000-8000-000000000000/rechazar'],
+      ['POST', '/textos/00000000-0000-4000-8000-000000000000/aprobar'], ['POST', '/textos/00000000-0000-4000-8000-000000000000/rechazar'],
+    ].map(([m, r]) => [m, `/api/escaparate-revision${r}`]),
   ];
   // Las miniaturas y ficheros de la app van SIN sesión, con LLAVE: sin ella, 403 (ver test_app_instalador.js).
   q('anónimo', 'GET', '/api/instalador-app/thumb/26RES060_OP217/abcdefghij123', 403, {});
   q('anónimo', 'GET', '/api/instalador-app/fichero/26RES060_OP217/abcdefghij123?token=tok-de-subida', 403, {});
+  q('anónimo', 'GET', '/api/instalador-app/escaparate/foto/00000000-0000-4000-8000-000000000000', 403, {});
+  // La cola de revisión es del equipo interno; aprobar y rechazar, solo ADMIN.
+  for (const t of ['tok-partner', 'tok-cert']) q(t, 'GET', '/api/escaparate-revision/contador', 403);
+  for (const t of ['tok-partner', 'tok-cert', 'tok-trab']) {
+    q(t, 'POST', '/api/escaparate-revision/fotos/00000000-0000-4000-8000-000000000000/aprobar', 403, {});
+    q(t, 'POST', '/api/escaparate-revision/textos/00000000-0000-4000-8000-000000000000/rechazar', 403, { motivo: 'no vale nada' });
+  }
+  q('tok-trab', 'GET', '/api/escaparate-revision/contador', 200);
   for (const [m, r] of RUTAS_ANON) q('anónimo', m, r, 401, {});
   for (const [m, r] of RUTAS_ANON.filter(([, r]) => /pdf\/send|whatsapp\/send/.test(r))) q('clave MAL', m, r, 401, {});
   for (const r of ['/api/pdf/send-proposal', '/api/pdf/send-annex', '/api/pdf/send-cifo', '/api/whatsapp/send-text', '/api/whatsapp/send-media'])

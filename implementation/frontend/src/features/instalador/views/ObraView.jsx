@@ -73,7 +73,7 @@ const TITULO_ACCION = {
 };
 const grupoDe = (a) => (a === 'rite' || a === 'fm_decl' ? 'cifo' : a);
 
-export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion = null, onAccion, onCambio, onVolver, onAbrirOportunidad }) {
+export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion = null, onAccion, onCambio, onVolver, onAbrirOportunidad, onMiPagina }) {
     const [det, setDet] = useState(null);
     const [error, setError] = useState(false);
     const [intento, setIntento] = useState(0);
@@ -99,7 +99,7 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
         else if (g === 'cifo') cuerpo = o.es_instaladora
             ? <TramitesAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} foco={accion.accion} />
             : <div className="ia-aviso">El certificado y el RITE los firma y sube la empresa que instala la obra.</div>;
-        else cuerpo = <DocsAccion obra={o} api={api} />;
+        else cuerpo = <DocsAccion obra={o} api={api} alSubir={envio.alSubir} onMiPagina={onMiPagina} />;
         return (
             <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
                 <div className="ia-ficha-top" style={{ padding: '8px 0 0' }}>

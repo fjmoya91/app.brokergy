@@ -144,6 +144,9 @@ app.use('/api/certapp-admin', require('./routes/certappAdmin'));
 // App del INSTALADOR (fase 1, solo lectura): sus obras ya resueltas, solo para quien
 // está en la beta (APP_INSTALADOR_BETA). Ver docs/conocimiento/instalador-app/.
 app.use('/api/instalador-app', require('./routes/instaladorApp'));
+// Fase 3: la REVISIÓN de lo que el instalador propone para su página (fotos y textos).
+// Ver la cola, el equipo interno; aprobar y rechazar, solo ADMIN.
+app.use('/api/escaparate-revision', require('./routes/escaparateRevision'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {

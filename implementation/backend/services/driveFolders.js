@@ -154,7 +154,18 @@ function carpetaObjetivoExpediente(exp, opts = {}) {
     return FOLDERS.EN_CURSO;
 }
 
+// ─── Escaparate: las fotos SUELTAS que sube el instalador desde su app ───────
+// (fase 3, «Tu página web»). No cuelgan de ninguna obra, así que no van a la
+// carpeta de ningún expediente: van a `DRIVE_FOLDER_ESCAPARATE/<id_empresa>/`.
+// SIN respaldo a propósito: la carpeta la crea Fran a mano en el Drive de BROKERGY
+// y pone su id en el .env; mientras no esté, subir una foto suelta responde 503
+// («aún no podemos») y nada se guarda en una carpeta inventada.
+function carpetaEscaparate(env = process.env) {
+    return String(env.DRIVE_FOLDER_ESCAPARATE || '').trim() || null;
+}
+
 module.exports = {
+    carpetaEscaparate,
     FOLDERS,
     FOLDER_NAMES,
     nombreCarpeta,

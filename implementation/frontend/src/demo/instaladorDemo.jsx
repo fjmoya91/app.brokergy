@@ -1,4 +1,4 @@
-// BANCO DE PRUEBAS de la app del INSTALADOR (fases 1 y 2). Solo en desarrollo: no
+// BANCO DE PRUEBAS de la app del INSTALADOR (fases 1, 2 y 3). Solo en desarrollo: no
 // entra en el build. Abre `/instalador-demo.html` con `npm run dev`.
 // Pinta AppInstalador SIN SESIÓN y SIN API: todo son datos de mentira de este
 // fichero (nombres inventados). Local = datos de PRODUCCIÓN, así que:
@@ -13,6 +13,11 @@
 //   ?fallo=1   → los envíos fallan (el popup en su versión de error)
 //   ?seccion=obras|clientes → entra directamente en esa sección
 //   ?obra=<id>&accion=presupuesto|factura|cifo|rite|docs → abre esa acción
+// Fase 3 («Tu página web»):
+//   ?seccion=pagina → la página; con ?pagina=vacia|revision|publicada|novale|textos,
+//                     cada estado (sin él, una mezcla); ?elegir=1 → «Elegir fotos»
+//   ?cola=1         → la cola de revisión del equipo interno (la de la ficha del
+//                     instalador en Partners); con ?lector=1, sin poder resolver
 /* eslint-disable react-refresh/only-export-components -- es un punto de entrada, no un módulo */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -21,6 +26,7 @@ import { jsPDF } from 'jspdf';
 import '../index.css';
 import AppInstalador from '../features/instalador/AppInstalador';
 import { API_DOCS_INSTALADOR } from '../features/docs/docsApi';
+import { RevisionEscaparate } from '../features/admin/components/RevisionEscaparate';
 
 const p = new URLSearchParams(window.location.search);
 const VACIO = p.has('vacio');
@@ -32,6 +38,7 @@ const corta = (que) => { console.warn(`[instalador-demo] BLOQUEADO ${que}`); };
 const RE_DOCS = /\/api\/instalador-app\/docs\//;
 axios.interceptors.request.use((cfg) => {
     if (RE_DOCS.test(cfg.url || '')) { cfg.adapter = adaptadorDocs; return cfg; }
+    if (/^\/api\/escaparate-revision\//.test(cfg.url || '')) { cfg.adapter = adaptadorCola; return cfg; }
     corta(`${cfg.method} ${cfg.url}`);
     return Promise.reject(new Error('Banco de pruebas: sin API'));
 });
@@ -266,7 +273,114 @@ const api = {
         }),
     }),
     docs: API_DOCS_INSTALADOR,
+    // ── Fase 3 ──
+    escaparate: () => espera(paginaDeMentira()),
+    escaparateObras: (obraId) => espera({ obras: copia(OBRAS_FOTOS.filter((o) => !obraId || o.obra === obraId)) }),
+    proponerFotos: ({ fotos }) => envia(() => {
+        for (const f of fotos) {
+            const o = OBRAS_FOTOS.find((x) => x.obra === f.obra);
+            const it = o?.fotos.find((x) => x.driveId === f.driveId);
+            if (it) it.en_pagina = 'revision';
+            ESC.fotos.unshift({ id: `f-${Date.now()}-${f.driveId}`, origen: 'obra', estado: 'revision', motivo: null, fase: it?.fase || 'despues', municipio: o?.municipio || null, miniatura: `/api/instalador-app/escaparate/foto/${f.driveId}` });
+        }
+    }),
+    subirFotos: (ficheros) => envia(() => {
+        ficheros.forEach((file, i) => {
+            const id = `suelta-${Date.now()}-${i}`;
+            try { FOTOS_LOCALES.set(id, URL.createObjectURL(file)); } catch { /* */ }
+            ESC.fotos.unshift({ id, origen: 'suelta', estado: 'revision', motivo: null, fase: 'despues', municipio: null, miniatura: `/api/instalador-app/escaparate/foto/${id}` });
+        });
+    }),
+    retirarFoto: (id) => envia(() => { ESC.fotos = ESC.fotos.filter((f) => f.id !== id); }),
+    guardarTextos: (cuerpo) => {
+        const todo = `${cuerpo.presentacion || ''} ${cuerpo.pueblos || ''}`;
+        // El mismo mensaje que el servidor (services/escaparateService.js), para ver el 400.
+        const mal = /(?<!\d)[6789](?:[\s.\-/]?\d){8}(?!\d)/.test(todo) ? 'Hay un teléfono en tu texto. En tu página el cliente te contacta por BROKERGY: quítalo y vuelve a guardar.'
+            : /\d[\d.,\s]*(?:€|euros?\b)|\bprecios?\b/i.test(todo) ? 'Hay un precio en tu texto. Los precios no salen en tu página: quítalo y vuelve a guardar.' : null;
+        if (mal) return Promise.reject(Object.assign(new Error('400'), { response: { status: 400, data: { error: mal } } }));
+        return envia(() => {
+            const pueblos = String(cuerpo.pueblos || '').split(',').map((x) => x.trim()).filter(Boolean);
+            ESC.textos = { ...ESC.textos, en_revision: { presentacion: cuerpo.presentacion, especialidades: cuerpo.especialidades, pueblos, propuesto_at: new Date().toISOString() }, no_vale: null };
+        });
+    },
 };
+
+// ── Fase 3: la página web de mentira, en cada estado (?pagina=) ─────────────
+const PAGINA = p.get('pagina') || '';
+const fotoEsc = (id, estado, fase, municipio, extra = {}) => ({ id, origen: 'obra', estado, motivo: null, fase, municipio, miniatura: `/api/instalador-app/escaparate/foto/${id}`, ...extra });
+const FOTOS_ESC = {
+    '': [fotoEsc('e1', 'publicada', 'antes', 'Villanueva del Campo'), fotoEsc('e2', 'publicada', 'despues', 'Villanueva del Campo'), fotoEsc('e3', 'publicada', 'despues', 'Pozo Alto'),
+        fotoEsc('e4', 'revision', 'despues', 'Fuentenueva'), fotoEsc('e5', 'revision', 'antes', null, { origen: 'suelta' }),
+        fotoEsc('e6', 'no_vale', 'despues', 'Pozo Alto', { motivo: 'Se lee la matrícula del coche de la entrada.' })],
+    vacia: [],
+    revision: [fotoEsc('e4', 'revision', 'despues', 'Fuentenueva'), fotoEsc('e7', 'revision', 'antes', 'Fuentenueva'), fotoEsc('e5', 'revision', 'despues', null, { origen: 'suelta' })],
+    publicada: [fotoEsc('e1', 'publicada', 'antes', 'Villanueva del Campo'), fotoEsc('e2', 'publicada', 'despues', 'Villanueva del Campo'), fotoEsc('e3', 'publicada', 'despues', 'Pozo Alto'), fotoEsc('e8', 'publicada', 'despues', 'Santa Olalla de Abajo')],
+    novale: [fotoEsc('e6', 'no_vale', 'despues', 'Pozo Alto', { motivo: 'Se lee la matrícula del coche de la entrada.' }), fotoEsc('e9', 'no_vale', 'antes', 'Pozo Alto', { motivo: 'Sale la cara de una persona.' }), fotoEsc('e1', 'publicada', 'antes', 'Villanueva del Campo')],
+    textos: [fotoEsc('e1', 'publicada', 'antes', 'Villanueva del Campo'), fotoEsc('e2', 'publicada', 'despues', 'Villanueva del Campo')],
+};
+const VIGENTES = { presentacion: 'Llevamos veinte años cambiando calderas por aerotermia en la comarca. Te lo dejamos funcionando y te ayudamos con los papeles.', especialidades: ['aerotermia', 'suelo_radiante'], pueblos: ['Villanueva del Campo', 'Pozo Alto'] };
+const ESC = {
+    fotos: copia(FOTOS_ESC[PAGINA] || FOTOS_ESC['']),
+    textos: {
+        vigentes: PAGINA === 'vacia' ? { presentacion: '', especialidades: [], pueblos: [] } : VIGENTES,
+        en_revision: PAGINA === 'textos' ? { presentacion: 'Somos una empresa familiar de Villanueva del Campo. Instalamos aerotermia y suelo radiante desde 2005.', especialidades: ['aerotermia', 'suelo_radiante', 'fotovoltaica'], pueblos: ['Villanueva del Campo', 'Pozo Alto', 'Fuentenueva'], propuesto_at: '2026-11-20T09:00:00Z' } : null,
+        no_vale: PAGINA === 'novale' ? { presentacion: 'Llámanos y te damos presupuesto sin compromiso.', especialidades: ['aerotermia'], pueblos: [], motivo: 'En tu página no pueden salir ofertas: cuenta qué hacéis y desde cuándo.' } : null,
+    },
+};
+function paginaDeMentira() {
+    const fotos = copia(ESC.fotos);
+    const vacia = PAGINA === 'vacia';
+    return {
+        ficha: { nombre: 'Instalaciones de Prueba, S.L.', municipio: 'Villanueva del Campo', slug: 'instalaciones-de-prueba', sale_en_web: true, url: 'https://brokergy.es/encuentra-tu-instalador/instalaciones-de-prueba/' },
+        fotos,
+        resumen_fotos: { publicadas: fotos.filter((f) => f.estado === 'publicada').length, revision: fotos.filter((f) => f.estado === 'revision').length, no_vale: fotos.filter((f) => f.estado === 'no_vale').length },
+        textos: copia(ESC.textos),
+        sale_solo: vacia ? { obras: 2, ayuda_media: null, min_obras_media: 3, marcas: [] } : { obras: 14, ayuda_media: 2480, min_obras_media: 3, marcas: ['MARCA', 'OTRA MARCA'] },
+        especialidades: [{ id: 'aerotermia', texto: 'Aerotermia' }, { id: 'suelo_radiante', texto: 'Suelo radiante' }, { id: 'fotovoltaica', texto: 'Placas solares' }, { id: 'aire_acondicionado', texto: 'Aire acondicionado' }, { id: 'calderas', texto: 'Calderas' }],
+        limites: { presentacion: 300, pueblos: 15 },
+    };
+}
+const thumb = (obra, d) => `/api/instalador-app/thumb/${obra}/${d}?llave=x&sz=400`;
+const OBRAS_FOTOS = VACIO ? [] : [
+    { obra: '26RES060_OP901', titulo: 'Aerotermia en Villanueva del Campo', municipio: 'Villanueva del Campo', cuando: '2026-11-12T10:00:00Z', fotos: [
+        { slot: 'FOTO_CALDERA_ANTES', driveId: 'demo-901-a', fase: 'antes', en_pagina: 'publicada', miniatura: thumb('26RES060_OP901', 'demo-901-a') },
+        { slot: 'FOTO_UNIDAD_EXTERIOR', driveId: 'demo-foto-ext-1', fase: 'despues', en_pagina: null, miniatura: thumb('26RES060_OP901', 'demo-foto-ext-1') },
+        { slot: 'FOTO_UNIDAD_INTERIOR', driveId: 'demo-901-c', fase: 'despues', en_pagina: null, miniatura: thumb('26RES060_OP901', 'demo-901-c') },
+    ] },
+    { obra: '26RES060_OP906', titulo: 'Aerotermia en Pozo Alto', municipio: 'Pozo Alto', cuando: '2026-11-08T10:00:00Z', fotos: [
+        { slot: 'FOTO_CALDERA_ANTES', driveId: 'demo-906-a', fase: 'antes', en_pagina: 'no_vale', miniatura: thumb('26RES060_OP906', 'demo-906-a') },
+        { slot: 'FOTO_UNIDAD_EXTERIOR', driveId: 'demo-906-b', fase: 'despues', en_pagina: 'revision', miniatura: thumb('26RES060_OP906', 'demo-906-b') },
+        { slot: 'FOTO_UNIDAD_INTERIOR', driveId: 'demo-906-c', fase: 'despues', en_pagina: null, miniatura: thumb('26RES060_OP906', 'demo-906-c') },
+        { slot: 'FOTO_DEPOSITO', driveId: 'demo-906-d', fase: 'despues', en_pagina: null, miniatura: thumb('26RES060_OP906', 'demo-906-d') },
+    ] },
+    { obra: '25RES060_OP905', titulo: 'Aerotermia en Villanueva del Campo', municipio: 'Villanueva del Campo', cuando: '2025-09-20T10:00:00Z', fotos: [
+        { slot: 'FOTO_UNIDAD_EXTERIOR', driveId: 'demo-905-a', fase: 'despues', en_pagina: null, miniatura: thumb('25RES060_OP905', 'demo-905-a') },
+    ] },
+];
+
+// ── Fase 3: la cola de revisión (?cola=1), contestada aquí ──────────────────
+const COLA = {
+    fotos: [
+        { id: '11111111-1111-4111-8111-111111111111', origen: 'OBRA', estado: 'PENDIENTE', fase: 'DESPUES', municipio: 'Fuentenueva', obra: '26RES060_907', permiso_cliente: true, propuesta_at: '2026-11-20T09:00:00Z', miniatura: '/api/instalador-app/escaparate/foto/c1' },
+        { id: '22222222-2222-4222-8222-222222222222', origen: 'OBRA', estado: 'PENDIENTE', fase: 'ANTES', municipio: 'Fuentenueva', obra: '26RES060_907', permiso_cliente: true, propuesta_at: '2026-11-20T09:00:00Z', miniatura: '/api/instalador-app/escaparate/foto/c2' },
+        { id: '33333333-3333-4333-8333-333333333333', origen: 'SUELTA', estado: 'PENDIENTE', fase: 'DESPUES', municipio: null, obra: null, permiso_cliente: true, propuesta_at: '2026-11-21T08:00:00Z', miniatura: '/api/instalador-app/escaparate/foto/c3' },
+    ],
+    textos: [{ id: '44444444-4444-4444-8444-444444444444', presentacion: 'Somos una empresa familiar de Villanueva del Campo. Instalamos aerotermia y suelo radiante desde 2005.', especialidades: ['aerotermia', 'suelo_radiante'], pueblos: ['Villanueva del Campo', 'Pozo Alto'], estado: 'PENDIENTE', propuesto_at: '2026-11-20T09:00:00Z' }],
+};
+async function adaptadorCola(cfg) {
+    await new Promise((r) => setTimeout(r, 300));
+    const resp = (data, status = 200) => ({ data, status, statusText: 'OK', headers: {}, config: cfg, request: {} });
+    if (FALLO && cfg.method !== 'get') return Promise.reject(Object.assign(new Error('500'), { response: resp({ error: 'En el banco, con ?fallo=1, todo falla.' }, 500) }));
+    if (cfg.method === 'get') return resp({ fotos: copia(COLA.fotos), textos_pendientes: copia(COLA.textos.filter((x) => x.estado === 'PENDIENTE')), textos_ultimo: null, textos_vigentes: VIGENTES });
+    const m = /\/(fotos|textos)\/([^/]+)\/(aprobar|rechazar)$/.exec(cfg.url);
+    if (m) {
+        const lista = m[1] === 'fotos' ? COLA.fotos : COLA.textos;
+        const it = lista.find((x) => x.id === m[2]);
+        if (it) it.estado = m[3] === 'aprobar' ? (m[1] === 'fotos' ? 'PUBLICADA' : 'APROBADO') : 'NO_VALE';
+        if (m[1] === 'fotos') COLA.fotos = COLA.fotos.filter((x) => x.estado !== 'PUBLICADA');
+    }
+    return resp({ ok: true });
+}
 // ── El gestor de fotos, contestado aquí ─────────────────────────────────────
 const SLOTS = () => ([
     { key: 'FOTO_UNIDAD_EXTERIOR', fase: 'DESPUES', required: true, multiple: true, accept: 'image/*', label: 'Unidad exterior nueva (instalada)', help: 'La máquina nueva que va fuera, ya colocada.' },
@@ -311,6 +425,18 @@ async function adaptadorDocs(cfg) {
     return resp({ ok: true });
 }
 
+function Cola() {
+    const [n, setN] = React.useState(null);
+    return (
+        <div style={{ minHeight: '100vh', background: '#0c0e12', color: '#fff', padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto' }} className="rounded-2xl border border-white/[0.07] bg-white/[0.02] px-4 sm:px-5 py-4">
+                <h3 className="text-[10px] uppercase tracking-[0.18em] font-black text-white/45 mb-4">Pendiente de revisar {n ? `· ${n} por revisar` : ''}</h3>
+                <RevisionEscaparate instaladorId="demo" puedeResolver={!p.has('lector')} onContador={setN} />
+            </div>
+        </div>
+    );
+}
+
 function Demo() {
     const [externo, setExterno] = React.useState(null);
     const aviso = (txt) => () => window.alert(`Banco de pruebas: ${txt}. En la app de verdad se abre lo de siempre.`);
@@ -319,7 +445,8 @@ function Demo() {
             api={api}
             saludo="RCA"
             empresa="Instalaciones de Prueba, S.L."
-            seccionInicial={['obras', 'clientes'].includes(p.get('seccion')) ? p.get('seccion') : 'inicio'}
+            seccionInicial={['obras', 'clientes', 'pagina'].includes(p.get('seccion')) ? p.get('seccion') : 'inicio'}
+            paginaVista={p.has('elegir') ? 'elegir' : 'pagina'}
             abrirAlEmpezar={p.get('obra') ? { obra: p.get('obra'), accion: p.get('accion') } : null}
             onNueva={aviso('«Nueva simulación»')}
             onAbrirOportunidad={(id) => setExterno(
@@ -341,4 +468,4 @@ function Demo() {
 // esta entrada: se reutiliza la raíz para no llamar dos veces a createRoot.
 const contenedor = document.getElementById('root');
 contenedor.__raiz = contenedor.__raiz || ReactDOM.createRoot(contenedor);
-contenedor.__raiz.render(<Demo />);
+contenedor.__raiz.render(p.has('cola') ? <Cola /> : <Demo />);

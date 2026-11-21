@@ -3,7 +3,7 @@ import React from 'react';
 import { Icono, iconoDeTarea, Esqueleto, AvisoError } from '../ui/piezas';
 import { Destino } from './Tarea';
 
-export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion }) {
+export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina }) {
     const obras = datos?.obras || [];
     const r = datos?.resumen || { total: 0, en_marcha: 0, te_toca: 0, cobradas: 0 };
     // Todas las tareas de todas las obras, en una lista (las de cada obra, en su orden).
@@ -65,6 +65,17 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                                 <p>Calcula la ayuda de tu primera obra: en dos minutos sabes cuánto bono le sale a tu cliente.</p>
                             </div>
                         </section>
+                    )}
+
+                    {onMiPagina && (
+                        <button type="button" className="ia-card ia-tarjeta-web ia-entra" onClick={onMiPagina}>
+                            <span className="ia-baldosa v"><Icono n="web" size={22} /></span>
+                            <div>
+                                <b>Tu página web</b>
+                                <span>Enseña tus obras con fotos de antes y después. Las miramos antes de publicarlas.</span>
+                            </div>
+                            <Icono n="chevron" size={20} className="ia-chev" />
+                        </button>
                     )}
                 </>
             )}

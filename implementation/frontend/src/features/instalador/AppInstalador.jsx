@@ -1,4 +1,4 @@
-// ─── AppInstalador — la app nueva del INSTALADOR (fases 1 y 2) ───────────────
+// ─── AppInstalador — la app nueva del INSTALADOR (fases 1, 2 y 3) ────────────
 // Se monta EN LUGAR del DashboardLayout cuando `/api/usuarios/me` dice
 // `app_instalador: true` (beta por empresa, APP_INSTALADOR_BETA). Los datos llegan
 // por la prop `api` —la real va contra `/api/instalador-app`; el banco de pruebas
@@ -15,6 +15,11 @@
 // con la sesión: ninguna llamada lleva token. Tras cada envío (`onCambio`) se borra
 // la caché de detalles y se vuelven a pedir la obra y la lista: la tarea sale de
 // «Te toca a ti» sin recargar.
+//
+// Fase 3: «Tu página web» (MiPaginaView): sus fotos y textos para brokergy.es, que
+// propone y BROKERGY revisa. Se entra por la tarjeta de Inicio, el menú lateral y
+// la hoja del Perfil (que ahora se abre siempre: «Mis datos de empresa», «Tu página
+// web» y «Cerrar sesión»); y, desde «Fotos y papeles» de una obra, a elegir fotos.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { EstiloInstalador, Icono } from './ui/piezas';
 import { MarcoInstalador } from './MarcoInstalador';
@@ -22,6 +27,7 @@ import { InicioView } from './views/InicioView';
 import { ObrasView } from './views/ObrasView';
 import { ObraView } from './views/ObraView';
 import { ClientesView, ClienteView } from './views/ClientesView';
+import { MiPaginaView } from './views/MiPaginaView';
 import { API_DOCS_INSTALADOR } from '../docs/docsApi';
 
 const B = '/api/instalador-app';
@@ -53,6 +59,18 @@ export function apiReal(axios) {
                 ? { pdf: () => axios.get(`${obra(id)}/fm-declaracion/pdf`), subir: (form) => axios.post(`${obra(id)}/fm-declaracion`, form) }
                 : { subir: (form) => axios.post(`${obra(id)}/rite`, form) }),
         docs: API_DOCS_INSTALADOR,
+        // ── Fase 3: «Tu página web» ──
+        escaparate: () => axios.get(`${B}/escaparate`).then((r) => r.data),
+        escaparateObras: (obraId) => axios.get(`${B}/escaparate/obras`, { params: obraId ? { obra: obraId } : {} }).then((r) => r.data),
+        proponerFotos: (cuerpo) => axios.post(`${B}/escaparate/fotos`, cuerpo).then((r) => r.data),
+        subirFotos: (ficheros) => {
+            const form = new FormData();
+            for (const f of ficheros) form.append('fotos', f);
+            form.append('permiso', 'true');
+            return axios.post(`${B}/escaparate/fotos/subir`, form).then((r) => r.data);
+        },
+        retirarFoto: (id) => axios.delete(`${B}/escaparate/fotos/${e(id)}`).then((r) => r.data),
+        guardarTextos: (cuerpo) => axios.put(`${B}/escaparate/textos`, cuerpo).then((r) => r.data),
     };
 }
 
@@ -73,13 +91,13 @@ function useCarga(fn, activo, nonce) {
 export default function AppInstalador({
     api, saludo, empresa, logo,
     onNueva, onAbrirOportunidad, onPerfil, onSalir, onNuevoCliente, onCambiarCliente,
-    externo = null, onCerrarExterno, nonce = 0, seccionInicial = 'inicio', abrirAlEmpezar = null,
+    externo = null, onCerrarExterno, nonce = 0, seccionInicial = 'inicio', abrirAlEmpezar = null, paginaVista = 'pagina',
 }) {
     const [seccion, setSeccion] = useState(seccionInicial);
-    // Sin la ficha de la empresa todavía (o si no carga), el avatar abre una hoja
-    // con lo mínimo: salir. Nunca se cierra la sesión de un toque.
+    // El avatar y «Perfil» abren una hoja: «Mis datos de empresa» (si la ficha ha
+    // cargado), «Tu página web» y salir. Nunca se cierra la sesión de un toque.
     const [hoja, setHoja] = useState(false);
-    const perfil = () => (onPerfil ? onPerfil() : setHoja(true));
+    const perfil = () => setHoja(true);
     // null | { tipo: 'obra', obra, accion? } | { tipo: 'cliente', cliente }
     const [ficha, setFicha] = useState(null);
     // Cuántas entradas propias hay en el historial: 1 = la ficha, 2 = una acción dentro.
@@ -178,7 +196,7 @@ export default function AppInstalador({
         contenido = <ObraView key={ficha.obra.id} obraId={ficha.obra.id} base={ficha.obra} cargarDetalle={cargarDetalle}
             api={api} nonce={recarga} accion={ficha.accion || null} onCambio={onCambio}
             onAccion={(d) => (d ? abrirAccion(ficha.obra, d) : cerrarAccion())}
-            onVolver={cerrarFicha} onAbrirOportunidad={onAbrirOportunidad} />;
+            onVolver={cerrarFicha} onAbrirOportunidad={onAbrirOportunidad} onMiPagina={() => ir('pagina')} />;
     } else if (ficha?.tipo === 'cliente') {
         const actual = (clientes.datos || []).find((c) => c.id_cliente === ficha.cliente.id_cliente) || ficha.cliente;
         contenido = <ClienteView cliente={actual} obras={obras.datos?.obras} onVolver={cerrarFicha}
@@ -186,12 +204,15 @@ export default function AppInstalador({
     } else if (seccion === 'obras') {
         contenido = <ObrasView datos={obras.datos} cargando={obras.cargando} error={obras.error} onReintentar={obras.reintentar}
             cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} onNueva={onNueva} />;
+    } else if (seccion === 'pagina') {
+        contenido = <MiPaginaView key={nonce} api={api} vistaInicial={paginaVista} />;
     } else if (seccion === 'clientes') {
         contenido = <ClientesView clientes={clientes.datos} obras={obras.datos?.obras} cargando={clientes.cargando} error={clientes.error}
             onReintentar={clientes.reintentar} onAbrir={(c) => abrirFicha({ tipo: 'cliente', cliente: c })} onNuevo={onNuevoCliente} />;
     } else {
         contenido = <InicioView saludo={saludo} datos={obras.datos} cargando={obras.cargando} error={obras.error}
-            onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} />;
+            onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion}
+            onMiPagina={() => ir('pagina')} />;
     }
 
     const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : externo ? 'obras' : seccion;
@@ -209,6 +230,8 @@ export default function AppInstalador({
                         <div className="ia-hoja-asa" />
                         <p className="ia-eyebrow" style={{ padding: '4px 4px 10px' }}>{empresa || 'Tu cuenta'}</p>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                            {onPerfil && <button type="button" className="ia-btn ia-btn-sec" onClick={() => { setHoja(false); onPerfil(); }}><Icono n="clientes" size={20} /> Mis datos de empresa</button>}
+                            <button type="button" className="ia-btn ia-btn-sec" onClick={() => { setHoja(false); ir('pagina'); }}><Icono n="web" size={20} /> Tu página web</button>
                             {onSalir && <button type="button" className="ia-btn ia-btn-sec" onClick={onSalir}><Icono n="salir" size={20} /> Cerrar sesión</button>}
                             <button type="button" className="ia-btn ia-btn-sec" onClick={() => setHoja(false)}>Volver</button>
                         </div>

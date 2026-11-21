@@ -45,6 +45,16 @@ export function PrescriptoresList({ onNavigate }) {
 
     useEffect(() => { fetchData(); }, []);
 
+    // Fase 3 de la app del instalador: lo que los instaladores proponen para su página
+    // web y espera revisión. Lo ve el equipo interno; cada chip abre la ficha.
+    const isStaff = isAdmin || user?.rol?.toUpperCase() === 'TRABAJADOR';
+    const [porRevisar, setPorRevisar] = useState(null);
+    const cargarPorRevisar = () => {
+        if (!isStaff) return;
+        axios.get('/api/escaparate-revision/contador').then((r) => setPorRevisar(r.data)).catch(() => setPorRevisar(null));
+    };
+    useEffect(() => { cargarPorRevisar(); }, [isStaff]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Modal de detalle / creación (patrón clientes)
     const [modalPrescriptor, setModalPrescriptor] = useState(null);
 
@@ -194,6 +204,21 @@ export function PrescriptoresList({ onNavigate }) {
                     </button>
                 )}
             </header>
+
+            {porRevisar?.total > 0 && (
+                <div className="mb-6 rounded-2xl border border-amber-500/25 bg-amber-500/[0.06] px-4 py-3 flex flex-wrap items-center gap-2" role="status">
+                    <span className="text-[10px] uppercase tracking-[0.18em] font-black text-amber-400 mr-2">
+                        Página web de instaladores · {porRevisar.total} por revisar
+                    </span>
+                    {porRevisar.por_instalador.map((x) => (
+                        <button key={x.id} type="button"
+                            onClick={() => { const pr = prescriptores.find((q) => q.id_empresa === x.id); if (pr) setModalPrescriptor(pr); }}
+                            className="px-3 py-1.5 rounded-lg bg-black/30 border border-amber-500/20 text-xs text-white/80 hover:border-amber-500/50 transition-all">
+                            {x.nombre} <span className="text-amber-400 font-bold">{[x.fotos && `${x.fotos} foto${x.fotos === 1 ? '' : 's'}`, x.textos && 'textos'].filter(Boolean).join(' · ')}</span>
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {/* ─── Barra de filtros (chips por rol + buscador) ─── */}
             <div className="sticky top-0 z-20 -mx-2 md:-mx-6 px-2 md:px-6 py-3 mb-6 bg-bkg-deep/80 backdrop-blur-xl border-b border-white/[0.05]">
@@ -474,7 +499,7 @@ export function PrescriptoresList({ onNavigate }) {
                 isOpen={!!modalPrescriptor}
                 prescriptor={modalPrescriptor}
                 onNavigate={onNavigate}
-                onClose={() => setModalPrescriptor(null)}
+                onClose={() => { setModalPrescriptor(null); cargarPorRevisar(); }}
                 onCreated={(newP) => {
                     setPrescriptores(prev => [newP, ...prev]);
                     setModalPrescriptor(null);

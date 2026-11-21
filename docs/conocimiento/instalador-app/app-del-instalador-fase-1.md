@@ -97,8 +97,8 @@ con el tema del CRM. CSS con prefijo `.ia-` inyectado por `EstiloInstalador`; ti
 - **Cáscara propia** (`MarcoInstalador`, no se toca `DashboardLayout`). Móvil: cabecera con logo y avatar, y
   barra de abajo **Inicio · Obras · ＋ Nueva · Clientes · Perfil** con «Nueva» en el centro, en naranja.
   Desde 1024 px: menú lateral blanco con «Nueva simulación» y el contador de lo que te toca.
-  **Hueco del catálogo (fase 3)**: ocupa la 5.ª casilla de la barra (hoy «Perfil», que se queda en el avatar)
-  y va debajo de Clientes en el menú lateral; está comentado en `MarcoInstalador.jsx`.
+  Desde la fase 3, debajo de Clientes en el menú lateral va «Tu página web» (en la barra de abajo no: se
+  entra por Inicio, por el Perfil y por la obra). El catálogo, cuando llegue, tendrá que buscarse sitio.
 - **＋ Nueva** abre la «Nueva simulación» de siempre (`openNewSimulation`); al crearla, la calculadora se pinta
   DENTRO de la cáscara (`externo`, contenedor oscuro con «← Mis obras»). Igual una obra SIN expediente: se abre
   su oportunidad de siempre. Una obra CON expediente abre la ficha nueva de solo lectura.
@@ -128,6 +128,7 @@ cortado**. Dos arreglos salieron de medir: la dirección se cortaba con «…» 
 - **Fase 2 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 2»): presupuesto, factura, certificado,
   RITE y fotos dentro de la obra con sesión; el titular de las cuentas es el bono; `GET /api/clientes` da 503
   con la BD caída. Sigue pendiente unificar `cuentasCliente` con el resumen del partner.
-- **Fase 3**: catálogo con tarifas (Excel del distribuidor por marca, el instalador ajusta su precio) y
-  presupuestos con partidas del instalador; la casilla de Catálogo de la barra.
+- **Fase 3 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 3»): «Tu página web», el escaparate que
+  propone el instalador y revisa BROKERGY. El catálogo con tarifas (Excel del distribuidor por marca, el
+  instalador ajusta su precio) y los presupuestos con partidas del instalador quedan para más adelante.
 - **Fase 4**: pulido con RCA y app instalable.

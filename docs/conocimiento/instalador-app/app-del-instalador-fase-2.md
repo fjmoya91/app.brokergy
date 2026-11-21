@@ -117,4 +117,4 @@ pero el enlace sí):
 - `cifo-upload` y `GET /instalador/:id` no piden token;
 - `rite-upload` llama a `setFolderPublic`.
 
-Y de producto: unificar `cuentasCliente` con el resumen del partner; partidas y catálogo (fase 3).
+Y de producto: unificar `cuentasCliente` con el resumen del partner; partidas y catálogo (más adelante: la fase 3 fue «Tu página web»).

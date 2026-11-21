@@ -2455,34 +2455,10 @@ router.get('/:id/upload-link', enforceAuth, suyaSiPartner, async (req, res) => {
 });
 
 // ── Curación de fotos para el ESCAPARATE público (instaladores.brokergy.es) ──
-// Deriva fase y actuación del nombre del slot FOTO_*.
-function faseDeSlot(slot) {
-  const s = (slot || '').toUpperCase();
-  if (s.includes('DESPUES') || s.startsWith('FOTO_UNIDAD') || s.includes('DESMONTADA') || s.includes('DEPOSITO')) return 'DESPUES';
-  return 'ANTES';
-}
-function actuacionDeSlot(slot) {
-  const s = (slot || '').toUpperCase();
-  if (s.includes('CALDERA') || s.includes('UNIDAD') || s.includes('ACS')) return 'aerotermia';
-  if (s.includes('VENTANA')) return 'ventanas';
-  if (s.includes('CUBIERTA')) return 'cubierta';
-  if (s.includes('FACHADA')) return 'fachada';
-  if (s.includes('SUELO')) return 'suelo';
-  return 'obra';
-}
-// Resuelve instalador + expediente + municipio de una oportunidad (para la foto pública).
-async function escaparateContext(opp) {
-  const instalador_id = opp.instalador_asociado_id || opp.prescriptor_id || null;
-  let expediente_id = null;
-  const { data: exp } = await supabase.from('expedientes').select('id').eq('oportunidad_id', opp.id).maybeSingle();
-  expediente_id = exp?.id || null;
-  let municipio = (opp.datos_calculo?.inputs?.municipio || '').trim();
-  if (!municipio && opp.cliente_id) {
-    const { data: c } = await supabase.from('clientes').select('municipio').eq('id_cliente', opp.cliente_id).maybeSingle();
-    municipio = (c?.municipio || '').trim();
-  }
-  return { instalador_id, expediente_id, municipio: municipio || null };
-}
+// Fase, actuación, contexto y el «publicar» viven en services/escaparateService.js:
+// los comparten este botón del gestor y el «Aprobar» de la cola de revisión de lo que
+// propone el instalador (app del instalador, fase 3). Mismo comportamiento que antes.
+const escaparate = require('../services/escaparateService');
 
 // GET /:id/docs/escaparate → drive_ids ya publicados (para marcar en la UI admin)
 router.get('/:id/docs/escaparate', staffOnly, async (req, res) => {
@@ -2492,7 +2468,10 @@ router.get('/:id/docs/escaparate', staffOnly, async (req, res) => {
     const { data: exp } = await supabase.from('expedientes').select('id').eq('oportunidad_id', opp.id).maybeSingle();
     if (!exp) return res.json({ publicadas: [] });
     const { data: fotos } = await supabase.from('instalador_fotos_escaparate')
-      .select('id, drive_id, fase, actuacion, titulo_publico, consentimiento_cliente').eq('expediente_id', exp.id);
+      .select('id, drive_id, fase, actuacion, titulo_publico, consentimiento_cliente')
+      // Solo las PUBLICADAS llevan la estrella: lo que el instalador propone y aún está
+      // en revisión (o «no vale») no está en el escaparate.
+      .eq('expediente_id', exp.id).eq('estado', 'PUBLICADA');
     return res.json({ publicadas: fotos || [] });
   } catch (e) { console.error('[escaparate GET]', e.message); res.status(500).json({ error: 'error' }); }
 });
@@ -2505,33 +2484,11 @@ router.post('/:id/docs/:slot/publicar-escaparate', adminOnly, async (req, res) =
     if (!driveId) return res.status(400).json({ error: 'Falta driveId' });
     const opp = await findOppForDocs(req.params.id);
     if (!opp) return res.status(404).json({ error: 'Oportunidad no encontrada' });
-    const ctx = await escaparateContext(opp);
-    if (!ctx.instalador_id) return res.status(400).json({ error: 'La oportunidad no tiene instalador asignado.', code: 'NO_INSTALADOR' });
-    if (!ctx.expediente_id) return res.status(400).json({ error: 'La oportunidad no tiene expediente; no se puede publicar.', code: 'NO_EXPEDIENTE' });
-
-    const fase = faseDeSlot(slot);
-    const act = (actuacion || actuacionDeSlot(slot));
-    // Empareja ANTES↔DESPUÉS de la misma actuación en el mismo expediente (par_id compartido).
-    let par_id = null;
-    const { data: pareja } = await supabase.from('instalador_fotos_escaparate')
-      .select('par_id').eq('expediente_id', ctx.expediente_id).eq('actuacion', act)
-      .not('par_id', 'is', null).limit(1).maybeSingle();
-    par_id = pareja?.par_id || require('crypto').randomUUID();
-
-    // Idempotente: si ya existe esa foto (mismo drive_id), actualiza; si no, inserta.
-    const { data: exist } = await supabase.from('instalador_fotos_escaparate')
-      .select('id').eq('expediente_id', ctx.expediente_id).eq('drive_id', driveId).maybeSingle();
-    const row = {
-      instalador_id: ctx.instalador_id, expediente_id: ctx.expediente_id, drive_id: driveId,
-      fase, actuacion: act, par_id, titulo_publico: (titulo_publico || '').trim() || null,
-      municipio: ctx.municipio, consentimiento_cliente: !!consentimiento_cliente,
-    };
-    if (exist) {
-      await supabase.from('instalador_fotos_escaparate').update(row).eq('id', exist.id);
-    } else {
-      await supabase.from('instalador_fotos_escaparate').insert(row);
-    }
-    return res.json({ ok: true, fase, actuacion: act });
+    const r = await escaparate.publicarFotoDeObra({
+      opp, slot, driveId, titulo_publico, actuacion, consentimiento_cliente, revisor: req.user?.id_usuario || null,
+    });
+    if (r.error) return res.status(r.status || 400).json({ error: r.error, code: r.code });
+    return res.json({ ok: true, fase: r.fase, actuacion: r.actuacion });
   } catch (e) { console.error('[escaparate POST]', e.message); res.status(500).json({ error: 'No se pudo publicar' }); }
 });
 

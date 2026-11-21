@@ -442,6 +442,7 @@ router.get('/instaladores/:slug/fotos', async (req, res) => {
       .select('id, fase, actuacion, par_id, titulo_publico, municipio, orden')
       .eq('instalador_id', p.id_empresa)
       .eq('consentimiento_cliente', true)     // SOLO con consentimiento del cliente
+      .eq('estado', 'PUBLICADA')              // y revisada (fase 3: lo propuesto por el instalador espera)
       .order('orden', { ascending: true });
 
     // Agrupar por par (ANTES/DESPUÉS). Nunca se expone expediente_id ni drive_id.
@@ -661,13 +662,62 @@ router.get('/marca-logo/:nombre', async (req, res) => {
   }
 });
 
+// ── GET /red/:slug/pagina  (fase 3 de la app del instalador: «Tu página web») ──
+// Lo que el instalador propuso desde su app y BROKERGY ya revisó: sus fotos
+// PUBLICADAS (de obra y sueltas) y sus textos VIGENTES. El slug y quién sale, con
+// el MISMO criterio que brokergy-web/scripts/red.mjs (todos los instaladores con
+// obra, salvo `oculto_web`), no con `visible_marketplace` (eso es el escaparate
+// antiguo, que sigue igual). Lista BLANCA de claves; la geografía, solo el pueblo.
+// Contrato: docs/conocimiento/instalador-app/app-del-instalador-fase-3.md.
+const escaparate = require('../services/escaparateService');
+const ACTUACION_PUBLICA = new Set(['aerotermia', 'ventanas', 'cubierta', 'fachada', 'suelo', 'obra']); // las de actuacionDeSlot
+router.get('/red/:slug/pagina', async (req, res) => {
+  const slug = String(req.params.slug || '');
+  if (!/^[a-z0-9-]{1,80}$/.test(slug)) return res.status(404).json({ error: 'Instalador no encontrado' });
+  try {
+    const red = await escaparate.redDeInstaladores();
+    const x = red.porSlug.get(slug);
+    if (!x || x.oculto) return res.status(404).json({ error: 'Instalador no encontrado' });
+    const [{ data: p, error: e1 }, { data: fotos, error: e2 }] = await Promise.all([
+      supabase.from('prescriptores').select('descripcion_publica, especialidades, zona_trabajo_publica').eq('id_empresa', x.id).maybeSingle(),
+      supabase.from('instalador_fotos_escaparate')
+        .select('id, fase, actuacion, par_id, titulo_publico, municipio, orden, created_at')
+        .eq('instalador_id', x.id).eq('estado', 'PUBLICADA').eq('consentimiento_cliente', true)
+        .order('orden', { ascending: true }).order('created_at', { ascending: false }).limit(60),
+    ]);
+    if (e1 || e2) throw new Error((e1 || e2).message);
+    const esp = new Set(escaparate.ESPECIALIDADES.map((e) => e.id));
+    const dto = {
+      slug: x.slug,
+      nombre: x.nombre,
+      presentacion: (p?.descripcion_publica || '').trim() || null,
+      especialidades: (p?.especialidades || []).filter((e) => esp.has(e)),
+      pueblos: (p?.zona_trabajo_publica || []).map((m) => titleCase(m)).filter(Boolean),
+      fotos: (fotos || []).map((f) => ({
+        url: `/api/public/marketplace/foto/${f.id}`,
+        fase: f.fase === 'DESPUES' ? 'despues' : 'antes',
+        actuacion: ACTUACION_PUBLICA.has(f.actuacion) ? f.actuacion : 'obra',
+        municipio: titleCase(f.municipio) || null,
+        titulo: (f.titulo_publico || '').trim() || null,
+        grupo: f.par_id || f.id,
+      })),
+    };
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.json(assertAnonymous(dto, 'pagina'));
+  } catch (e) {
+    console.error('[marketplace/pagina]', e.message);
+    return res.status(503).json({ error: 'No disponible ahora mismo. Vuelve a intentarlo.', code: 'PAGINA_UNAVAILABLE' });
+  }
+});
+
 // ── GET /foto/:id  (proxy Drive; SOLO fotos curadas con consentimiento) ─────
 router.get('/foto/:id', async (req, res) => {
   try {
     const { data: foto } = await supabase
-      .from('instalador_fotos_escaparate').select('drive_id, consentimiento_cliente')
+      .from('instalador_fotos_escaparate').select('drive_id, consentimiento_cliente, estado')
       .eq('id', req.params.id).maybeSingle();
-    if (!foto || !foto.consentimiento_cliente) return res.status(404).end();
+    // Solo lo PUBLICADO: una foto en revisión o rechazada no se sirve ni con su id.
+    if (!foto || !foto.consentimiento_cliente || foto.estado !== 'PUBLICADA') return res.status(404).end();
 
     const size = /^\d+$/.test(String(req.query.sz)) ? String(req.query.sz) : '800';
     const driveId = foto.drive_id;

@@ -4,9 +4,10 @@
 // Inicio · Obras · ＋ Nueva · Clientes · Perfil, con «Nueva» en el centro y en
 // naranja. Desde 1024 px: menú lateral blanco (prototipo «PC»).
 //
-// HUECO DEL CATÁLOGO (fase 3): la 5.ª casilla de la barra es hoy «Perfil»; cuando
-// llegue el catálogo ocupa esa casilla (`ICONOS.catalogo`) y el perfil se queda
-// solo en el avatar de la cabecera. En el menú lateral va debajo de Clientes.
+// La fase 3 NO fue un catálogo sino «Tu página web» (el escaparate): en el menú
+// lateral va debajo de Clientes; en el móvil, la 5.ª casilla sigue siendo «Perfil»,
+// que abre una hoja con «Mis datos de empresa», «Tu página web» y «Cerrar sesión»
+// (y la tarjeta de Inicio lleva también a la página).
 import React from 'react';
 import { Icono, iniciales } from './ui/piezas';
 
@@ -14,7 +15,7 @@ const NAV = [
     { key: 'inicio', texto: 'Inicio', icono: 'inicio' },
     { key: 'obras', texto: 'Obras', icono: 'obras' },
     { key: 'clientes', texto: 'Clientes', icono: 'clientes' },
-    // { key: 'catalogo', texto: 'Catálogo', icono: 'catalogo' },   ← fase 3
+    { key: 'pagina', texto: 'Tu página web', icono: 'web' },   // solo en el menú lateral
 ];
 
 export function MarcoInstalador({ seccion, onIr, onNueva, onPerfil, empresa, logo, teToca = 0, children }) {

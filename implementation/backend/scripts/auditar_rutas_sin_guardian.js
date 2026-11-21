@@ -61,6 +61,9 @@ const ABIERTAS = {
     // que ser de ESA obra (reforma_uploads o sus carpetas de Drive). Solo lectura.
     'GET /api/instalador-app/thumb/:id/:driveId': 'miniatura con llave HMAC de la obra (12 h), solo ficheros de esa obra',
     'GET /api/instalador-app/fichero/:id/:driveId': 'fichero (PDF o foto) con llave HMAC de la obra (12 h), solo de esa obra',
+    // Fase 3: la miniatura de una foto de «Tu página web» (también en revisión). Llave HMAC
+    // sobre `esc-<empresa>` (12 h) y la foto tiene que ser de ESA empresa. Solo lectura.
+    'GET /api/instalador-app/escaparate/foto/:id': 'miniatura con llave HMAC de la empresa (12 h), solo fotos de esa empresa',
     'GET /api/oportunidades/test-router': 'no devuelve datos',
     // expedientes.js: públicas declaradas en PUBLIC_EXPEDIENTE_ROUTES, cada una con su token
     'POST /api/expedientes/:id/cert-ack': 'token ack_token del encargo',

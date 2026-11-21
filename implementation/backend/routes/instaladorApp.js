@@ -630,5 +630,342 @@ router.get('/fichero/:id/:driveId', async (req, res) => {
     } catch (e) { console.warn('[instalador-app] fichero:', e.message); if (!res.headersSent) res.status(e instanceof BdCaida ? 503 : 404).end(); }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// FASE 3 — EL ESCAPARATE: «Tu página web» (Fran, 21/11/2026)
+// ═════════════════════════════════════════════════════════════════════════════
+// El instalador PROPONE fotos (de SUS obras o sueltas del móvil) y textos para su
+// ficha de brokergy.es («Encuentra tu instalador»). NADA de esto publica: todo entra
+// «en revisión» y lo aprueba o rechaza, con su motivo, un ADMIN
+// (routes/escaparateRevision.js). Solo SU empresa: `req.user.prescriptor_id`, nunca
+// un id que mande el navegador. Las miniaturas, por proxy con llave; nunca Drive.
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-3.md.
+const esc = require('../services/escaparateService');
+const multer = require('multer');
+
+const NO_DISPONIBLE_PAGINA = { error: 'No hemos podido cargar tu página. Vuelve a intentarlo en unos segundos.', code: 'PAGINA_UNAVAILABLE' };
+const WEB_RED = () => String(process.env.WEB_RED_BASE || 'https://brokergy.es/encuentra-tu-instalador').replace(/\/$/, '');
+const MIN_OBRAS_MEDIA = 3; // como la web (red.mjs): con 1 o 2 obras la «media» sería la de un cliente
+const MAX_FOTOS_PROPUESTA = 30;
+const MAX_FOTOS_SUBIDA = 10;
+const MAX_BYTES_FOTO = 10 * 1024 * 1024;
+const ES_IMAGEN = (it) => /^image\//i.test(it?.mimeType || '') || /\.(jpe?g|png|webp|heic|heif)$/i.test(it?.name || '');
+const llaveDeEscaparate = (empresaId) => llave.firmarLlave(`esc-${empresaId}`);
+const miniaturaEsc = (fotoId, l) => `/api/instalador-app/escaparate/foto/${fotoId}?llave=${encodeURIComponent(l)}`;
+const ESTADO_APP = { PENDIENTE: 'revision', PUBLICADA: 'publicada', NO_VALE: 'no_vale' };
+const titulo = (s) => String(s || '').trim().toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (_, a, b) => a + b.toUpperCase())
+    .replace(/ (De|Del|La|Las|Los|Y|El|E) /g, (m) => m.toLowerCase());
+const soloEmpresa = (req, res) => {
+    const id = req.user?.prescriptor_id;
+    if (!id) { res.status(403).json({ error: 'Tu cuenta no tiene empresa.', code: 'SIN_EMPRESA' }); return null; }
+    return id;
+};
+
+/** Las fotos de una empresa, tal como las ve ella (con su estado y su motivo). */
+function fotoParaApp(f, l) {
+    return {
+        id: f.id, origen: f.origen === 'SUELTA' ? 'suelta' : 'obra', estado: ESTADO_APP[f.estado] || 'revision',
+        motivo: f.estado === 'NO_VALE' ? (f.motivo_rechazo || null) : null,
+        fase: f.fase === 'ANTES' ? 'antes' : 'despues', municipio: f.municipio ? titulo(f.municipio) : null,
+        propuesta_at: f.propuesta_at || f.created_at || null, revisada_at: f.revisada_at || null,
+        miniatura: miniaturaEsc(f.id, l),
+    };
+}
+const textosDe = (t) => (t ? {
+    presentacion: t.presentacion || '', especialidades: Array.isArray(t.especialidades) ? t.especialidades : [],
+    pueblos: Array.isArray(t.pueblos) ? t.pueblos : [],
+} : null);
+
+// GET /escaparate → su página: ficha, fotos con su estado, textos vigentes y en
+// revisión, y «lo que sale solo» (de instalador_stats y sus marcas).
+router.get('/escaparate', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const [presc, fotos, textos, stats, marcas] = await Promise.all([
+            supabase.from('prescriptores').select('acronimo, razon_social, municipio, descripcion_publica, especialidades, zona_trabajo_publica').eq('id_empresa', empresa).maybeSingle(),
+            supabase.from('instalador_fotos_escaparate').select('id, origen, estado, motivo_rechazo, fase, municipio, propuesta_at, revisada_at, created_at, orden')
+                .eq('instalador_id', empresa).order('created_at', { ascending: false }),
+            supabase.from('instalador_textos_escaparate').select('id, presentacion, especialidades, pueblos, estado, motivo_rechazo, propuesto_at, revisado_at')
+                .eq('instalador_id', empresa).order('propuesto_at', { ascending: false }).limit(5),
+            supabase.from('instalador_stats').select('num_finalizadas, num_en_curso, num_iniciadas, ayuda_media').eq('instalador_id', empresa).maybeSingle(),
+            supabase.from('instalador_marcas').select('marca_nombre').eq('instalador_id', empresa),
+        ]);
+        const fallo = [presc, fotos, textos, stats, marcas].find((r) => r.error);
+        if (fallo) throw new BdCaida(fallo.error.message);
+        const p = presc.data || {};
+        // El slug y si sale en la web: si la red no carga, la página se enseña igual (sin enlace).
+        let red = { slug: null, sale: false };
+        try { red = await esc.slugDeInstalador(empresa); } catch (e) { console.warn('[instalador-app] escaparate red:', e.message); }
+        const l = llaveDeEscaparate(empresa);
+        const listaFotos = (fotos.data || []).map((f) => fotoParaApp(f, l));
+        const ts = textos.data || [];
+        const enRevision = ts.find((t) => t.estado === 'PENDIENTE') || null;
+        const ultimoResuelto = ts.find((t) => t.estado !== 'PENDIENTE') || null;
+        const s = stats.data || {};
+        const obrasN = (s.num_finalizadas || 0) + (s.num_en_curso || 0) + (s.num_iniciadas || 0);
+        res.json({
+            ficha: {
+                nombre: (p.acronimo || p.razon_social || '').trim(), municipio: p.municipio ? titulo(p.municipio) : null,
+                slug: red.slug, sale_en_web: !!red.sale && !!red.slug,
+                url: red.slug ? `${WEB_RED()}/${red.slug}/` : null,
+            },
+            fotos: listaFotos,
+            resumen_fotos: {
+                publicadas: listaFotos.filter((f) => f.estado === 'publicada').length,
+                revision: listaFotos.filter((f) => f.estado === 'revision').length,
+                no_vale: listaFotos.filter((f) => f.estado === 'no_vale').length,
+            },
+            textos: {
+                vigentes: { presentacion: p.descripcion_publica || '', especialidades: Array.isArray(p.especialidades) ? p.especialidades : [], pueblos: Array.isArray(p.zona_trabajo_publica) ? p.zona_trabajo_publica : [] },
+                en_revision: enRevision ? { ...textosDe(enRevision), propuesto_at: enRevision.propuesto_at } : null,
+                // «No vale» solo si es lo ÚLTIMO que pasó (una propuesta nueva lo deja atrás).
+                no_vale: !enRevision && ultimoResuelto?.estado === 'NO_VALE'
+                    ? { ...textosDe(ultimoResuelto), motivo: ultimoResuelto.motivo_rechazo || null, revisado_at: ultimoResuelto.revisado_at } : null,
+            },
+            sale_solo: {
+                obras: obrasN,
+                ayuda_media: obrasN >= MIN_OBRAS_MEDIA && s.ayuda_media != null ? Math.round(Number(s.ayuda_media)) : null,
+                min_obras_media: MIN_OBRAS_MEDIA,
+                marcas: (marcas.data || []).map((m) => m.marca_nombre).filter(Boolean),
+            },
+            especialidades: esc.ESPECIALIDADES,
+            limites: { presentacion: esc.MAX_PRESENTACION, pueblos: esc.MAX_PUEBLOS },
+        });
+    } catch (e) {
+        console.error('[instalador-app] escaparate:', e.message);
+        res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// Las obras en las que su empresa es la INSTALADORA, con su expediente vivo.
+async function obrasQueInstala(user, soloObra = null) {
+    let q = supabase.from('oportunidades').select('id, id_oportunidad, ficha, instalador_asociado_id, prescriptor_id, dc_origen:datos_calculo->>origen, mun:datos_calculo->inputs->>municipio');
+    if (soloObra) q = UUID_RE.test(soloObra) ? q.eq('id', soloObra) : q.eq('id_oportunidad', soloObra);
+    const { data: ops, error } = await soloLoSuyo(q, user);
+    if (error) throw new BdCaida(error.message);
+    const vivas = (ops || []).filter((o) => o.dc_origen !== 'migracion_xml');
+    if (!vivas.length) return [];
+    const exps = await enLotesBd(vivas.map((o) => o.id), (ids) => supabase.from('expedientes')
+        .select('id, oportunidad_id, estado, created_at, instalador_asociado_id, instalador_id:instalacion->>instalador_id, inst_mun:instalacion->>municipio').in('oportunidad_id', ids));
+    const expDe = new Map();
+    for (const e of exps) { const prev = expDe.get(e.oportunidad_id); if (!prev || String(prev.created_at) < String(e.created_at)) expDe.set(e.oportunidad_id, e); }
+    return vivas.map((op) => ({ op, exp: expDe.get(op.id) })).filter(({ op, exp }) => exp
+        && !/^RECHAZ/i.test(String(exp.estado || '').trim())
+        && String(instaladorIdDe({ instalador_asociado_id: exp.instalador_asociado_id, instalacion: { instalador_id: exp.instalador_id } }, op) || '') === String(user.prescriptor_id));
+}
+async function enLotesBd(ids, fn) {
+    try { return await require('../utils/consultaLotes').enLotes(ids, fn); } catch (e) { throw new BdCaida(e.message); }
+}
+const QUE_OBRA = (ficha) => (/RES080/.test(ficha || '') ? 'Reforma' : /RES06|RES09|TER/.test(ficha || '') ? 'Aerotermia' : 'Obra');
+
+// GET /escaparate/obras[?obra=] → las fotos que ya subió en SUS obras (de las que es
+// la instaladora), para elegir cuáles enseñar. Solo el pueblo; el nº de la obra es suyo.
+router.get('/escaparate/obras', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const filtro = req.query.obra ? String(req.query.obra).slice(0, 80) : null;
+        const obras = await obrasQueInstala(req.user, filtro);
+        if (!obras.length) return res.json({ obras: [] });
+        const ru = await enLotesBd(obras.map((o) => o.op.id), (ids) => supabase.from('oportunidades').select('id, ru:datos_calculo->reforma_uploads').in('id', ids));
+        const ruDe = new Map(ru.map((r) => [r.id, r.ru || {}]));
+        const ya = await enLotesBd(obras.map((o) => o.exp.id), (ids) => supabase.from('instalador_fotos_escaparate').select('expediente_id, drive_id, estado').in('expediente_id', ids));
+        const estadoDe = new Map(ya.map((f) => [`${f.expediente_id}|${f.drive_id}`, ESTADO_APP[f.estado] || 'revision']));
+        const out = [];
+        for (const { op, exp } of obras) {
+            const lv = llave.firmarLlave(op.id_oportunidad);
+            const fotos = [];
+            let ultima = null;
+            for (const [slot, lista] of Object.entries(ruDe.get(op.id) || {})) {
+                if (!SLOT_RE.test(slot) || !Array.isArray(lista)) continue;
+                for (const it of lista) {
+                    if (!it?.driveId || !ES_IMAGEN(it) || it.estado === 'rechazada') continue;
+                    if (it.at && (!ultima || it.at > ultima)) ultima = it.at;
+                    fotos.push({
+                        slot, driveId: it.driveId, fase: esc.faseDeSlot(slot) === 'ANTES' ? 'antes' : 'despues',
+                        en_pagina: estadoDe.get(`${exp.id}|${it.driveId}`) || null,
+                        miniatura: `/api/instalador-app/thumb/${encodeURIComponent(op.id_oportunidad)}/${encodeURIComponent(it.driveId)}?llave=${encodeURIComponent(lv)}&sz=400`,
+                    });
+                }
+            }
+            if (!fotos.length) continue;
+            const pueblo = titulo(op.mun || exp.inst_mun || '');
+            out.push({ obra: op.id_oportunidad, titulo: pueblo ? `${QUE_OBRA(op.ficha)} en ${pueblo}` : QUE_OBRA(op.ficha), municipio: pueblo || null, cuando: ultima || exp.created_at || null, fotos });
+        }
+        out.sort((a, b) => String(b.cuando || '').localeCompare(String(a.cuando || '')));
+        res.json({ obras: out });
+    } catch (e) {
+        console.error('[instalador-app] escaparate obras:', e.message);
+        res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// POST /escaparate/fotos { permiso: true, fotos: [{ obra, slot, driveId }] } → las
+// propone (EN REVISIÓN). Todo o nada: si una no es suya, no se escribe ninguna.
+// Idempotente por foto: la que ya está propuesta o publicada no se duplica.
+router.post('/escaparate/fotos', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    const { permiso, fotos } = req.body || {};
+    if (permiso !== true) return res.status(400).json({ error: 'Marca que los clientes te han dicho que puedes enseñar estas fotos.', code: 'PERMISO_CLIENTE' });
+    if (!Array.isArray(fotos) || !fotos.length) return res.status(400).json({ error: 'Elige alguna foto.', code: 'SIN_FOTOS' });
+    if (fotos.length > MAX_FOTOS_PROPUESTA) return res.status(400).json({ error: `Como mucho ${MAX_FOTOS_PROPUESTA} fotos de una vez.`, code: 'DEMASIADAS_FOTOS' });
+    try {
+        // 1) Comprobar TODAS antes de escribir nada.
+        const porObra = new Map();
+        for (const f of fotos) {
+            const obraId = String(f?.obra || '').slice(0, 80), slot = String(f?.slot || ''), driveId = String(f?.driveId || '');
+            if (!obraId || !SLOT_RE.test(slot) || !/^[\w-]{10,200}$/.test(driveId)) return res.status(400).json({ error: 'Alguna foto no es válida.', code: 'FOTO_NO_VALIDA' });
+            if (!porObra.has(obraId)) {
+                const obra = await buscarObra(obraId, req.user);
+                if (!obra || !obra.exp) return res.status(404).json({ error: 'Obra no encontrada.', code: 'OBRA_NO_ENCONTRADA' });
+                const expIns = { instalador_asociado_id: obra.exp.instalador_asociado_id, instalacion: { instalador_id: obra.exp.instalador_id } };
+                if (String(instaladorIdDe(expIns, obra.op) || '') !== String(empresa)) return res.status(403).json({ error: 'Solo puedes enseñar fotos de las obras que instala tu empresa.', code: 'NO_ES_INSTALADORA' });
+                const { data, error } = await supabase.from('oportunidades')
+                    .select('ru:datos_calculo->reforma_uploads, mun:datos_calculo->inputs->>municipio, cliente_id').eq('id', obra.op.id).maybeSingle();
+                if (error) throw new BdCaida(error.message);
+                porObra.set(obraId, { obra, ru: data?.ru || {}, mun: data?.mun || null, cliente_id: data?.cliente_id || null });
+            }
+            const { ru } = porObra.get(obraId);
+            const it = (Array.isArray(ru[slot]) ? ru[slot] : []).find((x) => x?.driveId === driveId);
+            if (!it || !ES_IMAGEN(it) || it.estado === 'rechazada') return res.status(404).json({ error: 'Esa foto no está en tu obra.', code: 'FOTO_NO_ES_DE_LA_OBRA' });
+        }
+        // 2) Escribir: una fila PENDIENTE por foto nueva.
+        const ahora = new Date().toISOString();
+        let propuestas = 0, yaEstaban = 0, noValen = 0;
+        for (const f of fotos) {
+            const { obra, mun, cliente_id } = porObra.get(String(f.obra).slice(0, 80));
+            let municipio = (mun || '').trim();
+            if (!municipio && cliente_id) {
+                const { data: c } = await supabase.from('clientes').select('municipio').eq('id_cliente', cliente_id).maybeSingle();
+                municipio = (c?.municipio || '').trim();
+            }
+            const { data: exist, error: eEx } = await supabase.from('instalador_fotos_escaparate').select('id, estado')
+                .eq('expediente_id', obra.exp.id).eq('drive_id', f.driveId).maybeSingle();
+            if (eEx) throw new BdCaida(eEx.message);
+            if (exist) { if (exist.estado === 'NO_VALE') noValen++; else yaEstaban++; continue; }
+            const { error } = await supabase.from('instalador_fotos_escaparate').insert({
+                instalador_id: empresa, expediente_id: obra.exp.id, drive_id: f.driveId,
+                fase: esc.faseDeSlot(f.slot), actuacion: esc.actuacionDeSlot(f.slot), slot: f.slot,
+                municipio: municipio || null, consentimiento_cliente: false, origen: 'OBRA',
+                estado: 'PENDIENTE', permiso_cliente: true, permiso_cliente_at: ahora,
+                propuesta_por: req.user.id_usuario || null, propuesta_at: ahora,
+            });
+            if (error && error.code === '23505') { yaEstaban++; continue; } // la otra pestaña ganó: ya está
+            if (error) throw new BdCaida(error.message);
+            propuestas++;
+        }
+        if (propuestas) esc.avisoEscaparate('propuesta', { instalador_id: empresa, n: propuestas });
+        res.json({ ok: true, propuestas, ya_estaban: yaEstaban, no_valen: noValen });
+    } catch (e) {
+        console.error('[instalador-app] escaparate proponer:', e.message);
+        res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// POST /escaparate/fotos/subir (multipart: `fotos`, `permiso=true`) → fotos SUELTAS,
+// a Drive (DRIVE_FOLDER_ESCAPARATE/<empresa>, services/driveFolders.js); en la BD solo
+// el driveId (regla 21). El tipo, por sus BYTES; ≤ 10 MB cada una, ≤ 10 de una vez.
+const subida = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_BYTES_FOTO, files: MAX_FOTOS_SUBIDA } });
+router.post('/escaparate/fotos/subir', enforceAuth, soloBetaInstalador, (req, res, next) => {
+    subida.array('fotos', MAX_FOTOS_SUBIDA)(req, res, (err) => {
+        if (!err) return next();
+        const grande = err.code === 'LIMIT_FILE_SIZE';
+        res.status(400).json({ error: grande ? 'Alguna foto pesa más de 10 MB.' : `Como mucho ${MAX_FOTOS_SUBIDA} fotos de una vez.`, code: grande ? 'FOTO_GRANDE' : 'DEMASIADAS_FOTOS' });
+    });
+}, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    if (String(req.body?.permiso) !== 'true') return res.status(400).json({ error: 'Marca que los clientes te han dicho que puedes enseñar estas fotos.', code: 'PERMISO_CLIENTE' });
+    const files = req.files || [];
+    if (!files.length) return res.status(400).json({ error: 'Elige alguna foto.', code: 'SIN_FOTOS' });
+    const tipos = files.map((f) => esc.tipoImagen(f.buffer));
+    if (tipos.some((t) => !t)) return res.status(400).json({ error: 'Solo se pueden subir fotos (JPG, PNG, WEBP o HEIC).', code: 'NO_ES_FOTO' });
+    const raiz = require('../services/driveFolders').carpetaEscaparate();
+    if (!raiz) return res.status(503).json({ error: 'Todavía no podemos guardar fotos sueltas. Escríbenos y lo activamos.', code: 'ESCAPARATE_SIN_CARPETA' });
+    try {
+        const drive = require('../services/driveService');
+        const carpeta = await drive.getOrCreateSubfolder(raiz, String(empresa));
+        const ahora = new Date().toISOString();
+        const sello = ahora.slice(0, 19).replace(/[-:T]/g, '');
+        let n = 0;
+        for (let i = 0; i < files.length; i++) {
+            const t = tipos[i];
+            const g = await drive.saveFileToFolder(carpeta, `ESCAPARATE_${sello}_${i + 1}.${t.ext}`, t.mime, files[i].buffer, { throwOnError: true });
+            if (!g?.id) throw new Error('Drive no devolvió el id');
+            const { error } = await supabase.from('instalador_fotos_escaparate').insert({
+                instalador_id: empresa, expediente_id: null, drive_id: g.id, mime_type: t.mime,
+                fase: 'DESPUES', actuacion: 'obra', origen: 'SUELTA', municipio: null, consentimiento_cliente: false,
+                estado: 'PENDIENTE', permiso_cliente: true, permiso_cliente_at: ahora,
+                propuesta_por: req.user.id_usuario || null, propuesta_at: ahora,
+            });
+            if (error) throw new BdCaida(error.message);
+            n++;
+        }
+        esc.avisoEscaparate('propuesta', { instalador_id: empresa, n });
+        res.json({ ok: true, subidas: n });
+    } catch (e) {
+        console.error('[instalador-app] escaparate subir:', e.message);
+        res.status(e instanceof BdCaida ? 503 : 502).json({ error: 'No hemos podido guardar tus fotos. Vuelve a intentarlo en un momento.', code: 'SUBIDA_FALLIDA' });
+    }
+});
+
+// DELETE /escaparate/fotos/:id → la retira de su página (esté como esté). Solo la suya.
+// La fila se borra; el fichero de Drive se queda (borrar en Drive no se deshace).
+router.delete('/escaparate/fotos/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Foto no encontrada.' });
+    try {
+        const { data: f, error } = await supabase.from('instalador_fotos_escaparate').select('id, instalador_id').eq('id', req.params.id).maybeSingle();
+        if (error) throw new BdCaida(error.message);
+        if (!f || String(f.instalador_id) !== String(empresa)) return res.status(404).json({ error: 'Foto no encontrada.' });
+        const { error: e2 } = await supabase.from('instalador_fotos_escaparate').delete().eq('id', f.id).eq('instalador_id', empresa);
+        if (e2) throw new BdCaida(e2.message);
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[instalador-app] escaparate retirar:', e.message);
+        res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// PUT /escaparate/textos { presentacion, especialidades, pueblos } → EN REVISIÓN.
+// Una sola propuesta viva: la nueva sustituye a la que estuviera esperando.
+router.put('/escaparate/textos', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    const v = esc.validarTextos(req.body || {});
+    if (!v.ok) return res.status(400).json({ error: v.error, code: v.code, campo: v.campo });
+    try {
+        const fila = { ...v.valores, estado: 'PENDIENTE', motivo_rechazo: null, propuesto_por: req.user.id_usuario || null, propuesto_at: new Date().toISOString() };
+        const { data: viva, error } = await supabase.from('instalador_textos_escaparate').select('id').eq('instalador_id', empresa).eq('estado', 'PENDIENTE').maybeSingle();
+        if (error) throw new BdCaida(error.message);
+        const r = viva
+            ? await supabase.from('instalador_textos_escaparate').update(fila).eq('id', viva.id).eq('instalador_id', empresa)
+            : await supabase.from('instalador_textos_escaparate').insert({ instalador_id: empresa, ...fila });
+        if (r.error) throw new BdCaida(r.error.message);
+        esc.avisoEscaparate('propuesta', { instalador_id: empresa, n: 1 });
+        res.json({ ok: true, en_revision: textosDe(v.valores) });
+    } catch (e) {
+        console.error('[instalador-app] escaparate textos:', e.message);
+        res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// GET /escaparate/foto/:id?llave= → la miniatura de una foto del escaparate (en
+// cualquier estado), para <img>. ABIERTA a propósito, con LLAVE: HMAC sobre
+// `esc-<empresa>` (utils/llaveObra.js, 12 h) que solo abre fotos de ESA empresa. La
+// firma la da `GET /escaparate` al instalador y la cola de revisión al equipo.
+router.get('/escaparate/foto/:id', async (req, res) => {
+    try {
+        if (!UUID_RE.test(req.params.id)) return res.status(403).end();
+        const { data: f, error } = await supabase.from('instalador_fotos_escaparate').select('drive_id, instalador_id').eq('id', req.params.id).maybeSingle();
+        if (error) return res.status(503).end();
+        if (!f || !llave.verificarLlave(`esc-${f.instalador_id}`, req.query.llave)) return res.status(403).end();
+        const sz = /^\d{2,4}$/.test(String(req.query.sz || '')) ? String(req.query.sz) : '600';
+        const img = await esc.bytesDeFoto(f.drive_id, sz);
+        if (!img) return res.status(404).end();
+        res.set({ 'Content-Type': /^image\//.test(img.type) ? img.type : 'image/jpeg', 'Cache-Control': 'private, max-age=3600', 'X-Content-Type-Options': 'nosniff' });
+        return res.send(img.buf);
+    } catch (e) {
+        console.warn('[instalador-app] escaparate foto:', e.message);
+        if (!res.headersSent) res.status(404).end();
+    }
+});
+
 module.exports = router;
-module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe };
+module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe, miniaturaEsc, llaveDeEscaparate };
