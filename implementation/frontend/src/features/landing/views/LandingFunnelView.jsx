@@ -40,7 +40,8 @@ import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
-import { ReformaSubFlow } from './ReformaSubFlow';
+import { ReformaSubFlow, AvisoEquipoInicial } from './ReformaSubFlow';
+import { aplicarEquipoInicial, totalConIvaEquipo } from '../data/equipoInicial';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
 import { buildAccentVars } from '../../../utils/partnerTheme';
@@ -50,7 +51,7 @@ import { IconoFunnel } from '../components/IconosFunnel';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, onBloque = null, initialCeeData = null }) {
+export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, onBloque = null, initialCeeData = null, equipoInicial = null }) {
     const isInternal = mode === 'internal';
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
@@ -114,6 +115,13 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
 
     // ---- Funnel state ----
     const { funnel, updateFunnel, currentStep, setCurrentStep, goNext, goBack, resetFunnel } = useFunnelState(mode);
+
+    // Equipo del Catálogo (app del instalador): en el camino «caldera» su precio + IVA
+    // arranca como «Sí, hay un presupuesto» en el paso 8, editable. Una vez, al montar.
+    useEffect(() => {
+        const total = isInternal ? totalConIvaEquipo(equipoInicial) : 0;
+        if (total > 0) updateFunnel({ presupuesto_modo: 'tengo', presupuesto_eur: total });
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Sincronizar phase+catastro con sessionStorage (solo en modo público)
     useEffect(() => {
@@ -425,6 +433,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                 timeline: contacto.timeline || (isInternal ? 'explorando' : null)
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode });
+            // El equipo elegido en el Catálogo de la app del instalador (data/equipoInicial.js).
+            if (isInternal && equipoInicial?.id) {
+                await aplicarEquipoInicial(calculatorInputs, equipoInicial, (id) => axios.get(`/api/aerotermia/${encodeURIComponent(id)}`).then(r => r.data));
+            }
 
             // Computar el `result` completo en frontend (mismo formato que
             // CalculatorView.handleCalculate). Así el admin verá los datos
@@ -506,7 +518,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             setSubmitError(msg);
             setSubmitting(false);
         }
-    }, [funnel, contacto, catastro, partnerBranding, isInternal, onCreated, deliveryPreference]);
+    }, [funnel, contacto, catastro, partnerBranding, isInternal, onCreated, deliveryPreference, equipoInicial]);
 
     // ---- Pasos activos (variable según respuestas y mode) ----
     // - Step 3 (edad caldera) se omite si combustible es eléctrico.
@@ -614,6 +626,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                         </button>
                     </div>
                 )}
+                {isInternal && equipoInicial?.id && phase !== 'OBRA_ESTADO' && <AvisoEquipoInicial equipo={equipoInicial} />}
                 {/* Header con branding — solo en HOME */}
                 {phase === 'HOME' && (
                     <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-3">
@@ -812,6 +825,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             obra={obra}
                             refEnlace={isInternal ? null : (route?.ref || null)}
                             initialCeeData={initialCeeData}
+                            equipoInicial={isInternal ? equipoInicial : null}
                             onCreated={onCreated}
                             onNoEmpezada={() => { setCurrentStep(0); setPhase('FUNNEL'); }}
                             onRestart={() => { resetFunnel(); setCatastro(null); setPhase('HOME'); }}

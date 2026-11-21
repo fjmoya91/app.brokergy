@@ -32,6 +32,7 @@ import { StepDocsObra } from '../steps/StepDocsObra';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
+import { aplicarEquipoInicial, docDelEquipo } from '../data/equipoInicial';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 import { efficiencyFor, sugerirEdadDesdeRendimiento } from '../data/boilerMapping';
 import { seedInputsFromCees, ceeCombustibleToFunnel } from '../../calculator/logic/ceeSeed';
@@ -70,7 +71,7 @@ const MONEY_MILESTONES = [
     { emoji: '🤑', label: 'Propuesta',  threshold: 0.92 },
 ];
 
-export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', obra = null, refEnlace = null, initialCeeData = null, onCreated, onNoEmpezada, onRestart }) {
+export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', obra = null, refEnlace = null, initialCeeData = null, equipoInicial = null, onCreated, onNoEmpezada, onRestart }) {
     // Modo internal (partner/admin "nueva simulación"): mismas pantallas que el
     // flujo público pero con textos neutros (el partner pregunta por su cliente),
     // sin elementos comerciales y terminando en la pantalla de identificación de
@@ -119,7 +120,12 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     const [stack, setStack] = useState(hayCee ? ['cee_resumen'] : ['estado']);
     // Presupuesto / facturas leídos con OCR en la pantalla `docs_obra`. Se suben a
     // Drive en cuanto existe la oportunidad (subirDocsPendientes).
-    const [docsObra, setDocsObra] = useState([]);
+    // Con un equipo del Catálogo (app del instalador), su precio + IVA entra ya como
+    // «importe a mano»: se cambia o se quita como cualquier otro (data/equipoInicial.js).
+    const [docsObra, setDocsObra] = useState(() => {
+        const d = isInternal ? docDelEquipo(equipoInicial) : null;
+        return d ? [d] : [];
+    });
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
     // A dónde se sale de la pantalla de placas. Se pregunta desde DOS sitios
     // (el recorrido largo tras el ACS, y el atajo del resumen de certificados) y
@@ -423,6 +429,10 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 timeline: contacto.timeline || 'explorando'
             };
             const calculatorInputs = funnelToCalculatorInputs(funnelConContacto, catastro, { mode: 'internal' });
+            // El equipo elegido en el Catálogo: modelo, SCOP y potencia por el camino de la calculadora.
+            if (equipoInicial?.id) {
+                await aplicarEquipoInicial(calculatorInputs, equipoInicial, (id) => axios.get(`/api/aerotermia/${encodeURIComponent(id)}`).then(r => r.data));
+            }
             // Certificados aportados en la puerta (admin): la siembra completa —qué
             // demanda manda, qué columna de emisiones se rellena y con qué— vive en
             // `seedInputsFromCees` (ceeSeed.js). Aquí solo se aplica el parche, para que
@@ -975,7 +985,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             }
             push('identificacion');
         };
-        return (<><BackBtn /><StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
+        return (<><BackBtn />{equipoInicial?.id && <AvisoEquipoInicial equipo={equipoInicial} />}<StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
     }
 
     if (screen === 'estado') {
@@ -1598,4 +1608,17 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     }
 
     return null;
+}
+
+/** El equipo que viene del Catálogo de la app del instalador, a la vista: qué es y de dónde sale la cifra. */
+export function AvisoEquipoInicial({ equipo }) {
+    const p = Number(equipo?.precio_sin_iva);
+    const precio = Number.isFinite(p) && p > 0 ? `${Math.round(p).toLocaleString('es-ES')} € sin IVA` : null;
+    return (
+        <div className="max-w-xl mx-auto mb-4 rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] px-4 py-3 text-sm text-white/80 leading-relaxed">
+            <b className="text-amber-300">Equipo del catálogo:</b> {[equipo.marca, equipo.nombre].filter(Boolean).join(' ')}.
+            {precio ? <> Su precio ({precio}{equipo.origen === 'tarifa' ? ', el de la tarifa' : ', el tuyo'}) va como presupuesto con el IVA al 21 %: cámbialo si la obra lleva más cosas.</>
+                : <> Aún no tiene precio: pon el presupuesto de la obra.</>}
+        </div>
+    );
 }

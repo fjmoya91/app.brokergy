@@ -953,5 +953,120 @@ router.get('/escaparate/foto/:id', async (req, res) => {
     }
 });
 
+// ═════════════════════════════════════════════════════════════════════════════
+// FASE 4 — EL CATÁLOGO de aerotermia con TARIFAS (Fran, 21/11/2026)
+// ═════════════════════════════════════════════════════════════════════════════
+//   GET    /catalogo              → los equipos de SUS marcas, con tarifa y su precio
+//   GET    /catalogo/:id          → la ficha de un equipo
+//   GET    /catalogo/:id/ficha    → su ficha técnica (PDF por proxy, nunca un enlace)
+//   PUT    /catalogo/:id/precio   → guardar SU precio { precio } (sin IVA)
+//   DELETE /catalogo/:id/precio   → quitarlo (vuelve a valer la tarifa)
+// Las marcas, con el MISMO filtro que routes/aerotermia.js (`marcas_autorizadas`,
+// de `prescriptores.marca_referencia`). Sin marcas asignadas NO ve ningún equipo (la
+// opción conservadora: la ruta vieja le enseñaría el catálogo entero). Un equipo de
+// otra marca, 404. El precio es SIEMPRE el de su empresa (`req.user.prescriptor_id`):
+// nunca un id que mande el navegador, y nunca el de otro instalador. Sin márgenes.
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-4.md.
+const CT = require('../services/catalogoTarifas');
+const SEL_EQUIPO = 'id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, modelo_ud_interior, tipo, potencia_calefaccion, potencia_frigorifica, refrigerante, litros_acs, deposito_acs_incluido, scop_cal_calido_35, scop_cal_calido_55, scop_cal_medio_35, scop_cal_medio_55, scop_dhw_calido, scop_dhw_medio, seer, ficha_tecnica, ficha_tecnica_partes';
+const CAT_NO_DISPONIBLE = { error: 'No hemos podido cargar el catálogo. Vuelve a intentarlo en unos segundos.', code: 'CATALOGO_UNAVAILABLE' };
+const enLotesCat = (ids, fn) => require('../utils/consultaLotes').enLotes(ids, fn).catch((e) => { throw new BdCaida(e.message); });
+
+async function tarifasYPropios(ids, empresaId) {
+    const [tarifas, propios] = await Promise.all([
+        enLotesCat(ids, (t) => supabase.from('aerotermia_tarifas').select('aerotermia_id, precio_sin_iva, vigente_desde, cargada_at').in('aerotermia_id', t)),
+        enLotesCat(ids, (t) => supabase.from('instalador_precios_equipo').select('aerotermia_id, precio_sin_iva').eq('instalador_id', empresaId).in('aerotermia_id', t)),
+    ]);
+    return { vig: CT.vigentes(tarifas), propio: new Map(propios.map((p) => [p.aerotermia_id, p])) };
+}
+
+/** El equipo, solo si es de una de SUS marcas (si no, null → 404). */
+async function equipoSuyo(req) {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return null;
+    const marcas = CT.marcasDelUsuario(req.user);
+    if (!marcas.length) return null;
+    const { data, error } = await supabase.from('aerotermia').select(SEL_EQUIPO).eq('id', id).in('marca', marcas).maybeSingle();
+    if (error) throw new BdCaida(error.message);
+    return data || null;
+}
+
+router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const marcas = CT.marcasDelUsuario(req.user);
+        if (!marcas.length) return res.json({ sin_marcas: true, marcas: [], equipos: [] });
+        const equipos = [];
+        for (let desde = 0; ; desde += 1000) {
+            const { data, error } = await supabase.from('aerotermia').select(SEL_EQUIPO).in('marca', marcas)
+                .order('marca', { ascending: true }).order('potencia_calefaccion', { ascending: true }).range(desde, desde + 999);
+            if (error) throw new BdCaida(error.message);
+            equipos.push(...(data || []));
+            if (!data || data.length < 1000) break;
+        }
+        const { vig, propio } = await tarifasYPropios(equipos.map((e) => e.id), req.user.prescriptor_id);
+        const lista = equipos.map((e) => CT.equipoParaInstalador(e, { tarifa: vig.get(e.id), propio: propio.get(e.id) }))
+            .sort((a, b) => a.marca.localeCompare(b.marca, 'es') || (a.potencia_kw || 0) - (b.potencia_kw || 0) || a.nombre.localeCompare(b.nombre, 'es'));
+        res.json(sanear({ sin_marcas: false, marcas: [...new Set(lista.map((e) => e.marca))], equipos: lista }));
+    } catch (e) {
+        console.warn('[instalador-app] catálogo:', e.message);
+        res.status(e instanceof BdCaida ? 503 : 500).json(CAT_NO_DISPONIBLE);
+    }
+});
+
+router.get('/catalogo/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const e = await equipoSuyo(req);
+        if (!e) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        const { vig, propio } = await tarifasYPropios([e.id], req.user.prescriptor_id);
+        res.json(sanear(CT.equipoParaInstalador(e, { tarifa: vig.get(e.id), propio: propio.get(e.id) })));
+    } catch (err) {
+        console.warn('[instalador-app] equipo:', err.message);
+        res.status(err instanceof BdCaida ? 503 : 500).json(CAT_NO_DISPONIBLE);
+    }
+});
+
+router.get('/catalogo/:id/ficha', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const e = await equipoSuyo(req);
+        const driveId = e && CT.driveIdDe(e.ficha_tecnica);
+        if (!driveId) return res.status(404).json({ error: 'Este equipo no tiene ficha técnica todavía.', code: 'SIN_FICHA' });
+        await servirFichero(res, driveId);
+    } catch (err) {
+        console.warn('[instalador-app] ficha:', err.message);
+        if (!res.headersSent) res.status(err instanceof BdCaida ? 503 : 502).json({ error: 'No hemos podido abrir la ficha. Vuelve a intentarlo.' });
+    }
+});
+
+router.put('/catalogo/:id/precio', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const precio = CT.precioDe(req.body?.precio);
+        if (precio == null) return res.status(400).json({ error: 'Escribe el precio en euros, sin IVA (por ejemplo 6900).', code: 'PRECIO_NO_VALIDO' });
+        const e = await equipoSuyo(req);
+        if (!e) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        const { error } = await supabase.from('instalador_precios_equipo').upsert({
+            instalador_id: req.user.prescriptor_id, aerotermia_id: e.id, precio_sin_iva: precio,
+            actualizado_por: req.user.id_usuario || null, actualizado_at: new Date().toISOString(),
+        }, { onConflict: 'instalador_id,aerotermia_id' });
+        if (error) throw new BdCaida(error.message);
+        res.json({ ok: true, tu_precio: precio });
+    } catch (err) {
+        console.warn('[instalador-app] precio:', err.message);
+        res.status(err instanceof BdCaida ? 503 : 500).json({ error: 'No hemos podido guardar tu precio. Vuelve a intentarlo.', code: 'PRECIO_UNAVAILABLE' });
+    }
+});
+
+router.delete('/catalogo/:id/precio', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const e = await equipoSuyo(req);
+        if (!e) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        const { error } = await supabase.from('instalador_precios_equipo').delete().eq('instalador_id', req.user.prescriptor_id).eq('aerotermia_id', e.id);
+        if (error) throw new BdCaida(error.message);
+        res.json({ ok: true, tu_precio: null });
+    } catch (err) {
+        console.warn('[instalador-app] quitar precio:', err.message);
+        res.status(err instanceof BdCaida ? 503 : 500).json({ error: 'No hemos podido quitar tu precio. Vuelve a intentarlo.', code: 'PRECIO_UNAVAILABLE' });
+    }
+});
+
 module.exports = router;
 module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe, miniaturaEsc, llaveDeEscaparate };

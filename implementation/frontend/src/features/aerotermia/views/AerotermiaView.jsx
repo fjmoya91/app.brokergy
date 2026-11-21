@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { AerotermiaDetailModal } from '../components/AerotermiaDetailModal';
 import { AerotermiaMarcaModal } from '../components/AerotermiaMarcaModal';
+import { CargarTarifaModal } from '../components/CargarTarifaModal';
+import { useAuth } from '../../../context/AuthContext';
 
 function Badge({ children, color = 'default' }) {
     const colors = {
@@ -37,6 +39,11 @@ export function AerotermiaView() {
     const [deleting, setDeleting] = useState(false);
     const [showNew, setShowNew] = useState(false);
     const [showMarcas, setShowMarcas] = useState(false);
+    // Fase 4 de la app del instalador: la tarifa del distribuidor por Excel, solo ADMIN
+    // (el servidor lo vuelve a comprobar: rutas `adminOnly`).
+    const { user } = useAuth();
+    const esAdmin = String(user?.rol || user?.rol_nombre || '').toUpperCase() === 'ADMIN';
+    const [showTarifa, setShowTarifa] = useState(false);
     const itemsPerPage = 20;
 
     const fetchEquipos = async (marca = '') => {
@@ -123,6 +130,15 @@ export function AerotermiaView() {
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-3">
+                    {esAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => setShowTarifa(true)}
+                            className="flex items-center gap-3 px-6 py-3.5 bg-white/[0.04] border border-white/10 text-sky-300 font-black text-[11px] uppercase tracking-widest rounded-2xl hover:bg-white/[0.08] transition-all"
+                        >
+                            Cargar tarifa (Excel)
+                        </button>
+                    )}
                     <button
                         onClick={() => setShowNew(true)}
                         className="flex items-center gap-3 px-6 py-3.5 bg-gradient-to-r from-brand to-brand-700 text-bkg-deep font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-xl shadow-brand/10 hover:shadow-brand/30 hover:-translate-y-0.5 transition-all active:scale-[0.98]"
@@ -470,6 +486,9 @@ export function AerotermiaView() {
                     setEquipoDetail(null);
                 }}
             />
+
+            {/* Carga de la tarifa del distribuidor (solo ADMIN) */}
+            {esAdmin && showTarifa && <CargarTarifaModal onClose={() => setShowTarifa(false)} />}
 
             {/* Modal nuevo equipo */}
             <AerotermiaDetailModal

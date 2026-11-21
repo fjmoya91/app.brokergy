@@ -8,6 +8,11 @@ paths:
   - "implementation/backend/scripts/test_app_instalador.js"
   - "implementation/backend/scripts/test_app_instalador_no_regresion.js"
   - "implementation/backend/utils/llaveObra.js"
+  - "implementation/backend/services/catalogoTarifas.js"
+  - "implementation/backend/routes/aerotermiaTarifas.js"
+  - "implementation/backend/scripts/test_catalogo_instalador.js"
+  - "implementation/backend/scripts/test_equipo_inicial_catalogo.mjs"
+  - "implementation/frontend/src/features/landing/data/equipoInicial.js"
 ---
 # App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes (nivel 2)
 
@@ -28,9 +33,10 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 10,7 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 10,8 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-2.md` — La app del INSTALADOR, fase 2: la obra se HACE dentro de la app, con sesión y sin enlaces (2026-11-21) · 9,1 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 14,5 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,1 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -47,5 +53,9 @@ por token; la app no tiene un segundo camino para firmar, subir o facturar.**
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md`
   - **REGLA — lo que propone el instalador nace EN REVISIÓN y no sale en ningún sitio público hasta que un
 ADMIN lo aprueba; aprobar una foto de obra es el MISMO camino que el botón «Publicar en el escaparate».**
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md`
+  - **REGLA — la carga va SIEMPRE en dos pasos, y el Excel NUNCA crea un modelo.**
+  - **REGLA — el instalador ve SOLO sus marcas, la tarifa vigente y SU precio; nunca el distribuidor, el margen,
+la comisión, otro instalador ni un enlace de Drive.**
 
 <!-- generado:fin -->

@@ -7,7 +7,8 @@ import { IconoFunnel } from '../components/IconosFunnel';
 const eur = (n) => (Number(n) || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 });
 
 export function Step8_Presupuesto({ funnel, updateFunnel, onNext, hideInstalador = false, isInternal = false }) {
-    const [showInput, setShowInput] = useState(false);
+    // Si ya llega una cifra (el equipo del Catálogo de la app del instalador), el campo sale abierto.
+    const [showInput, setShowInput] = useState(funnel.presupuesto_modo === 'tengo' && Number(funnel.presupuesto_eur) > 0);
     const [customValue, setCustomValue] = useState(funnel.presupuesto_eur || '');
 
     const selectMode = (modo) => {

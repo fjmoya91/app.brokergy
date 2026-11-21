@@ -1,13 +1,13 @@
 // ─── MarcoInstalador — la cáscara de la app del instalador ───────────────────
 // Un marco PROPIO (no se retoca DashboardLayout, que sigue siendo el de todos los
 // demás). En el móvil: cabecera con el logo y el avatar, y la barra de abajo
-// Inicio · Obras · ＋ Nueva · Clientes · Perfil, con «Nueva» en el centro y en
+// Inicio · Obras · ＋ Nueva · Clientes · Catálogo, con «Nueva» en el centro y en
 // naranja. Desde 1024 px: menú lateral blanco (prototipo «PC»).
 //
-// La fase 3 NO fue un catálogo sino «Tu página web» (el escaparate): en el menú
-// lateral va debajo de Clientes; en el móvil, la 5.ª casilla sigue siendo «Perfil»,
-// que abre una hoja con «Mis datos de empresa», «Tu página web» y «Cerrar sesión»
-// (y la tarjeta de Inicio lleva también a la página).
+// Fase 3: «Tu página web» (el escaparate) va en el menú lateral debajo de Clientes.
+// Fase 4: la 5.ª casilla de la barra pasa de «Perfil» a «Catálogo». El Perfil se abre
+// desde el AVATAR de la cabecera (móvil) y el pie del menú lateral (ordenador): una
+// hoja con «Mis datos de empresa», «Tu página web» y «Cerrar sesión».
 import React from 'react';
 import { Icono, iniciales } from './ui/piezas';
 
@@ -15,6 +15,7 @@ const NAV = [
     { key: 'inicio', texto: 'Inicio', icono: 'inicio' },
     { key: 'obras', texto: 'Obras', icono: 'obras' },
     { key: 'clientes', texto: 'Clientes', icono: 'clientes' },
+    { key: 'catalogo', texto: 'Catálogo', icono: 'catalogo' },
     { key: 'pagina', texto: 'Tu página web', icono: 'web' },   // solo en el menú lateral
 ];
 
@@ -65,12 +66,7 @@ export function MarcoInstalador({ seccion, onIr, onNueva, onPerfil, empresa, log
                         Nueva
                     </button>
                     <ItemBarra it={NAV[2]} activo={seccion === 'clientes'} onIr={onIr} />
-                    <button type="button" className="ia-barra-it" onClick={onPerfil}>
-                        <span className="ia-avatar" style={{ width: 26, height: 26, fontSize: 10.5 }} aria-hidden="true">
-                            {logo ? <img src={logo} alt="" /> : iniciales(nombre)}
-                        </span>
-                        Perfil
-                    </button>
+                    <ItemBarra it={NAV[3]} activo={seccion === 'catalogo'} onIr={onIr} />
                 </nav>
             </div>
         </div>

@@ -95,10 +95,11 @@ Estilo «carta de pago» (regla 164) **sin modo oscuro**: el instalador ve siemp
 con el tema del CRM. CSS con prefijo `.ia-` inyectado por `EstiloInstalador`; tipografías auto-alojadas.
 
 - **Cáscara propia** (`MarcoInstalador`, no se toca `DashboardLayout`). Móvil: cabecera con logo y avatar, y
-  barra de abajo **Inicio · Obras · ＋ Nueva · Clientes · Perfil** con «Nueva» en el centro, en naranja.
-  Desde 1024 px: menú lateral blanco con «Nueva simulación» y el contador de lo que te toca.
-  Desde la fase 3, debajo de Clientes en el menú lateral va «Tu página web» (en la barra de abajo no: se
-  entra por Inicio, por el Perfil y por la obra). El catálogo, cuando llegue, tendrá que buscarse sitio.
+  barra de abajo **Inicio · Obras · ＋ Nueva · Clientes · Catálogo** con «Nueva» en el centro, en naranja
+  (hasta la fase 4 el quinto botón era Perfil; ahora el Perfil se abre con el avatar de la cabecera).
+  Desde 1024 px: menú lateral blanco con «Nueva simulación» y el contador de lo que te toca, y el Perfil
+  al pie. Desde la fase 3, debajo de Clientes en el menú lateral va «Tu página web» (en la barra de abajo
+  no: se entra por Inicio, por el Perfil y por la obra); desde la fase 4, «Catálogo», entre Clientes y «Tu página web» (ver fase 4).
 - **＋ Nueva** abre la «Nueva simulación» de siempre (`openNewSimulation`); al crearla, la calculadora se pinta
   DENTRO de la cáscara (`externo`, contenedor oscuro con «← Mis obras»). Igual una obra SIN expediente: se abre
   su oportunidad de siempre. Una obra CON expediente abre la ficha nueva de solo lectura.

@@ -80,6 +80,9 @@ app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/clientes', clientesRoutes);
 app.use('/api/geo', geoRoutes);
+// Tarifas por Excel (solo ADMIN, app del instalador fase 4): ANTES que aerotermia,
+// cuyo `GET /:id` se tragaría `/tarifas/...`.
+app.use('/api/aerotermia/tarifas', require('./routes/aerotermiaTarifas'));
 app.use('/api/aerotermia', aerotermiaRoutes);
 // El otro catálogo de equipos: marcos y vidrios de un RES080 (ver routes/ventanas.js).
 app.use('/api/ventanas', require('./routes/ventanas'));

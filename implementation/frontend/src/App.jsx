@@ -519,8 +519,12 @@ function App() {
   // ceePrevioData = { inicial, final } (cualquiera de los dos puede ser null).
   const [ceeResolved, setCeeResolved] = useState(false);
   const [ceePrevioData, setCeePrevioData] = useState(null);
-  const openNewSimulation = () => { newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null); setShowSearchModal(true); };
-  const closeNewSimulation = () => { newSimulationOpen = false; setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); };
+  // `opts.equipo` lo manda el Catálogo de la app del instalador («Calcular una obra con
+  // este equipo»): el embudo arranca con ese modelo y su precio. Un clic normal pasa
+  // el EVENTO, que no trae `equipo`, y abre la simulación de siempre.
+  const [equipoInicial, setEquipoInicial] = useState(null);
+  const openNewSimulation = (opts) => { newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null); setEquipoInicial(opts?.equipo?.id ? opts.equipo : null); setShowSearchModal(true); };
+  const closeNewSimulation = () => { newSimulationOpen = false; setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); setEquipoInicial(null); };
 
   // Si la recarga vino de un chunk obsoleto mientras el usuario abría "Nueva
   // simulación", la reabrimos por él: se consume una sola vez por sesión.
@@ -1689,6 +1693,7 @@ function App() {
               mode="internal"
               variant="reforma"
               initialCeeData={ceePrevioData}
+              equipoInicial={equipoInicial}
               onCancel={closeNewSimulation}
               // La referencia buscada era la de un EDIFICIO y se ha elegido simularlo
               // entero: el funnel de preguntas (caldera, emisores, habitaciones) es de
@@ -1698,6 +1703,7 @@ function App() {
               onCreated={async (opResult) => {
                 newSimulationOpen = false;
                 setShowSearchModal(false);
+                setEquipoInicial(null);
                 if (!opResult?.id_oportunidad) return;
                 // Obtener el objeto completo de la oportunidad recién creada
                 // (con ref_catastral y datos_calculo) y delegar en

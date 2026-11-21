@@ -3,7 +3,8 @@ paths:
   - "implementation/backend/services/{placa*,catalogoFichas,fichaConsolidada,fichaEprelMerge,fichaTecnicaSlot}.js"
   - "implementation/backend/utils/{serieDePlaca,seriesEquipos}.js"
   - "implementation/backend/services/seriesRepetidas.js"
-  - "implementation/backend/routes/{aerotermia,ventanas}.js"
+  - "implementation/backend/routes/{aerotermia,aerotermiaTarifas,ventanas}.js"
+  - "implementation/backend/services/catalogoTarifas.js"
   - "implementation/frontend/src/features/expedientes/logic/{acsCatalogo,aerotermiaUnits,aerotermiaOpciones,ventanasCatalogo,fichaConsolidable}.js"
   - "implementation/frontend/src/features/{ventanas,aerotermia}/**"
   - "implementation/frontend/src/features/calculator/components/LeerPlacaModal.jsx"
@@ -64,6 +65,7 @@ paths:
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md` — La ficha del catálogo cuando son VARIOS papeles (2026-09-11) · 5,7 KB
 - `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13) · 5,1 KB
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR · 0,9 KB
+- `docs/conocimiento/placas-catalogos/las-tarifas-del-distribuidor-por-modelo.md` — Las TARIFAS del distribuidor, por modelo del catálogo (2026-11-21) · 2,0 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 19,0 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026) · 2,2 KB
 - `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13) · 11,2 KB
@@ -117,6 +119,8 @@ código.**
   - **REGLA — el COMBUSTIBLE leído NUNCA se escribe.**
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md`
   - **REGLA — abrirlo no es abrirlo a TODOS los expedientes.**
+- `docs/conocimiento/placas-catalogos/las-tarifas-del-distribuidor-por-modelo.md`
+  - **REGLA — el Excel de tarifas NUNCA da de alta ni cambia un modelo: solo le pone precio a uno que YA está.**
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md`
   - **REGLA — LA PLACA SE LEE SOLA.**
   - **REGLA — UNA LECTURA POR UNIDAD.**

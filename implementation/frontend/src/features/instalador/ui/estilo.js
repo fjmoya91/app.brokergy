@@ -308,7 +308,7 @@ export const CSS = `
 .ia-btn:disabled{cursor:default;opacity:.7;transform:none}
 .ia-campo{display:flex;flex-direction:column;gap:6px;border:0;margin:0;padding:0;min-width:0}
 .ia-campo>span,.ia-campo legend{font-size:14px;font-weight:700;color:var(--tinta);padding:0;margin-bottom:6px}
-.ia-campo textarea,.ia-campo input[type=text]{width:100%;min-height:52px;padding:12px 14px;border-radius:16px;border:1.5px solid rgba(20,17,17,.14);background:#fff;font:inherit;font-size:16px;line-height:1.45;color:var(--tinta);resize:vertical;text-transform:none}
+.ia-campo textarea,.ia-campo input[type=text],.ia-campo input[type=date]{width:100%;min-height:52px;padding:12px 14px;border-radius:16px;border:1.5px solid rgba(20,17,17,.14);background:#fff;font:inherit;font-size:16px;line-height:1.45;color:var(--tinta);resize:vertical;text-transform:none}
 .ia-campo textarea:focus,.ia-campo input[type=text]:focus{outline:0;border-color:var(--tinta)}
 .ia-campo small{font-size:12.5px;color:var(--gris)}
 .ia-campo small.mal{color:var(--ambar-txt);font-weight:700}
@@ -322,7 +322,42 @@ export const CSS = `
 .ia-docs-web{display:flex;flex-direction:column;gap:10px}
 .ia-docs-web p{margin:0;font-size:14.5px;line-height:1.5;color:var(--gris)}
 
+/* ── Fase 4: el Catálogo y la ficha de un equipo (prototipo Catalogo y Modelo) ── */
+.ia-eq{flex:none;display:flex;flex-direction:column;gap:12px;background:#fff;border:1px solid var(--linea);border-radius:22px;padding:16px 18px;text-decoration:none;color:var(--tinta);box-shadow:var(--sombra);text-align:left;cursor:pointer;width:100%;font:inherit}
+.ia-eq-a{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ia-eq-a>span:first-child{min-width:0;display:flex;flex-direction:column;gap:2px}
+.ia-eq-a b{font-size:17px;line-height:1.25;overflow-wrap:anywhere}
+.ia-eq-ref{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12.5px;color:var(--gris);overflow-wrap:anywhere}
+.ia-eq-tarifa{flex:none;text-align:right;display:flex;flex-direction:column;gap:1px;max-width:46%}
+.ia-eq-tarifa b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ia-eq-tarifa span{font-size:12px;color:var(--gris)}
+.ia-eq-tarifa .sin{font-size:13.5px;font-weight:700;color:var(--gris);line-height:1.3}
+.ia-eq-chips{display:flex;flex-wrap:wrap;gap:6px}
+.ia-eq-chip{min-height:28px;padding:0 10px;border-radius:999px;display:inline-flex;align-items:center;font-size:12.5px;font-weight:700;background:var(--neutro);color:var(--tinta)}
+.ia-eq-chip.v{background:rgba(177,209,62,.18);color:var(--verde-txt)}
+.ia-eq-chip.n{background:var(--baldosa);color:var(--naranja-txt)}
+.ia-eq-cab{padding:0 4px;display:flex;flex-direction:column;gap:6px}
+.ia-eq-cab h1{margin:0;font-size:34px;line-height:1.12;overflow-wrap:anywhere}
+.ia-eq-cab p.ref{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;color:var(--gris);overflow-wrap:anywhere}
+.ia-eq-precio{position:relative;overflow:hidden;padding:24px 20px 8px}
+.ia-eq-precio::before{content:'';position:absolute;top:0;left:0;right:0;height:4px;background:var(--filete)}
+.ia-eq-sin{margin:10px 0 0;font-size:34px;line-height:1.05}
+.ia-eq-tuyo{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:68px;border-top:1px solid var(--linea);margin-top:14px}
+.ia-eq-tuyo>div{min-width:0;display:flex;flex-direction:column;gap:2px}
+.ia-eq-tuyo span{font-size:13.5px;color:var(--gris)}
+.ia-eq-tuyo b{font-size:18px;font-variant-numeric:tabular-nums}
+.ia-eq-tuyo b.falta{font-size:15.5px;color:var(--gris)}
+.ia-eq-papel{display:flex;align-items:center;gap:12px;min-height:60px;width:100%;background:none;border:0;border-top:1px solid var(--linea);padding:6px 0;text-align:left;cursor:pointer;color:var(--tinta)}
+.ia-eq-papel.primera{border-top-color:transparent}
+.ia-eq-papel>span.ico{flex:none;width:40px;height:40px;border-radius:12px;background:var(--neutro);display:flex;align-items:center;justify-content:center}
+.ia-eq-papel>span.txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ia-eq-papel b{font-size:15.5px}
+.ia-eq-papel small{font-size:13px;color:var(--gris);line-height:1.35}
+.ia-eq-papel>span.ver{flex:none;font-size:14.5px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+.ia-campo input[type=text].ia-precio{font-family:'Antonio','Inter',Impact,sans-serif;font-size:30px!important;font-variant-numeric:tabular-nums;min-height:60px}
+
 @media (max-width:359px){
+  .ia-eq-cab h1{font-size:30px}
   .ia-accion-cab h1{font-size:30px}
   .ia-hola h1{font-size:34px}.ia-titulo h1{font-size:32px}.ia-ficha-cab h1{font-size:30px}.ia-cifra{font-size:52px}
 }

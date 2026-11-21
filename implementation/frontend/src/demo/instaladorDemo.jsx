@@ -1,4 +1,4 @@
-// BANCO DE PRUEBAS de la app del INSTALADOR (fases 1, 2 y 3). Solo en desarrollo: no
+// BANCO DE PRUEBAS de la app del INSTALADOR (fases 1 a 4). Solo en desarrollo: no
 // entra en el build. Abre `/instalador-demo.html` con `npm run dev`.
 // Pinta AppInstalador SIN SESIÓN y SIN API: todo son datos de mentira de este
 // fichero (nombres inventados). Local = datos de PRODUCCIÓN, así que:
@@ -18,6 +18,13 @@
 //                     cada estado (sin él, una mezcla); ?elegir=1 → «Elegir fotos»
 //   ?cola=1         → la cola de revisión del equipo interno (la de la ficha del
 //                     instalador en Partners); con ?lector=1, sin poder resolver
+// Fase 4 (Catálogo con tarifas):
+//   ?seccion=catalogo → el catálogo; ?catalogo=sinmarcas → un instalador sin marcas
+//   ?equipo=<id>      → la ficha de un equipo: 101 con tarifa, 102 sin tarifa,
+//                       103 con tu precio, 104 sin ficha técnica (SCOP de clima medio)
+//   ?tarifa=1         → la carga del Excel del CRM (solo ADMIN), en sus dos pasos,
+//                       contestada aquí (el fichero que elijas no sale del navegador);
+//                       con ?fallo=1, «Guardar» da el 409 de «el plan ha cambiado»
 /* eslint-disable react-refresh/only-export-components -- es un punto de entrada, no un módulo */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -27,6 +34,7 @@ import '../index.css';
 import AppInstalador from '../features/instalador/AppInstalador';
 import { API_DOCS_INSTALADOR } from '../features/docs/docsApi';
 import { RevisionEscaparate } from '../features/admin/components/RevisionEscaparate';
+import { CargarTarifaModal } from '../features/aerotermia/components/CargarTarifaModal';
 
 const p = new URLSearchParams(window.location.search);
 const VACIO = p.has('vacio');
@@ -229,7 +237,31 @@ function pdfDeMentira(titulo, filas) {
     return d.output('arraybuffer');
 }
 
+// ── Fase 4: el catálogo de mentira (marcas y modelos inventados) ────────────
+const eq = (id, marca, nombre, ref, kw, extra = {}) => ({
+    id, marca, nombre, ref, referencias: { conjunto: null, exterior: ref, interior: null },
+    uso: 'Calefacción y agua caliente', montaje: 'Monobloc: un solo aparato fuera', potencia_kw: kw, potencia_frio_kw: null,
+    scop_suelo: 4.62, scop_radiadores: 3.41, clima_scop: 'calido', acs_corto: 'Sin depósito', acs: 'Con depósito aparte', refrigerante: 'R290',
+    tarifa: null, tu_precio: null, papeles: [{ id: 'ficha', nombre: 'Ficha técnica', incluye: ['la ficha de producto EPREL', 'la etiqueta energética'] }], ...extra,
+});
+const CATALOGO = [
+    eq(101, 'MARCA A', 'Aire-agua Serie Uno 8', 'MA-U8-M1', 8, { tarifa: { precio: 5890, desde: '2026-11-01' } }),
+    eq(102, 'MARCA A', 'Aire-agua Serie Uno 12', 'MA-U12-M1', 12),
+    eq(103, 'MARCA A', 'Aire-agua Serie Dos 10 bibloc', 'MA-D10-B2', 10, { montaje: 'Bibloc: un aparato fuera y otro dentro', acs_corto: 'Depósito 190 l', acs: 'Con depósito de 190 l dentro', tarifa: { precio: 7240.5, desde: '2026-11-01' }, tu_precio: 6900 }),
+    eq(104, 'MARCA B', 'Compacta 6', 'MB-C6', 6, { uso: 'Calefacción, frío y agua caliente', potencia_frio_kw: 5.8, scop_suelo: 4.1, scop_radiadores: 3.05, clima_scop: 'medio', refrigerante: 'R32', tarifa: { precio: 4380, desde: '2026-10-15' }, papeles: [] }),
+    eq(105, 'MARCA B', 'Compacta 16 trifásica', 'MB-C16-T', 16, { tarifa: { precio: 9875, desde: '2026-10-15' } }),
+];
+const SIN_MARCAS = p.get('catalogo') === 'sinmarcas';
+const catalogoDeMentira = () => (SIN_MARCAS ? { sin_marcas: true, marcas: [], equipos: [] } : { sin_marcas: false, marcas: ['MARCA A', 'MARCA B'], equipos: copia(CATALOGO) });
+const equipoDe = (id) => CATALOGO.find((x) => String(x.id) === String(id));
+
 const api = {
+    // ── Fase 4 ──
+    catalogo: () => espera(catalogoDeMentira()),
+    equipo: (id) => (equipoDe(id) ? espera(copia(equipoDe(id)), 250) : Promise.reject(new Error('404'))),
+    fichaEquipo: (id) => espera(pdfDeMentira(`Ficha técnica · ${equipoDe(id)?.nombre || ''}`, [['Potencia', `${equipoDe(id)?.potencia_kw} kW`], ['SCOP 35 °C', '4,62'], ['SCOP 55 °C', '3,41']])),
+    guardarPrecio: (id, precio) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = precio; }),
+    quitarPrecio: (id) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = null; }),
     obras: () => espera({ obras: copia(LISTA), resumen: resumen(LISTA) }),
     obra: (id) => espera(obraDe(id) ? copia(obraDe(id)) : Promise.reject(new Error('404')), 250),
     clientes: () => espera(VACIO ? [] : CLIENTES),
@@ -437,6 +469,55 @@ function Cola() {
     );
 }
 
+// ── Fase 4: la carga del Excel, contestada aquí (?tarifa=1) ─────────────────
+const fila = (n, marca, ref, precio, extra) => ({ fila: n, marca, ref, precio, precio_texto: String(precio ?? ''), ...extra });
+function lecturaDeMentira(elecciones) {
+    const elegido = Number(elecciones?.[6]) || 0;
+    const amb = elegido
+        ? fila(6, 'MARCA A', 'MA-U12', 6120, { estado: 'CASA', aerotermia_id: elegido, nombre: elegido === 102 ? 'Aire-agua Serie Uno 12' : 'Aire-agua Serie Uno 12 trifásica', elegida_a_mano: true, cambio: 'NUEVA', anterior: null })
+        : fila(6, 'MARCA A', 'MA-U12', 6120, { estado: 'AMBIGUA', motivo: 'Casa con 2 modelos: elige cuál', candidatos: [{ id: 102, nombre: 'Aire-agua Serie Uno 12', exterior: 'MA-U12-M1' }, { id: 106, nombre: 'Aire-agua Serie Uno 12 trifásica', exterior: 'MA-U12-T1' }] });
+    const filas = [
+        fila(2, 'Marca A', 'ma u8 m1', 5990, { estado: 'CASA', aerotermia_id: 101, nombre: 'Aire-agua Serie Uno 8', cambio: 'SUBE', anterior: 5890 }),
+        fila(3, 'MARCA A', 'MA-D10-B2', 7240.5, { estado: 'CASA', aerotermia_id: 103, nombre: 'Aire-agua Serie Dos 10 bibloc', cambio: 'IGUAL', anterior: 7240.5 }),
+        fila(4, 'MARCA B', 'MB C6', 4290, { estado: 'CASA', aerotermia_id: 104, nombre: 'Compacta 6', cambio: 'BAJA', anterior: 4380 }),
+        fila(5, 'MARCA B', 'MB-C16-T', 9875, { estado: 'CASA', aerotermia_id: 105, nombre: 'Compacta 16 trifásica', cambio: 'IGUAL', anterior: 9875 }),
+        amb,
+        fila(7, 'MARCA C', 'MC-200', 3100, { estado: 'SIN_PAREJA', motivo: 'Esa marca no está en el catálogo' }),
+        fila(8, 'MARCA A', 'MA-X99', 8800, { estado: 'SIN_PAREJA', motivo: 'Ningún modelo de esa marca tiene esa referencia' }),
+        fila(9, 'MARCA B', 'MB-C10', null, { precio_texto: 'consultar', estado: 'ERROR', motivo: 'El precio no es un número válido' }),
+    ];
+    const casa = filas.filter((f) => f.estado === 'CASA');
+    const guardar = casa.filter((f) => f.cambio !== 'IGUAL');
+    return {
+        en_seco: true, fichero: 'tarifa-noviembre.xlsx', sha256: 'a'.repeat(64), firma: `firma-${guardar.length}`,
+        resumen: {
+            leidas: filas.length, casan: casa.length, nuevas: casa.filter((f) => f.cambio === 'NUEVA').length,
+            cambian: casa.filter((f) => ['SUBE', 'BAJA'].includes(f.cambio)).length, iguales: casa.filter((f) => f.cambio === 'IGUAL').length,
+            ambiguas: filas.filter((f) => f.estado === 'AMBIGUA').length, sin_pareja: 2, errores: 1, duplicadas: 0, repetidas: 0, a_guardar: guardar.length,
+        },
+        filas,
+    };
+}
+const errorDemo = (status, error) => Object.assign(new Error(String(status)), { response: { status, data: { error } } });
+const apiTarifasDemo = {
+    plantilla: () => { corta('plantilla (en el banco no se descarga)'); return Promise.reject(errorDemo(400, 'En el banco de pruebas la plantilla no se descarga.')); },
+    leer: (form) => espera(lecturaDeMentira(JSON.parse(form.get('elecciones') || '{}')), 700),
+    confirmar: (form) => new Promise((ok, ko) => setTimeout(() => {
+        if (FALLO) { ko(errorDemo(409, 'El Excel, el catálogo o las tarifas han cambiado desde que lo leíste. Vuelve a leerlo antes de guardar.')); return; }
+        ok({ ok: true, guardadas: lecturaDeMentira(JSON.parse(form.get('elecciones') || '{}')).resumen.a_guardar });
+    }, 900)),
+};
+function Tarifa() {
+    const [abierto, setAbierto] = React.useState(true);
+    return (
+        <div style={{ minHeight: '100vh', padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }} className="bg-bkg-deep text-white">
+            <p className="text-white/50 text-sm">Pantalla Aerotermia del CRM (solo ADMIN) · banco de pruebas</p>
+            {!abierto && <button type="button" className="mt-4 px-5 py-3 rounded-2xl border border-white/10 text-sky-300 text-xs font-black uppercase tracking-widest" onClick={() => setAbierto(true)}>Cargar tarifa (Excel)</button>}
+            {abierto && <CargarTarifaModal api={apiTarifasDemo} onClose={() => setAbierto(false)} />}
+        </div>
+    );
+}
+
 function Demo() {
     const [externo, setExterno] = React.useState(null);
     const aviso = (txt) => () => window.alert(`Banco de pruebas: ${txt}. En la app de verdad se abre lo de siempre.`);
@@ -445,10 +526,12 @@ function Demo() {
             api={api}
             saludo="RCA"
             empresa="Instalaciones de Prueba, S.L."
-            seccionInicial={['obras', 'clientes', 'pagina'].includes(p.get('seccion')) ? p.get('seccion') : 'inicio'}
+            seccionInicial={['obras', 'clientes', 'pagina', 'catalogo'].includes(p.get('seccion')) ? p.get('seccion') : (p.get('equipo') ? 'catalogo' : 'inicio')}
             paginaVista={p.has('elegir') ? 'elegir' : 'pagina'}
-            abrirAlEmpezar={p.get('obra') ? { obra: p.get('obra'), accion: p.get('accion') } : null}
-            onNueva={aviso('«Nueva simulación»')}
+            abrirAlEmpezar={p.get('obra') ? { obra: p.get('obra'), accion: p.get('accion') } : p.get('equipo') ? { equipo: p.get('equipo') } : null}
+            onNueva={(o) => window.alert(o?.equipo
+                ? `Banco de pruebas: «Nueva simulación» con ${o.equipo.marca} ${o.equipo.nombre} y ${o.equipo.precio_sin_iva ?? 'sin'} € sin IVA (${o.equipo.origen || 'sin precio'}) como presupuesto de la aerotermia.`
+                : 'Banco de pruebas: «Nueva simulación». En la app de verdad se abre lo de siempre.')}
             onAbrirOportunidad={(id) => setExterno(
                 <div style={{ padding: 32, textAlign: 'center' }}>
                     <p style={{ fontSize: 18, fontWeight: 700 }}>Aquí va la página de la oportunidad {id}</p>
@@ -468,4 +551,4 @@ function Demo() {
 // esta entrada: se reutiliza la raíz para no llamar dos veces a createRoot.
 const contenedor = document.getElementById('root');
 contenedor.__raiz = contenedor.__raiz || ReactDOM.createRoot(contenedor);
-contenedor.__raiz.render(p.has('cola') ? <Cola /> : <Demo />);
+contenedor.__raiz.render(p.has('cola') ? <Cola /> : p.has('tarifa') ? <Tarifa /> : <Demo />);

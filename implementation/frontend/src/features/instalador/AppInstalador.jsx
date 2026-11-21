@@ -1,4 +1,4 @@
-// ─── AppInstalador — la app nueva del INSTALADOR (fases 1, 2 y 3) ────────────
+// ─── AppInstalador — la app nueva del INSTALADOR (fases 1 a 4) ───────────────
 // Se monta EN LUGAR del DashboardLayout cuando `/api/usuarios/me` dice
 // `app_instalador: true` (beta por empresa, APP_INSTALADOR_BETA). Los datos llegan
 // por la prop `api` —la real va contra `/api/instalador-app`; el banco de pruebas
@@ -20,6 +20,12 @@
 // propone y BROKERGY revisa. Se entra por la tarjeta de Inicio, el menú lateral y
 // la hoja del Perfil (que ahora se abre siempre: «Mis datos de empresa», «Tu página
 // web» y «Cerrar sesión»); y, desde «Fotos y papeles» de una obra, a elegir fotos.
+//
+// Fase 4: «Catálogo» (CatalogoView): la aerotermia de sus marcas con la tarifa del
+// distribuidor y SU precio. Es la 5.ª casilla de la barra de abajo (el Perfil queda
+// en el avatar de la cabecera y en el pie del menú lateral). «Calcular una obra con
+// este equipo» llama a `onNueva({ equipo })`: quien nos aloja abre la Nueva
+// simulación con el equipo y su precio ya puestos.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { EstiloInstalador, Icono } from './ui/piezas';
 import { MarcoInstalador } from './MarcoInstalador';
@@ -28,6 +34,7 @@ import { ObrasView } from './views/ObrasView';
 import { ObraView } from './views/ObraView';
 import { ClientesView, ClienteView } from './views/ClientesView';
 import { MiPaginaView } from './views/MiPaginaView';
+import { CatalogoView, EquipoView } from './views/CatalogoView';
 import { API_DOCS_INSTALADOR } from '../docs/docsApi';
 
 const B = '/api/instalador-app';
@@ -71,6 +78,12 @@ export function apiReal(axios) {
         },
         retirarFoto: (id) => axios.delete(`${B}/escaparate/fotos/${e(id)}`).then((r) => r.data),
         guardarTextos: (cuerpo) => axios.put(`${B}/escaparate/textos`, cuerpo).then((r) => r.data),
+        // ── Fase 4: el catálogo con tarifas ──
+        catalogo: () => axios.get(`${B}/catalogo`).then((r) => r.data),
+        equipo: (id) => axios.get(`${B}/catalogo/${e(id)}`).then((r) => r.data),
+        fichaEquipo: (id) => axios.get(`${B}/catalogo/${e(id)}/ficha`, { responseType: 'arraybuffer' }).then((r) => r.data),
+        guardarPrecio: (id, precio) => axios.put(`${B}/catalogo/${e(id)}/precio`, { precio }).then((r) => r.data),
+        quitarPrecio: (id) => axios.delete(`${B}/catalogo/${e(id)}/precio`).then((r) => r.data),
     };
 }
 
@@ -98,7 +111,7 @@ export default function AppInstalador({
     // cargado), «Tu página web» y salir. Nunca se cierra la sesión de un toque.
     const [hoja, setHoja] = useState(false);
     const perfil = () => setHoja(true);
-    // null | { tipo: 'obra', obra, accion? } | { tipo: 'cliente', cliente }
+    // null | { tipo: 'obra', obra, accion? } | { tipo: 'cliente', cliente } | { tipo: 'equipo', equipo }
     const [ficha, setFicha] = useState(null);
     // Cuántas entradas propias hay en el historial: 1 = la ficha, 2 = una acción dentro.
     const pila = useRef(0);
@@ -110,6 +123,16 @@ export default function AppInstalador({
     const cargarClientes = useCallback(() => api.clientes(), [api]);
     const obras = useCarga(cargarObras, true, recarga);
     const clientes = useCarga(cargarClientes, seccion === 'clientes' || ficha?.tipo === 'cliente', nonce);
+    const cargarCatalogo = useCallback(() => api.catalogo(), [api]);
+    const catalogo = useCarga(cargarCatalogo, seccion === 'catalogo' || ficha?.tipo === 'equipo', recarga);
+    // «Calcular una obra con este equipo»: su precio (o la tarifa) como presupuesto de la aerotermia.
+    const calcularCon = (eq) => onNueva?.({
+        equipo: {
+            id: eq.id, marca: eq.marca, nombre: eq.nombre,
+            precio_sin_iva: eq.tu_precio ?? eq.tarifa?.precio ?? null,
+            origen: eq.tu_precio != null ? 'tu_precio' : eq.tarifa ? 'tarifa' : null,
+        },
+    });
 
     // El detalle se pide una vez por obra y por recarga.
     const cache = useRef(new Map());
@@ -172,10 +195,20 @@ export default function AppInstalador({
     // siempre, dentro de esta cáscara); con expediente, en la ficha nueva.
     const abrirObra = (o) => (o.con_expediente ? abrirFicha({ tipo: 'obra', obra: o }) : onAbrirOportunidad(o.id));
 
-    // El banco de pruebas entra directo en una obra (y una acción): `?obra=&accion=`.
+    // El banco de pruebas entra directo en una obra (y una acción): `?obra=&accion=`,
+    // o en la ficha de un equipo del catálogo: `?equipo=`.
     const alEmpezar = useRef(abrirAlEmpezar);
     useEffect(() => {
         const a = alEmpezar.current;
+        if (!a?.equipo) return;
+        const eq = catalogo.datos?.equipos?.find((x) => String(x.id) === String(a.equipo));
+        if (!eq) return;
+        alEmpezar.current = null;
+        abrirFicha({ tipo: 'equipo', equipo: eq });
+    }, [catalogo.datos]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const a = alEmpezar.current;
+        if (a?.equipo) return;
         const o = a && obras.datos?.obras?.find((x) => x.id === a.obra);
         if (!o) return;
         alEmpezar.current = null;
@@ -201,6 +234,12 @@ export default function AppInstalador({
         const actual = (clientes.datos || []).find((c) => c.id_cliente === ficha.cliente.id_cliente) || ficha.cliente;
         contenido = <ClienteView cliente={actual} obras={obras.datos?.obras} onVolver={cerrarFicha}
             onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva} />;
+    } else if (ficha?.tipo === 'equipo') {
+        contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} api={api}
+            onVolver={cerrarFicha} onCalcular={onNueva ? calcularCon : null} onCambio={onCambio} />;
+    } else if (seccion === 'catalogo') {
+        contenido = <CatalogoView datos={catalogo.datos} cargando={catalogo.cargando} error={catalogo.error} onReintentar={catalogo.reintentar}
+            onAbrir={(eq) => abrirFicha({ tipo: 'equipo', equipo: eq })} />;
     } else if (seccion === 'obras') {
         contenido = <ObrasView datos={obras.datos} cargando={obras.cargando} error={obras.error} onReintentar={obras.reintentar}
             cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} onNueva={onNueva} />;
@@ -215,7 +254,7 @@ export default function AppInstalador({
             onMiPagina={() => ir('pagina')} />;
     }
 
-    const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : externo ? 'obras' : seccion;
+    const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : ficha?.tipo === 'equipo' ? 'catalogo' : externo ? 'obras' : seccion;
     return (
         <div className="ia-app">
             <EstiloInstalador />

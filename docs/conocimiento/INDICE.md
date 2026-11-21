@@ -27,11 +27,11 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
-| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 8,9 KB | 3 |
+| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 9,7 KB | 4 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 18,9 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 29,4 KB | 11 |
-| `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,4 KB | 10 |
+| `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 11,2 KB | 2 |
@@ -623,6 +623,7 @@
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21)
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-2.md` — La app del INSTALADOR, fase 2: la obra se HACE dentro de la app, con sesión y sin enlaces (2026-11-21)
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21)
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21)
 
 ### instalador-rite
 
@@ -681,6 +682,7 @@
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md` — La ficha del catálogo cuando son VARIOS papeles (2026-09-11)
 - `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13)
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR
+- `docs/conocimiento/placas-catalogos/las-tarifas-del-distribuidor-por-modelo.md` — Las TARIFAS del distribuidor, por modelo del catálogo (2026-11-21)
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15)
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/lo-que-cuesta-medido-15-09-2026.md` — Lo que cuesta, medido (15/09/2026)
 - `docs/conocimiento/placas-catalogos/un-conjunto-resuelve-el-acs-solo.md` — Un CONJUNTO resuelve el ACS solo (2026-09-13)
