@@ -46,7 +46,18 @@ const srv = app.listen(0, async () => {
     ['GET', '/api/whatsapp/status'], ['POST', '/api/whatsapp/send-text'], ['POST', '/api/whatsapp/send-media'],
     // App del instalador (fase 1): sus obras, solo con sesión y en la beta.
     ['GET', '/api/instalador-app/obras'], ['GET', '/api/instalador-app/obras/26RES060_OP217'],
+    // Fase 2: lo que hace dentro de la obra (presupuesto, factura, CIFO, RITE, fotos y papeles).
+    ...[['GET', '/presupuesto'], ['GET', '/presupuesto/abcdefghij123'], ['POST', '/presupuesto'], ['GET', '/factura'], ['GET', '/factura/word'],
+      ['POST', '/factura/vista-previa'], ['POST', '/factura/generar'], ['POST', '/factura/subir'], ['GET', '/factura/fichero/abcdef012345'],
+      ['GET', '/instalador'], ['GET', '/cifo/pdf'], ['POST', '/cifo'], ['POST', '/rite'], ['GET', '/fm-declaracion/pdf'], ['POST', '/fm-declaracion'],
+    ].map(([m, r]) => [m, `/api/instalador-app/obras/26RES060_OP217${r}`]),
+    ...[['GET', ''], ['POST', '/fin-obra'], ['PATCH', '/ventanas'], ['POST', '/FOTO_EQUIPO'], ['POST', '/FOTO_EQUIPO/batch'],
+      ['POST', '/FOTO_EQUIPO/merge-pdf'], ['DELETE', '/FOTO_EQUIPO?driveId=abcdefghij123'],
+    ].map(([m, r]) => [m, `/api/instalador-app/docs/26RES060_OP217${r}`]),
   ];
+  // Las miniaturas y ficheros de la app van SIN sesión, con LLAVE: sin ella, 403 (ver test_app_instalador.js).
+  q('anónimo', 'GET', '/api/instalador-app/thumb/26RES060_OP217/abcdefghij123', 403, {});
+  q('anónimo', 'GET', '/api/instalador-app/fichero/26RES060_OP217/abcdefghij123?token=tok-de-subida', 403, {});
   for (const [m, r] of RUTAS_ANON) q('anónimo', m, r, 401, {});
   for (const [m, r] of RUTAS_ANON.filter(([, r]) => /pdf\/send|whatsapp\/send/.test(r))) q('clave MAL', m, r, 401, {});
   for (const r of ['/api/pdf/send-proposal', '/api/pdf/send-annex', '/api/pdf/send-cifo', '/api/whatsapp/send-text', '/api/whatsapp/send-media'])

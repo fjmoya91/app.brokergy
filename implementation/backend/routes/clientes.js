@@ -70,11 +70,14 @@ router.get('/', enforceAuth, async (req, res) => {
             if (!req.user.prescriptor_id) return res.json([]);
             
             // 1.1 Obtener IDs de clientes vinculados a través de oportunidades de este partner
-            const { data: opClients } = await supabase
+            // Si esta consulta falla, la lista saldría recortada a los clientes de su
+            // empresa con pinta de completa: se corta aquí (regla 38).
+            const { data: opClients, error: opErr } = await supabase
                 .from('oportunidades')
                 .select('cliente_id')
                 .eq('prescriptor_id', req.user.prescriptor_id);
-            
+            if (opErr) throw Object.assign(new Error(opErr.message || 'BD'), { bdCaida: true });
+
             const linkedClientIds = [...new Set((opClients || []).map(oc => oc.cliente_id).filter(Boolean))];
             
             // 1.2 Construir filtro OR: prescriptor_id del cliente O id_cliente en la lista de vinculados
@@ -87,7 +90,7 @@ router.get('/', enforceAuth, async (req, res) => {
         }
  
         const { data: clientes, error: cliError } = await query;
-        if (cliError) throw cliError;
+        if (cliError) throw Object.assign(new Error(cliError.message || 'BD'), { bdCaida: true });
 
         // Máscara de seguridad para no-admins
         const processedClientes = clientes.map(c => {
@@ -104,6 +107,8 @@ router.get('/', enforceAuth, async (req, res) => {
         res.json(processedClientes.map(c => ({ ...c, ...(rel.get(c.id_cliente) || { oportunidades: [], expedientes: [], cee_directos: [] }) })));
     } catch (err) {
         console.error('Error GET clientes:', err);
+        // BD caída: 503, nunca una lista que parezca buena ni un 500 genérico (regla 38).
+        if (err.bdCaida) return res.status(503).json({ error: 'No hemos podido cargar tus clientes. Vuelve a intentarlo en unos segundos.', code: 'CLIENTES_UNAVAILABLE' });
         res.status(500).json({ error: 'Error al recuperar clientes' });
     }
 });

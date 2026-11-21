@@ -63,6 +63,8 @@ FINALIZADA ni RECHAZADA), leídas con `estadoInstalador` (el mismo de `/instalad
 - `factura` — «Haz la factura de la obra»: sin facturas y con el CEE inicial registrado. → `/factura-obra/:expId?token=`
   si su empresa tiene plantilla y la obra no es RES080; si no, `/subir-docs/:opUuid?token=…&rol=instalador`.
   El token es el `upload_token` de ESA oportunidad y solo viaja dentro del enlace de su propia obra.
+  **Desde la fase 2 (21/11/2026) ya no hay enlaces**: el destino es `{ tipo: 'accion', accion }` y la tarea
+  se hace dentro de la obra, con sesión; el token no sale del servidor. Ver «La app del INSTALADOR, fase 2».
 
 **Decisiones conservadoras de la fase 1** (a revisar con RCA): las RECHAZADAS no se enseñan; CIFO y RITE
 solo cuentan como pendientes una vez ENVIADOS (antes «lo preparamos nosotros»); la factura se pide tras
@@ -123,9 +125,9 @@ cortado**. Dos arreglos salieron de medir: la dirección se cortaba con «…» 
 
 ### Para las fases 2 y 3
 
-- **Fase 2**: presupuesto y factura DENTRO de la obra con sesión (hoy se sale a `/factura-obra` y
-  `/instalador/:id` por enlace), tareas que se hacen sin salir, subir fotos y papeles; unificar
-  `cuentasCliente` con el resumen del partner; el 500 de `GET /api/clientes` con la BD caída debería ser 503.
+- **Fase 2 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 2»): presupuesto, factura, certificado,
+  RITE y fotos dentro de la obra con sesión; el titular de las cuentas es el bono; `GET /api/clientes` da 503
+  con la BD caída. Sigue pendiente unificar `cuentasCliente` con el resumen del partner.
 - **Fase 3**: catálogo con tarifas (Excel del distribuidor por marca, el instalador ajusta su precio) y
   presupuestos con partidas del instalador; la casilla de Catálogo de la barra.
 - **Fase 4**: pulido con RCA y app instalable.

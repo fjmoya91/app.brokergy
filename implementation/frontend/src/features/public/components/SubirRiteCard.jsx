@@ -16,9 +16,11 @@ const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 // recibido ninguna es pedirle un documento que no existe.
 //
 // `demo`: la prueba sin API (/instalador/demo, /subir-rite/demo): no sube nada.
+// `rutas.subir(form)` y `alSubir(fn)`: lo mismo que en FirmarCifoCard (la app del
+// instalador sube por su ruta con sesión y enseña su SendActionOverlay).
 // Se pinta con el CSS `.in-` de MarcoInstalador (estilo «carta de pago»).
 // ─────────────────────────────────────────────────────────────────────────────
-export function SubirRiteCard({ expedienteId, info, onDone, pideMemoria = true, demo = false }) {
+export function SubirRiteCard({ expedienteId, info, onDone, pideMemoria = true, demo = false, rutas = null, alSubir = (fn) => fn() }) {
     const [memoria, setMemoria] = useState(null);
     const [certificado, setCertificado] = useState(null);
     const [uploading, setUploading] = useState(false);
@@ -41,7 +43,9 @@ export function SubirRiteCard({ expedienteId, info, onDone, pideMemoria = true, 
                 const form = new FormData();
                 if (memoria) form.append('memoria', memoria);
                 if (certificado) form.append('certificado', certificado);
-                await axios.post(`${API_URL}/rite-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+                await alSubir(() => (rutas?.subir
+                    ? rutas.subir(form)
+                    : axios.post(`${API_URL}/rite-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } })));
             }
             setMemoria(null); setCertificado(null);
             if (onDone) onDone();

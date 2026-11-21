@@ -56,6 +56,11 @@ const ABIERTAS = {
     'GET /api/geo/provincias': 'listado público de provincias',
     'GET /api/geo/municipios': 'listado público de municipios',
     'GET /api/usuarios/me': 'devuelve el propio req.user (null sin sesión)',
+    // App del instalador (fase 2): <img> y <a> no llevan la cabecera de sesión. Llave HMAC
+    // sobre el nº de la obra que caduca a las 12 h (utils/llaveObra.js) y el fichero tiene
+    // que ser de ESA obra (reforma_uploads o sus carpetas de Drive). Solo lectura.
+    'GET /api/instalador-app/thumb/:id/:driveId': 'miniatura con llave HMAC de la obra (12 h), solo ficheros de esa obra',
+    'GET /api/instalador-app/fichero/:id/:driveId': 'fichero (PDF o foto) con llave HMAC de la obra (12 h), solo de esa obra',
     'GET /api/oportunidades/test-router': 'no devuelve datos',
     // expedientes.js: públicas declaradas en PUBLIC_EXPEDIENTE_ROUTES, cada una con su token
     'POST /api/expedientes/:id/cert-ack': 'token ack_token del encargo',

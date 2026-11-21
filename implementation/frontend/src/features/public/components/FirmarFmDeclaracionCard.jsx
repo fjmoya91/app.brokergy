@@ -20,9 +20,12 @@ const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 // Una SOCIEDAD firma con el certificado de REPRESENTANTE (regla 191, como el
 // CIFO): se le dice antes de abrir Autofirma.
 //
+// `rutas` ({ pdf, subir }) y `alSubir(fn)`: como en FirmarCifoCard, para la app del
+// instalador (sus rutas con sesión y su SendActionOverlay). Sin ellas, las de siempre.
+//
 // Se pinta con el CSS `.in-` de MarcoInstalador (estilo «carta de pago»).
 // ─────────────────────────────────────────────────────────────────────────────
-export function FirmarFmDeclaracionCard({ expedienteId, info, onDone, demo = false }) {
+export function FirmarFmDeclaracionCard({ expedienteId, info, onDone, demo = false, rutas = null, alSubir = (fn) => fn() }) {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
@@ -42,7 +45,9 @@ export function FirmarFmDeclaracionCard({ expedienteId, info, onDone, demo = fal
         if (demo) { await new Promise(r => setTimeout(r, 700)); return; }
         const form = new FormData();
         form.append('documento', blob, nombre);
-        await axios.post(`${API_URL}/instalador/${expedienteId}/fm-declaracion`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await alSubir(() => (rutas?.subir
+            ? rutas.subir(form)
+            : axios.post(`${API_URL}/instalador/${expedienteId}/fm-declaracion`, form, { headers: { 'Content-Type': 'multipart/form-data' } })));
     };
 
     const handleSubmit = async () => {
@@ -61,7 +66,7 @@ export function FirmarFmDeclaracionCard({ expedienteId, info, onDone, demo = fal
         if (demo) { setUploadError('En la prueba no se abre Autofirma: aquí se abriría la declaración para firmarla con tu certificado.'); return; }
         setUploadError(null); setPreparingSign(true);
         try {
-            const { data } = await axios.get(`${API_URL}/instalador/${expedienteId}/fm-declaracion/pdf`);
+            const { data } = await (rutas?.pdf ? rutas.pdf() : axios.get(`${API_URL}/instalador/${expedienteId}/fm-declaracion/pdf`));
             if (!data?.pdf) throw new Error('No se recibió el documento');
             setSignPdfB64(data.pdf);
             setSignOpen(true);

@@ -3,7 +3,7 @@ import React from 'react';
 import { Icono, iconoDeTarea, Esqueleto, AvisoError } from '../ui/piezas';
 import { Destino } from './Tarea';
 
-export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad }) {
+export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion }) {
     const obras = datos?.obras || [];
     const r = datos?.resumen || { total: 0, en_marcha: 0, te_toca: 0, cobradas: 0 };
     // Todas las tareas de todas las obras, en una lista (las de cada obra, en su orden).
@@ -32,6 +32,7 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                             <p id="ia-toca-tit" className="ia-eyebrow n" style={{ padding: '0 12px 6px' }}>Te toca a ti</p>
                             {tareas.map((t, i) => (
                                 <Destino key={`${t.obra.id}-${t.key}`} destino={t.destino} onAbrirOportunidad={onAbrirOportunidad}
+                                    onAccion={onAbrirAccion ? (d) => onAbrirAccion(t.obra, d) : undefined}
                                     className={`ia-fila${i === 0 ? ' primera' : ''}`}>
                                     <span className="ia-baldosa"><Icono n={iconoDeTarea(t.key)} size={22} /></span>
                                     <span className="ia-fila-txt">

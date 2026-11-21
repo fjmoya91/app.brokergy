@@ -20,11 +20,14 @@ const API_URL = isProd ? '/api/public' : 'http://localhost:3000/api/public';
 //   expedienteId · info: { numero_expediente, bloqueado, rechazo }
 //   onDone(): se llama cuando el firmado ya está en nuestro poder.
 //   demo: la prueba sin API (/instalador/demo, /subir-cifo/demo): no firma ni sube.
+//   rutas: (app del instalador, fase 2) `{ pdf, subir }` en lugar de las del enlace
+//     público: `pdf()` → `{ data: { pdf } }` y `subir(form)`. Sin ellas, las de siempre.
+//   alSubir(fn): envuelve el envío (la app enseña ahí su SendActionOverlay).
 //
 // Se pinta con el CSS `.in-` de MarcoInstalador (estilo «carta de pago»): solo
-// vive dentro de esas páginas.
+// vive dentro de esas páginas (y en la app del instalador, dentro de un `.in`).
 // ─────────────────────────────────────────────────────────────────────────────
-export function FirmarCifoCard({ expedienteId, info, onDone, demo = false }) {
+export function FirmarCifoCard({ expedienteId, info, onDone, demo = false, rutas = null, alSubir = (fn) => fn() }) {
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [uploadError, setUploadError] = useState(null);
@@ -43,7 +46,9 @@ export function FirmarCifoCard({ expedienteId, info, onDone, demo = false }) {
         if (demo) { await new Promise(r => setTimeout(r, 700)); return; }
         const form = new FormData();
         form.append('cifo', blob, nombre);
-        await axios.post(`${API_URL}/cifo-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
+        await alSubir(() => (rutas?.subir
+            ? rutas.subir(form)
+            : axios.post(`${API_URL}/cifo-upload/${expedienteId}`, form, { headers: { 'Content-Type': 'multipart/form-data' } })));
     };
 
     const handleSubmit = async () => {
@@ -65,7 +70,7 @@ export function FirmarCifoCard({ expedienteId, info, onDone, demo = false }) {
         if (demo) { setUploadError('En la prueba no se abre Autofirma: aquí se abriría el CIFO para firmarlo con tu certificado.'); return; }
         setUploadError(null); setPreparingSign(true);
         try {
-            const { data } = await axios.get(`${API_URL}/cifo-upload/${expedienteId}/pdf`);
+            const { data } = await (rutas?.pdf ? rutas.pdf() : axios.get(`${API_URL}/cifo-upload/${expedienteId}/pdf`));
             if (!data?.pdf) throw new Error('No se recibió el documento');
             setSignPdfB64(data.pdf);
             setSignOpen(true);

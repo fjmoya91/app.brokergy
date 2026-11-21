@@ -20,14 +20,23 @@
  * vista previa va al lado y FIJA mientras se baja (sticky, cabe en la pantalla); en el
  * móvil, una píldora abajo con el total abre la factura en una hoja (18/11/2026).
  * /factura-obra/demo — datos de MENTIRA, sin API.
+ *
+ * EMBEBIDA en la app del instalador (fase 2, 21/11/2026): la MISMA pantalla, sin
+ * rediseñar. `api` cambia la base (`/api/instalador-app/obras/:obra/factura`, con
+ * sesión: el token lo pone el servidor y aquí no viaja ninguno), `embebida` quita
+ * el logo, el halo y la firma (los pone la cáscara) y no toca el body, y
+ * `onHecha(r)` avisa a la app cuando la factura queda guardada. `alEnviar(fn)`
+ * envuelve el guardado con el popup de envío de la app (SendActionOverlay, 29.b).
+ * Con `expedienteId="demo"` y `embebida`, el banco de la app lo simula entero.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 
 const API = '/api/public/factura-instalador';
 const DEMO = 'demo';
+const Embebida = createContext(false);
 
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const fechaCorta = (iso) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
@@ -182,6 +191,13 @@ const CSS = `
 .fo-hoja-cuerpo{overflow:auto;padding:12px 12px calc(16px + env(safe-area-inset-bottom));-webkit-overflow-scrolling:touch}
 .fo-hoja .fo-previa{background:#fff;border:1px solid rgba(20,17,17,.08)}
 @media (max-width:979px){.fo-col.ancha{padding-bottom:calc(96px + env(safe-area-inset-bottom))}}
+/* Embebida en la app del instalador: el papel, el margen y la barra de abajo son de la cáscara. */
+.fo.fo-embebida{min-height:0;background:transparent;overflow:visible}
+.fo-embebida .fo-col,.fo-embebida .fo-col.ancha{padding:0;max-width:none;margin:0}
+.fo-embebida .fo-pildora{bottom:calc(96px + env(safe-area-inset-bottom))}
+.fo-embebida .fo-modo button{min-height:44px}
+.fo-embebida .fo-link{min-height:44px;display:inline-flex;align-items:center}
+@media (min-width:1024px){.fo-embebida .fo-pildora{bottom:calc(14px + env(safe-area-inset-bottom))}}
 @media (max-width:360px){.fo-h1{font-size:32px}.fo-campos{grid-template-columns:1fr}}
 @media (min-width:980px){
   .fo-col.ancha{max-width:1080px;padding-top:40px}
@@ -205,6 +221,15 @@ const IcoCheck = (p) => <Ico {...p}><path d="M5 12.5l4.5 4.5L19 7.5" /></Ico>;
 const IcoBajar = (p) => <Ico {...p}><path d="M12 4v11" /><path d="M7 10.5l5 5 5-5" /><path d="M5 20h14" /></Ico>;
 
 function Marco({ children, numero, ancha }) {
+    const embebida = useContext(Embebida);
+    if (embebida) {
+        return (
+            <div className="fo fo-embebida">
+                <style>{CSS}</style>
+                <div className={`fo-col${ancha ? ' ancha' : ''}`}>{children}</div>
+            </div>
+        );
+    }
     return (
         <div className="fo">
             <style>{CSS}</style>
@@ -222,6 +247,7 @@ function Marco({ children, numero, ancha }) {
 }
 
 function Firma() {
+    if (useContext(Embebida)) return null;
     return (
         <footer>
             <div className="fo-firma">
@@ -300,8 +326,17 @@ function HojaPrevia({ abierta, onCerrar, total, children }) {
     );
 }
 
-export function FacturaObraView({ expedienteId, token }) {
+export function FacturaObraView({ embebida = false, ...props }) {
+    return (
+        <Embebida.Provider value={!!embebida}>
+            <FacturaObra {...props} embebida={!!embebida} />
+        </Embebida.Provider>
+    );
+}
+
+function FacturaObra({ expedienteId, token, api = null, embebida = false, onHecha = null, alEnviar = (fn) => fn() }) {
     const demo = expedienteId === DEMO;
+    const BASE = api || `${API}/${expedienteId}`;
     const [info, setInfo] = useState(null);
     const [error, setError] = useState(null);
     const [numero, setNumero] = useState('');
@@ -328,7 +363,9 @@ export function FacturaObraView({ expedienteId, token }) {
     // La vista previa va FIJA (sticky) en el PC, y un `overflow-x: hidden` en un antepasado
     // (la envoltura de App.jsx) la convierte en un scroll propio y la anula: mientras esta
     // página está abierta, ese recorte pasa a `clip`, que corta igual y no rompe el sticky.
+    // Embebida no: ahí quien hace scroll es la cáscara (`.ia-main`), que ya sostiene el sticky.
     useEffect(() => {
+        if (embebida) return undefined;
         const tocados = [];
         let e = document.querySelector('.fo')?.parentElement;
         while (e && e !== document.body) {
@@ -340,19 +377,21 @@ export function FacturaObraView({ expedienteId, token }) {
             e = e.parentElement;
         }
         return () => tocados.forEach(([el, x, y]) => { el.style.overflowX = x; el.style.overflowY = y; });
-    }, [info]);
+    }, [info, embebida]);
 
     // La página es CLARA: el body de la app es oscuro y asomaría al estirar el scroll.
     useEffect(() => {
+        if (embebida) return undefined;
         const b = document.body.style;
         const prev = { bg: b.background, color: b.color, scheme: document.documentElement.style.colorScheme };
         b.background = '#faf9f7';
         b.color = '#141111';
         document.documentElement.style.colorScheme = 'light';
         return () => { b.background = prev.bg; b.color = prev.color; document.documentElement.style.colorScheme = prev.scheme; };
-    }, []);
+    }, [embebida]);
 
-    const q = `?token=${encodeURIComponent(token || '')}`;
+    // Con `api` (la app, con sesión) no viaja ningún token: lo pone el servidor.
+    const q = api ? '' : `?token=${encodeURIComponent(token || '')}`;
 
     useEffect(() => {
         const sembrar = (d) => {
@@ -372,10 +411,10 @@ export function FacturaObraView({ expedienteId, token }) {
             setSustituir(d.facturas?.length ? '' : 'ninguna');
         };
         if (demo) { sembrar(vistaDemo()); return; }
-        axios.get(`${API}/${expedienteId}${q}`)
+        axios.get(`${BASE}${q}`)
             .then((r) => sembrar(r.data))
             .catch((e) => setError(e.response?.data?.error || 'No hemos podido abrir esta página. Escríbenos por WhatsApp y te lo pasamos.'));
-    }, [demo, expedienteId, q]);
+    }, [demo, BASE, q]);
 
     // Los conceptos solo viajan si se han cambiado: si no, el servidor usa los del consejo.
     const conceptosCambiados = !!info && (conceptos.length !== info.lineas.length || conceptos.some((t, i) => t.trim() !== info.lineas[i]?.texto));
@@ -410,7 +449,7 @@ export function FacturaObraView({ expedienteId, token }) {
         if (!info || demo || hecha) return undefined;
         const t = setTimeout(() => {
             setPreviaCargando(true);
-            axios.post(`${API}/${expedienteId}/vista-previa${q}`, cuerpo, { responseType: 'arraybuffer' })
+            axios.post(`${BASE}/vista-previa${q}`, cuerpo, { responseType: 'arraybuffer' })
                 .then((r) => {
                     setPrevia(r.data);
                     setDesborda(r.headers?.['x-factura-desborda'] === '1');
@@ -420,7 +459,7 @@ export function FacturaObraView({ expedienteId, token }) {
                 .finally(() => setPreviaCargando(false));
         }, 650);
         return () => clearTimeout(t);
-    }, [info, demo, hecha, expedienteId, q, cuerpo]);
+    }, [info, demo, hecha, BASE, q, cuerpo]);
 
     const fechaMin = info?.fechaMinima ? diaSiguiente(info.fechaMinima) : '';
     const problemas = [];
@@ -440,12 +479,18 @@ export function FacturaObraView({ expedienteId, token }) {
 
     const guardar = async () => {
         setAvisos([]);
-        if (demo) { setHecha({ numero: cuerpo.numero || '44/26', total, pdf: null, sustituida: sustituir !== 'ninguna', sustituidas: sustituir !== 'ninguna' ? ['44/26'] : [] }); return; }
+        if (demo && !embebida) { setHecha({ numero: cuerpo.numero || '44/26', total, pdf: null, sustituida: sustituir !== 'ninguna', sustituidas: sustituir !== 'ninguna' ? ['44/26'] : [] }); return; }
         setEnviando(true);
         try {
-            const r = await axios.post(`${API}/${expedienteId}/generar${q}`, cuerpo);
+            // Embebida en la app, el envío va con el popup de la app (`alEnviar`); en
+            // el banco de pruebas (`demo`) se simula sin tocar la API.
+            const r = await alEnviar(() => (demo
+                ? new Promise((ok) => setTimeout(() => ok({ data: { numero: cuerpo.numero || '44/26', total, pdf: null, sustituida: sustituir !== 'ninguna', sustituidas: sustituir !== 'ninguna' ? ['44/26'] : [] } }), 600))
+                : axios.post(`${BASE}/generar${q}`, cuerpo)));
             setHecha(r.data);
-            window.scrollTo({ top: 0, behavior: 'smooth' });
+            if (onHecha) onHecha(r.data);
+            if (embebida) document.getElementById('ia-main')?.scrollTo?.({ top: 0, behavior: 'smooth' });
+            else window.scrollTo({ top: 0, behavior: 'smooth' });
         } catch (e) {
             const d = e.response?.data || {};
             setAvisos(d.errores || [d.error || 'No se ha podido guardar. Inténtalo en un momento.']);

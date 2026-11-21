@@ -51,7 +51,7 @@ export function TarjetaObra({ obra: o, onClick, seleccionada, conAccion = true }
     );
 }
 
-export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle, onAbrirObra, onAbrirOportunidad, onNueva }) {
+export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle, onAbrirObra, onAbrirOportunidad, onAbrirAccion, onNueva }) {
     const memoria = useVistaGuardada('instalador-obras');
     const [q, setQ] = useState(memoria.q ?? '');
     const [filtro, setFiltro] = useState(FILTROS.some((f) => f.key === memoria.filtro) ? memoria.filtro : 'todas');
@@ -124,7 +124,7 @@ export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle,
                         {pc && elegida && (
                             <section className="ia-panel" aria-label={`Obra de ${elegida.cliente}`}>
                                 <PanelObra key={elegida.id} obra={elegida} cargarDetalle={cargarDetalle}
-                                    onAbrirObra={onAbrirObra} onAbrirOportunidad={onAbrirOportunidad} />
+                                    onAbrirObra={onAbrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={onAbrirAccion} />
                             </section>
                         )}
                     </div>
@@ -134,7 +134,7 @@ export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle,
 }
 
 /** La obra a la derecha, en el ordenador (prototipo «PC»). Pide su detalle. */
-function PanelObra({ obra, cargarDetalle, onAbrirObra, onAbrirOportunidad }) {
+function PanelObra({ obra, cargarDetalle, onAbrirObra, onAbrirOportunidad, onAbrirAccion }) {
     const [det, setDet] = useState(null);
     const [fallo, setFallo] = useState(false);
     useEffect(() => {
@@ -162,7 +162,8 @@ function PanelObra({ obra, cargarDetalle, onAbrirObra, onAbrirOportunidad }) {
             {t ? (
                 <div className="ia-panel-toca">
                     <div><span>Te toca a ti{o.tareas.length > 1 ? ` · ${o.tareas.length} cosas` : ''}</span><b>{t.que}</b></div>
-                    <Destino destino={t.destino} onAbrirOportunidad={onAbrirOportunidad} className="ia-btn ia-btn-pri ia-btn-peq">
+                    <Destino destino={t.destino} onAbrirOportunidad={onAbrirOportunidad}
+                        onAccion={onAbrirAccion ? (d) => onAbrirAccion(o, d) : undefined} className="ia-btn ia-btn-pri ia-btn-peq">
                         <Icono n={iconoDeTarea(t.key)} size={20} /> {VERBO[t.key] || 'Hacerlo'}
                     </Destino>
                 </div>

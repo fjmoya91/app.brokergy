@@ -51,7 +51,6 @@ const FIN = (alias, rama) => ['caeBonus', 'presupuestoTotal', 'presupuesto', 'ir
 const SEL_OP = [
     'id, id_oportunidad, ficha, created_at, updated_at, cliente_id, prescriptor_id, instalador_asociado_id',
     'dc_estado:datos_calculo->>estado', 'dc_origen:datos_calculo->>origen',
-    'upload_token:datos_calculo->>upload_token',
     'in_nombre:datos_calculo->inputs->>nombre', 'in_apellidos:datos_calculo->inputs->>apellidos',
     'in_razon_social:datos_calculo->inputs->>razon_social',
     'in_direccion:datos_calculo->inputs->>direccion', 'in_address:datos_calculo->inputs->>address',
@@ -124,18 +123,17 @@ const nombreDe = (op, cli) => {
     return (op.in_razon_social || [op.in_nombre, op.in_apellidos].filter(Boolean).join(' ')).trim();
 };
 
-/** Destino de una tarea: siempre a lo que YA existe (fase 1). */
-function destinoDe(tarea, { op, exp, conPlantilla }) {
+/**
+ * Destino de una tarea. Fase 2 (21/11/2026): TODO se hace DENTRO de la obra, con
+ * sesión — ni enlaces con token ni pestañas aparte. `accion` es la pantalla de la
+ * ficha que se abre; la factura va con su plantilla si su empresa la tiene en la app
+ * y la obra no es un RES080 (el mismo criterio que la página del consejo), y si no,
+ * se SUBE.
+ */
+function destinoDe(tarea, { op, conPlantilla }) {
     if (tarea.key === 'propuesta') return { tipo: 'oportunidad', id: op.id_oportunidad };
-    if (tarea.key === 'cifo' || tarea.key === 'rite') return { tipo: 'enlace', url: `/instalador/${exp.id}` };
-    if (tarea.key === 'factura') {
-        const tok = op.upload_token ? encodeURIComponent(op.upload_token) : null;
-        if (!tok) return null;
-        // Con su plantilla en la app (y una ficha con factura recomendada), la hace ahí;
-        // si no, la sube por su enlace de siempre.
-        if (conPlantilla && !esRes080(op)) return { tipo: 'enlace', url: `/factura-obra/${exp.id}?token=${tok}` };
-        return { tipo: 'enlace', url: `/subir-docs/${op.id}?token=${tok}&rol=instalador` };
-    }
+    if (tarea.key === 'cifo' || tarea.key === 'rite') return { tipo: 'accion', accion: tarea.key };
+    if (tarea.key === 'factura') return { tipo: 'accion', accion: 'factura', modo: conPlantilla && !esRes080(op) ? 'plantilla' : 'subir' };
     return null;
 }
 
@@ -203,7 +201,7 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
         const bono = num(f.caeBonus);
         const calle = (cli?.direccion || op.in_direccion || op.in_address || '').replace(/\s*\(en catastro[^)]*\)/i, '').trim();
         const municipio = cli?.municipio || op.in_municipio || '';
-        const tareas = p.tareas.map(t => ({ ...t, destino: destinoDe(t, { op, exp, conPlantilla }) }));
+        const tareas = p.tareas.map(t => ({ ...t, destino: destinoDe(t, { op, conPlantilla }) }));
 
         const obra = {
             id: op.id_oportunidad,
@@ -230,6 +228,8 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
             obra.cuentas = A.cuentasCliente(f);
             const presu = num(op.in_presu);
             obra.presupuesto = { importe: presu && presu > 0 ? Math.round(presu) : null, estimado: op.in_presu_est === true };
+            obra.es_instaladora = esInstaladora;
+            obra.factura_modo = conPlantilla && !esRes080(op) ? 'plantilla' : 'subir';
             if (exp) Object.assign(obra, detalleExpediente(exp, est, { esInstaladora }));
         }
         out.push(obra);
@@ -279,8 +279,17 @@ function detalleExpediente(e, est, { esInstaladora }) {
         estado: (e.fecha_reg_fin || e.seg_cee_fin === 'REGISTRADO') ? 'Registrado' : 'Lo hacemos nosotros', tono: (e.fecha_reg_fin || e.seg_cee_fin === 'REGISTRADO') ? 'ok' : 'nos',
     });
 
+    // Las facturas, para verlas desde la obra: una referencia opaca (la MISMA de
+    // `refFactura`, la del «sustituye a…» de la factura en la app), nunca el enlace.
+    const { refFactura } = require('../services/facturaInstaladorService');
+    const facturas = (Array.isArray(e.facturas) ? e.facturas : []).filter(f => f && f.drive_id).map(f => ({
+        ref: refFactura(f), numero: f.numero_factura || null, fecha: f.fecha_factura || null,
+        total: num(f.importe_con_iva), revisada: f.validada === true, hecha_en_app: !!f.generada,
+    }));
+
     return {
         factura: { n: fac.n, validadas: fac.validadas, hecha_en_app: fac.generada },
+        facturas,
         equipo, caldera_retirada: caldera,
         papeles, papeles_listos: papeles.filter(p => p.tono === 'ok').length,
         cobrado: !!e.cobro_at,
@@ -319,5 +328,307 @@ router.get('/obras/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
     }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// FASE 2 — lo que el instalador HACE en su obra, con sesión (21/11/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// REGLA — no se reescribe NADA de lo que ya hace una ruta pública. Cada acción se
+// DESPACHA, dentro del servidor, a la MISMA ruta que usa hoy el enlace por token
+// (`despachar`): firmar el CIFO y subir el RITE (`routes/public.js`), la factura en
+// su plantilla (`routes/facturaInstalador.js`), las fotos y papeles (`reforma-docs`
+// de `routes/public.js`, que llaman a `reformaUploadService` y sus RPC de merge) y el
+// presupuesto («0. PRESUPUESTO», los anexos de `routes/oportunidades.js`). Así la
+// ruta pública y la nueva no pueden decidir distinto: es el mismo código.
+//
+// Lo que añade esta capa, y nada más:
+//   · el guardián: `enforceAuth` + la beta + «la obra es suya» (404 a lo ajeno) y,
+//     para firmar, el RITE y la factura, «su empresa es la INSTALADORA» (403);
+//   · la credencial: el `upload_token` lo pone el SERVIDOR y no viaja al navegador;
+//   · la salida, SANEADA (`sanear`): fuera claves de enlace o token y cualquier
+//     cadena con un enlace de Drive (regla 1). Los ficheros, por proxy.
+//
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-2.md.
+
+const llave = require('../utils/llaveObra');
+const { estadoDesdeExpediente } = require('../utils/estadoOportunidad');
+
+// Los routers de siempre, cargados al primer uso (son grandes).
+const ROUTERS = {
+    public: () => require('./public'),
+    factura: () => require('./facturaInstalador'),
+    oportunidades: () => require('./oportunidades'),
+};
+
+const CLAVE_FUERA = /(link|links|url)$|^webViewLink$|token/i;
+const ENLACE_DRIVE = /drive\.google|docs\.google|googleusercontent/i;
+/** Quita enlaces de Drive y tokens de una respuesta, a cualquier profundidad. */
+function sanear(v) {
+    if (Array.isArray(v)) return v.map(sanear);
+    if (v && typeof v === 'object') {
+        const o = {};
+        for (const [k, x] of Object.entries(v)) if (!CLAVE_FUERA.test(k)) o[k] = sanear(x);
+        return o;
+    }
+    if (typeof v === 'string' && ENLACE_DRIVE.test(v)) return null;
+    return v;
+}
+
+/**
+ * Pasa la petición a la ruta de siempre (`ruta`, relativa a su router) con la
+ * credencial del servidor. Lo que llegue del navegador como `token` se ignora.
+ * `transformar(cuerpo)` cambia una respuesta buena antes de sanearla.
+ */
+function despachar(req, res, cual, ruta, { query = {}, transformar = null } = {}) {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(req.query || {})) {
+        if (!/token|llave/i.test(k) && v != null && typeof v !== 'object') q.set(k, String(v));
+    }
+    for (const [k, v] of Object.entries(query)) if (v != null) q.set(k, String(v));
+    const json = res.json.bind(res);
+    res.json = (cuerpo) => {
+        let c = cuerpo;
+        if (transformar && res.statusCode < 400) {
+            try { c = transformar(cuerpo); } catch (e) { console.error('[instalador-app] transformar:', e.message); res.status(500); c = { error: 'No hemos podido completar la operación.' }; }
+        }
+        return json(sanear(c));
+    };
+    const qs = q.toString();
+    req.url = ruta + (qs ? `?${qs}` : '');
+    ROUTERS[cual]()(req, res, (err) => {
+        if (err) console.error(`[instalador-app] ${cual}${ruta}:`, err.message || err);
+        if (!res.headersSent) res.status(err ? 500 : 404).json({ error: err ? 'No hemos podido completar la operación.' : 'No encontrado.' });
+    });
+}
+
+const SEL_OBRA = [
+    'id, id_oportunidad, ficha, creador_id, prescriptor_id, instalador_asociado_id, cliente_id',
+    'dc_estado:datos_calculo->>estado', 'dc_origen:datos_calculo->>origen',
+    'upload_token:datos_calculo->>upload_token',
+    'in_presu:datos_calculo->inputs->>presupuesto', 'in_presu_est:datos_calculo->inputs->presupuestoEstimado',
+].join(',');
+const SEL_EXP_OBRA = 'id, numero_expediente, estado, created_at, instalador_asociado_id, instalador_id:instalacion->>instalador_id, certificador_id:cee->>certificador_id';
+
+/** La oportunidad y su expediente (el más reciente). `user` null = sin filtro (solo la llave). */
+async function buscarObra(id, user) {
+    let q = supabase.from('oportunidades').select(SEL_OBRA);
+    q = UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id);
+    const { data, error } = await (user ? soloLoSuyo(q, user) : q).limit(1);
+    if (error) throw new BdCaida(error.message);
+    const op = data?.[0];
+    if (!op || op.dc_origen === 'migracion_xml') return null;
+    const { data: exps, error: e2 } = await supabase.from('expedientes').select(SEL_EXP_OBRA).eq('oportunidad_id', op.id);
+    if (e2) throw new BdCaida(e2.message);
+    const exp = (exps || []).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at))).pop() || null;
+    // Lo que la app no enseña (RECHAZADA) tampoco se toca por aquí.
+    if (exp ? estadoDesdeExpediente({ estado: exp.estado, cee: { certificador_id: exp.certificador_id } }) === 'RECHAZADA'
+        : !A.CAPTACION[String(op.dc_estado || 'PTE ENVIAR').toUpperCase()]) return null;
+    return { op, exp };
+}
+
+/** Guardián: la obra `:id` es SUYA. Deja `req.obra = { op, exp, esInstaladora }`. */
+async function obraSuya(req, res, next) {
+    try {
+        const id = String(req.params.id || '').slice(0, 80);
+        const obra = id ? await buscarObra(id, req.user) : null;
+        if (!obra) return res.status(404).json({ error: 'Obra no encontrada.' });
+        const { op, exp } = obra;
+        const expIns = exp ? { instalador_asociado_id: exp.instalador_asociado_id, instalacion: { instalador_id: exp.instalador_id } } : null;
+        req.obra = { op, exp, esInstaladora: !!exp && String(instaladorIdDe(expIns, op) || '') === String(req.user.prescriptor_id) };
+        next();
+    } catch (e) {
+        console.error('[instalador-app] obra:', e.message);
+        res.status(503).json(NO_DISPONIBLE);
+    }
+}
+
+/** Firmar, el RITE y la factura son de la empresa que INSTALA (no de quien trae la obra). */
+function soloInstaladora(req, res, next) {
+    if (!req.obra.exp) return res.status(404).json({ error: 'Esta obra todavía no tiene expediente.' });
+    if (!req.obra.esInstaladora) return res.status(403).json({ error: 'Esto lo hace la empresa que instala la obra.', code: 'NO_ES_INSTALADORA' });
+    next();
+}
+
+const conToken = (req, res) => {
+    const t = req.obra.op.upload_token;
+    if (!t) { res.status(409).json({ error: 'Esta obra aún no está preparada para subir documentos. Escríbenos y lo activamos.' }); return null; }
+    return t;
+};
+
+
+// ── El presupuesto («0. PRESUPUESTO») ────────────────────────────────────────
+// El vigente; el anterior queda como `…_old.pdf` y no cuenta.
+const ES_PRESUPUESTO = /^PRESUPUESTO DE LA INSTALACI[OÓ]N(_[A-Z0-9]+)?\.pdf$/;
+function presupuestoDe(ficheros, op) {
+    const lista = (Array.isArray(ficheros) ? ficheros : []).filter(f => ES_PRESUPUESTO.test(f?.name || ''));
+    const presu = num(op.in_presu);
+    return {
+        estado: lista.length ? 'subido' : op.in_presu_est === true ? 'estimado' : 'falta',
+        importe: presu && presu > 0 ? Math.round(presu) : null,
+        ficheros: lista.map(f => ({ id: f.id, nombre: f.name, fecha: f.modifiedTime || null })),
+    };
+}
+
+router.get('/obras/:id/presupuesto', enforceAuth, soloBetaInstalador, obraSuya, (req, res) =>
+    despachar(req, res, 'oportunidades', `/${encodeURIComponent(req.obra.op.id_oportunidad)}/anexos`, { transformar: (f) => presupuestoDe(f, req.obra.op) }));
+
+router.get('/obras/:id/presupuesto/:fileId', enforceAuth, soloBetaInstalador, obraSuya, (req, res) => {
+    if (!/^[\w-]{10,200}$/.test(req.params.fileId)) return res.status(404).end();
+    despachar(req, res, 'oportunidades', `/${encodeURIComponent(req.obra.op.id_oportunidad)}/anexos/${req.params.fileId}`);
+});
+
+// Subir uno nuevo: el MISMO POST de la calculadora, como presupuesto de la
+// aerotermia (el anterior pasa a `_old`). Del navegador solo se aceptan el nombre,
+// el tipo y el contenido: la carpeta la pone el servidor.
+router.post('/obras/:id/presupuesto', enforceAuth, soloBetaInstalador, obraSuya, (req, res) => {
+    const { fileName, mimeType, base64 } = req.body || {};
+    if (!base64 || !/^(application\/pdf|image\/(jpeg|png|webp|heic|heif))$/i.test(String(mimeType || ''))) {
+        return res.status(400).json({ error: 'Sube el presupuesto en PDF o en foto.' });
+    }
+    if (String(base64).length > 28 * 1024 * 1024) return res.status(413).json({ error: 'El archivo es demasiado grande (máximo 20 MB).' });
+    req.body = { fileName: String(fileName || 'presupuesto.pdf').slice(0, 120), mimeType, base64, isBudget: true, budgetSlot: 'AEROTERMIA' };
+    despachar(req, res, 'oportunidades', `/${encodeURIComponent(req.obra.op.id_oportunidad)}/anexos`, { transformar: () => ({ ok: true }) });
+});
+
+// ── La factura: en su plantilla (routes/facturaInstalador.js) o subida ───────
+const facturaA = (sub) => (req, res) => {
+    const t = conToken(req, res); if (!t) return;
+    despachar(req, res, 'factura', `/${req.obra.exp.id}${sub}`, { query: { token: t } });
+};
+router.get('/obras/:id/factura', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA(''));
+router.get('/obras/:id/factura/word', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA('/word'));
+router.post('/obras/:id/factura/vista-previa', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA('/vista-previa'));
+router.post('/obras/:id/factura/generar', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA('/generar'));
+
+// Sin plantilla (o en un RES080): la sube al apartado «Facturas», por el mismo
+// camino que el enlace (crea la fila en `documentacion.facturas` y la lee el OCR).
+router.post('/obras/:id/factura/subir', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, (req, res) => {
+    const t = conToken(req, res); if (!t) return;
+    despachar(req, res, 'public', `/reforma-docs/${req.obra.op.id}/DOC_FACTURAS/batch`, { query: { token: t } });
+});
+
+// Ver una factura de la obra: proxy del fichero, por su referencia opaca.
+router.get('/obras/:id/factura/fichero/:ref', enforceAuth, soloBetaInstalador, obraSuya, async (req, res) => {
+    try {
+        if (!req.obra.exp || !/^[0-9a-f]{12}$/.test(req.params.ref)) return res.status(404).json({ error: 'Factura no encontrada.' });
+        const { data, error } = await supabase.from('expedientes').select('facturas:documentacion->facturas').eq('id', req.obra.exp.id).maybeSingle();
+        if (error) return res.status(503).json(NO_DISPONIBLE);
+        const { refFactura } = require('../services/facturaInstaladorService');
+        const f = (Array.isArray(data?.facturas) ? data.facturas : []).find(x => x?.drive_id && refFactura(x) === req.params.ref);
+        if (!f) return res.status(404).json({ error: 'Factura no encontrada.' });
+        await servirFichero(res, f.drive_id);
+    } catch (e) {
+        console.error('[instalador-app] factura/fichero:', e.message);
+        if (!res.headersSent) res.status(502).json({ error: 'No hemos podido abrir la factura.' });
+    }
+});
+
+// ── Firmar el certificado de la instalación (CIFO) y subir el RITE ───────────
+// Lo que pinta /instalador/:id (tareas, re-firma, rechazo y bloqueo) sale de SU ruta.
+const publicoExp = (ruta) => (req, res) => despachar(req, res, 'public', ruta(req.obra.exp.id));
+router.get('/obras/:id/instalador', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/instalador/${id}`));
+router.get('/obras/:id/cifo/pdf', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/cifo-upload/${id}/pdf`));
+router.post('/obras/:id/cifo', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/cifo-upload/${id}`));
+router.post('/obras/:id/rite', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/rite-upload/${id}`));
+router.get('/obras/:id/fm-declaracion/pdf', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/instalador/${id}/fm-declaracion/pdf`));
+router.post('/obras/:id/fm-declaracion', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, publicoExp(id => `/instalador/${id}/fm-declaracion`));
+
+// ── Fotos y papeles: el canal `reforma-docs` de siempre (DocsManager) ────────
+// El gestor llama a `${base}/${id}` y `${base}/${id}/${slot}…`, así que aquí `:id`
+// es el nº de la obra. Sin validar ni rechazar: eso es del equipo interno (lo
+// decide `isStaff` dentro de la ruta pública, y aquí nunca entra el staff).
+const SLOT_RE = /^[A-Z0-9_]{2,60}$/i;
+const docsA = (sub) => (req, res) => {
+    if (req.params.slot && !SLOT_RE.test(req.params.slot)) return res.status(400).json({ error: 'Tipo de documento no válido' });
+    const t = conToken(req, res); if (!t) return;
+    const ruta = `/reforma-docs/${req.obra.op.id}${typeof sub === 'function' ? sub(req) : sub}`;
+    // La vista lleva la llave de las miniaturas (no el token): ver utils/llaveObra.js.
+    const transformar = sub === '' ? (v) => ({ ...v, llave: llave.firmarLlave(req.obra.op.id_oportunidad) }) : null;
+    despachar(req, res, 'public', ruta, { query: { token: t }, transformar });
+};
+router.get('/docs/:id', enforceAuth, soloBetaInstalador, obraSuya, docsA(''));
+router.post('/docs/:id/fin-obra', enforceAuth, soloBetaInstalador, obraSuya, (req, res) => { req.body = { ...(req.body || {}), rol: 'instalador' }; docsA('/fin-obra')(req, res); });
+router.patch('/docs/:id/ventanas', enforceAuth, soloBetaInstalador, obraSuya, docsA('/ventanas'));
+router.post('/docs/:id/:slot', enforceAuth, soloBetaInstalador, obraSuya, docsA(r => `/${r.params.slot}`));
+router.post('/docs/:id/:slot/batch', enforceAuth, soloBetaInstalador, obraSuya, docsA(r => `/${r.params.slot}/batch`));
+router.post('/docs/:id/:slot/merge-pdf', enforceAuth, soloBetaInstalador, obraSuya, docsA(r => `/${r.params.slot}/merge-pdf`));
+// Borrar: la ruta pública borra en Drive el `driveId` que le llegue. Aquí solo se
+// deja si ese fichero está apuntado en ESE apartado de ESTA obra.
+router.delete('/docs/:id/:slot', enforceAuth, soloBetaInstalador, obraSuya, async (req, res) => {
+    try {
+        if (!SLOT_RE.test(req.params.slot)) return res.status(400).json({ error: 'Tipo de documento no válido' });
+        const { driveId, name } = req.query;
+        const { data, error } = await supabase.from('oportunidades').select(`lista:datos_calculo->reforma_uploads->${req.params.slot}`).eq('id', req.obra.op.id).maybeSingle();
+        if (error) return res.status(503).json(NO_DISPONIBLE);
+        const lista = Array.isArray(data?.lista) ? data.lista : [];
+        if (!lista.some(it => (driveId ? it?.driveId === driveId : (name && it?.name === name)))) return res.status(404).json({ error: 'Archivo no encontrado' });
+        docsA(r => `/${r.params.slot}`)(req, res);
+    } catch (e) {
+        console.error('[instalador-app] borrar doc:', e.message);
+        res.status(503).json(NO_DISPONIBLE);
+    }
+});
+
+// ── Miniaturas y ficheros para <img> y <a> (sin cabecera de sesión) ──────────
+// ABIERTAS a propósito, con LLAVE: firma HMAC sobre el nº de la obra que caduca a
+// las 12 h (utils/llaveObra.js) y que solo vale para un fichero de ESA obra.
+const _suyos = new Map(); // `${op.id}|${driveId}` → true (solo lo confirmado)
+async function esFicheroDeLaObra(op, driveId) {
+    const k = `${op.id}|${driveId}`;
+    if (_suyos.has(k)) return true;
+    const { data, error } = await supabase.from('oportunidades').select('ru:datos_calculo->reforma_uploads, carpeta:datos_calculo->>drive_folder_id, carpeta2:datos_calculo->inputs->>drive_folder_id').eq('id', op.id).maybeSingle();
+    if (error) throw new BdCaida(error.message);
+    let ok = JSON.stringify(data?.ru || {}).includes(`"${driveId}"`);
+    // Drive manda (regla 20): un fichero que está en Drive y no en la BD también se
+    // enseña. Se sube por sus carpetas hasta la de la obra (4 niveles como mucho).
+    const carpeta = data?.carpeta || data?.carpeta2;
+    if (!ok && carpeta) {
+        const driveService = require('../services/driveService');
+        let ids = [driveId];
+        for (let i = 0; i < 4 && !ok && ids.length; i++) {
+            const meta = await driveService.getFileMetadata(ids[0], 'id, parents');
+            ids = meta?.parents || [];
+            ok = ids.includes(carpeta);
+        }
+    }
+    if (ok) { if (_suyos.size > 5000) _suyos.clear(); _suyos.set(k, true); }
+    return ok;
+}
+
+async function porLlave(req, res) {
+    const { id, driveId } = req.params;
+    if (!/^[\w-]{3,80}$/.test(id) || !/^[\w-]{10,200}$/.test(driveId) || !llave.verificarLlave(id, req.query.token || req.query.llave)) { res.status(403).end(); return null; }
+    const obra = await buscarObra(id, null);
+    if (!obra || !obra.op.upload_token || !(await esFicheroDeLaObra(obra.op, driveId))) { res.status(404).end(); return null; }
+    return obra;
+}
+
+const MIME_FICHERO = /^(application\/pdf|image\/(jpeg|png|webp|gif|heic|heif))$/i;
+async function servirFichero(res, driveId) {
+    const driveService = require('../services/driveService');
+    const meta = await driveService.getFileMetadata(driveId, 'id, name, mimeType');
+    if (!meta || !MIME_FICHERO.test(meta.mimeType || '')) return res.status(404).json({ error: 'Archivo no encontrado' });
+    const buf = await driveService.getFileContent(driveId);
+    if (!buf || !buf.length) return res.status(502).json({ error: 'No hemos podido abrir el archivo.' });
+    res.set({
+        'Content-Type': meta.mimeType, 'Content-Disposition': 'inline', 'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'",
+    });
+    return res.send(Buffer.from(buf));
+}
+
+router.get('/thumb/:id/:driveId', async (req, res) => {
+    try {
+        const obra = await porLlave(req, res); if (!obra) return;
+        despachar(req, res, 'public', `/reforma-thumb/${obra.op.id}/${req.params.driveId}`, { query: { token: obra.op.upload_token, sz: req.query.sz } });
+    } catch (e) { console.warn('[instalador-app] thumb:', e.message); if (!res.headersSent) res.status(e instanceof BdCaida ? 503 : 404).end(); }
+});
+
+router.get('/fichero/:id/:driveId', async (req, res) => {
+    try {
+        const obra = await porLlave(req, res); if (!obra) return;
+        await servirFichero(res, req.params.driveId);
+    } catch (e) { console.warn('[instalador-app] fichero:', e.message); if (!res.headersSent) res.status(e instanceof BdCaida ? 503 : 404).end(); }
+});
+
 module.exports = router;
-module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP };
+module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe };

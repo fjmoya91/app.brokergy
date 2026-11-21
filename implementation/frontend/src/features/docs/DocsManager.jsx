@@ -282,9 +282,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             } else {
                 // `need` viaja también al servidor: lo pedido expresamente se enseña
                 // aunque sea un apartado que normalmente se le oculta (el vídeo).
-                const res = await axios.get(`${api.public}/${idOrUuid}`, { params: { token: tokenProp, ...(need ? { need } : {}) } });
+                // Con `api.sesion` (app del instalador) la sesión va en la cabecera y
+                // el servidor pone el token: aquí no se manda ninguno.
+                const params = api.sesion ? { ...(need ? { need } : {}) } : { token: tokenProp, ...(need ? { need } : {}) };
+                const res = await axios.get(`${api.public}/${idOrUuid}`, { params });
                 uuidRef.current = idOrUuid;
-                tokenRef.current = tokenProp;
+                tokenRef.current = api.sesion ? (res.data?.llave || null) : tokenProp;
                 setInfo(res.data);
             }
             if (!silent) setError(null);
@@ -374,9 +377,18 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
     };
 
     // URL de miniatura servida por NUESTRO backend (mismo origen → siempre carga).
+    // En la app del instalador (`api.sesion`) `tokenRef` guarda la LLAVE de la obra
+    // (utils/llaveObra.js), nunca el upload_token, que no llega al navegador.
     const thumbProxy = (driveId, size) => (driveId && uuidRef.current && tokenRef.current)
-        ? `${api.thumb}/${uuidRef.current}/${driveId}?token=${tokenRef.current}&sz=${size}`
+        ? `${api.thumb}/${uuidRef.current}/${driveId}?token=${encodeURIComponent(tokenRef.current)}&sz=${size}`
         : null;
+    // `api.sinDrive`: no se construye NINGUNA dirección de Drive en el navegador
+    // (regla 1): sin el driveId, DriveImg solo prueba el proxy.
+    const dId = (driveId) => (api.sinDrive ? null : driveId);
+    // Un PDF (u otro fichero que no es foto): en la app, por el proxy con la llave.
+    const enlaceFichero = (it) => (api.sinDrive
+        ? (api.fichero && it.driveId && tokenRef.current ? `${api.fichero}/${uuidRef.current}/${it.driveId}?token=${encodeURIComponent(tokenRef.current)}` : null)
+        : (it.link || (it.driveId ? `https://drive.google.com/file/d/${it.driveId}/view` : null)));
 
     // Devuelve true si todas las subidas fueron OK (lo usa "Cambiar foto" para no
     // borrar la antigua si la nueva falló).
@@ -1097,8 +1109,8 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
             fuentes: [
                 item.localUrl,
                 grande,
-                item.driveId && `https://lh3.googleusercontent.com/d/${item.driveId}=w1600`,
-                item.driveId && `https://drive.google.com/thumbnail?id=${item.driveId}&sz=w1600`,
+                dId(item.driveId) && `https://lh3.googleusercontent.com/d/${item.driveId}=w1600`,
+                dId(item.driveId) && `https://drive.google.com/thumbnail?id=${item.driveId}&sz=w1600`,
                 item.thumb,
             ].filter(Boolean),
             // El enlace de Drive, solo para ADMIN (regla 1): este gestor lo abren
@@ -1124,11 +1136,11 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                             className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all block`}
                             title={it.motivo ? `Rechazada: ${it.motivo}` : 'Ver en grande'}
                         >
-                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={it.driveId} thumb={it.thumb} size={400} fit="cover" />
+                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 400)} driveId={dId(it.driveId)} thumb={it.thumb} size={400} fit="cover" />
                         </button>
                     ) : (
                         <a
-                            href={it.link || (it.driveId ? `https://drive.google.com/file/d/${it.driveId}/view` : '#')}
+                            href={enlaceFichero(it) || '#'}
                             target="_blank" rel="noreferrer"
                             className={`relative w-16 h-16 rounded-lg overflow-hidden border-2 ${FOTO_ESTADO_BORDER[fEstado]} hover:opacity-90 transition-all flex flex-col items-center justify-center gap-0.5 bg-white/[0.04]`}
                             title={`${it.name}${it.motivo ? ` · Rechazada: ${it.motivo}` : ''}`}
@@ -1191,13 +1203,13 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
         // Dentro de otro botón (elegir a qué ventana va una foto): solo la imagen,
         // un botón dentro de otro no es HTML válido.
         <div className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-white/15">
-            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={dId(it.driveId)} thumb={it.thumb} size={200} fit="cover" />
         </div>
     ) : (
         <button type="button"
             onClick={() => abrirVisor(slot, it)}
             className="relative w-14 h-14 shrink-0 rounded-lg overflow-hidden border border-white/15 hover:border-white/40 transition-all">
-            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={dId(it.driveId)} thumb={it.thumb} size={200} fit="cover" />
         </button>
     ));
 
@@ -1283,7 +1295,12 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         </p>
                         {textoDe(slot).help && <p className="text-white/45 text-xs mt-1 leading-snug">{textoDe(slot).help}</p>}
                         {/* RITE unificado: ya aportado como enlace en el módulo de Documentación (admin) */}
-                        {slot.externalRite && (
+                        {slot.externalRite && api.sinDrive && (
+                            <span className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">
+                                ✓ Ya lo tenemos
+                            </span>
+                        )}
+                        {slot.externalRite && !api.sinDrive && (
                             <a href={slot.externalRite.link} target="_blank" rel="noreferrer"
                                 className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all">
                                 ✓ Aportado en Documentación · Ver PDF
@@ -1292,12 +1309,16 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                         {/* Facturas que ya están en el módulo de Documentación del expediente (admin) */}
                         {slot.externalDocs?.length > 0 && (
                             <div className="mt-2 flex flex-wrap gap-2">
-                                {slot.externalDocs.map((d, i) => (
+                                {slot.externalDocs.map((d, i) => (api.sinDrive ? (
+                                    <span key={i} className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300">
+                                        ✓ {d.label}
+                                    </span>
+                                ) : (
                                     <a key={i} href={d.link} target="_blank" rel="noreferrer"
                                         className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg border border-emerald-400/30 text-emerald-300 hover:bg-emerald-400/10 transition-all">
                                         ✓ {d.label} (Documentación) · Ver
                                     </a>
-                                ))}
+                                )))}
                             </div>
                         )}
                         {/* Pedirle ESTA foto al cliente, desde la propia casilla que falta.
@@ -1554,7 +1575,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                 <button
                                     onClick={() => abrirVisor(pasoSlot, pasoSlot.items[0])}
                                     className="relative mb-4 aspect-[7/6] w-full max-w-sm mx-auto block overflow-hidden rounded-2xl border-2 border-emerald-400/40">
-                                    <DriveImg localUrl={pasoSlot.items[0].localUrl} proxySrc={thumbProxy(pasoSlot.items[0].driveId, 800)} driveId={pasoSlot.items[0].driveId} thumb={pasoSlot.items[0].thumb} size={800} fit="cover" />
+                                    <DriveImg localUrl={pasoSlot.items[0].localUrl} proxySrc={thumbProxy(pasoSlot.items[0].driveId, 800)} driveId={dId(pasoSlot.items[0].driveId)} thumb={pasoSlot.items[0].thumb} size={800} fit="cover" />
                                     <span className="absolute bottom-2 right-2 rounded-lg bg-black/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-white/90 backdrop-blur-sm">
                                         🔍 Ver en grande
                                     </span>
@@ -1614,7 +1635,7 @@ export function DocsManager({ mode = 'token', idOrUuid, token: tokenProp, embedd
                                         <button key={n}
                                             onClick={() => abrirVisor(pasoSlot, it)}
                                             className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/15">
-                                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={it.driveId} thumb={it.thumb} size={200} fit="cover" />
+                                            <DriveImg localUrl={it.localUrl} proxySrc={thumbProxy(it.driveId, 200)} driveId={dId(it.driveId)} thumb={it.thumb} size={200} fit="cover" />
                                         </button>
                                     ))}
                                     {yaTiene > 6 && <div className="w-14 h-14 rounded-lg border border-white/15 flex items-center justify-center text-[11px] font-black text-white/50">+{yaTiene - 6}</div>}

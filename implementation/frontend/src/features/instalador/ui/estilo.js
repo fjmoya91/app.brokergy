@@ -26,7 +26,9 @@ export const CSS = `
 }
 .ia-app *,.ia-app *::before,.ia-app *::after{box-sizing:border-box}
 .ia-app a{color:var(--tinta)}
-.ia-app button{font:inherit;color:inherit}
+/* :where() deja este reinicio SIN especificidad: con «.ia-app button» (0,1,1) ganaba a
+   «.ia-btn» (0,1,0) y el botón naranja salía en 400 en vez de 700 (fase 2, arreglo b). */
+:where(.ia-app) button{font:inherit;color:inherit}
 .ia-app :focus-visible{outline:3px solid var(--tinta);outline-offset:2px;border-radius:12px}
 .ia-filete{height:4px;flex:none;background:var(--filete)}
 .ia-display{font-family:'Antonio','Inter',Impact,sans-serif;font-weight:700;letter-spacing:-.005em}
@@ -142,7 +144,7 @@ export const CSS = `
 .ia-titulo h1{margin:0;font-size:36px;line-height:1.1}
 .ia-titulo>span{font-size:14px;color:var(--gris)}
 .ia-buscar{display:flex;align-items:center;gap:10px;min-height:52px;padding:0 16px;background:#fff;border:1.5px solid rgba(20,17,17,.14);border-radius:16px}
-.ia-buscar input{flex:1 1 auto;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--tinta)}
+.ia-buscar input{flex:1 1 auto;align-self:stretch;min-width:0;border:0;outline:0;background:transparent;font:inherit;font-size:16px;color:var(--tinta)}
 .ia-buscar input::-webkit-search-cancel-button{cursor:pointer}
 .ia-filtros{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin:0 -20px;padding:0 20px 2px}
 .ia-filtros::-webkit-scrollbar{display:none}
@@ -241,7 +243,35 @@ export const CSS = `
 .ia-externo{min-height:100%;background:var(--app-bg,#0c0e12);color:#fff;color-scheme:dark;font-family:var(--font-family,'Inter',system-ui,sans-serif);font-size:16px;line-height:1.5;text-align:initial}
 .theme-light .ia-externo{color:#141111;color-scheme:light}
 
+/* ── Fase 2: lo que se hace DENTRO de la obra ── */
+.ia-accion-cab{display:flex;flex-direction:column;gap:6px;padding:4px 2px 0}
+.ia-accion-cab h1{font-size:34px;line-height:1.1;margin:0}
+.ia-accion-cab p{margin:0;font-size:15px;line-height:1.5;color:var(--gris)}
+.ia-estado{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;background:var(--neutro);color:var(--gris);align-self:flex-start}
+.ia-estado.ok{background:rgba(177,209,62,.22);color:var(--verde-txt)}
+.ia-estado.tu{background:var(--ambar-bg);color:var(--ambar-txt)}
+.ia-hojas{display:flex;flex-direction:column;gap:10px;background:var(--neutro);border-radius:18px;padding:10px;min-height:120px}
+.ia-hojas canvas{display:block;width:100%;height:auto;background:#fff;border-radius:6px;box-shadow:0 1px 3px rgba(20,17,17,.12)}
+.ia-hojas-estado{display:flex;align-items:center;justify-content:center;gap:10px;min-height:120px;font-size:14.5px;color:var(--gris);text-align:center;padding:12px}
+.ia-subir{display:flex;flex-direction:column;gap:12px}
+.ia-subir input[type=file]{display:none}
+.ia-zona{display:flex;align-items:center;gap:14px;min-height:76px;padding:14px 16px;border-radius:18px;border:1.5px dashed rgba(20,17,17,.22);background:var(--crema);cursor:pointer;width:100%;text-align:left;color:var(--tinta)}
+.ia-zona.sel{border-style:solid;border-color:var(--naranja);background:#fff}
+.ia-zona b{display:block;font-size:15.5px;overflow-wrap:anywhere}
+.ia-zona span{display:block;font-size:13.5px;color:var(--gris)}
+/* Las tarjetas de las páginas públicas (FirmarCifoCard, SubirRiteCard) dentro de la
+   app: su papel crema ya lo pone la cáscara, así que el «.in» no ocupa la pantalla. */
+.in.ia-in{min-height:0;background:transparent;overflow:visible;position:static}
+.in.ia-in .in-stack{margin-top:0}
+.ia-docs{border-radius:24px;overflow:hidden}
+.ia-docs > .theme-light{background:transparent}
+/* El paso guiado del gestor trae botones de 42 px y un «Ver todos» de texto: en la app
+   (dedo, no ratón) llegan a 44 px sin tocar el gestor que usan las demás pantallas. */
+.ia-docs button.py-3{min-height:44px}
+.ia-docs button.underline{min-height:44px;display:inline-flex;align-items:center}
+
 @media (max-width:359px){
+  .ia-accion-cab h1{font-size:30px}
   .ia-hola h1{font-size:34px}.ia-titulo h1{font-size:32px}.ia-ficha-cab h1{font-size:30px}.ia-cifra{font-size:52px}
 }
 `;

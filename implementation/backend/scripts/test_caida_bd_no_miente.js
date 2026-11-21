@@ -64,6 +64,7 @@ require.cache[rutaCliente] = { id: rutaCliente, filename: rutaCliente, loaded: t
 const app = express();
 app.use('/api/usuarios', require('../routes/usuarios'));
 app.use('/api/oportunidades', require('../routes/oportunidades'));
+app.use('/api/clientes', require('../routes/clientes'));
 
 // El token importa: la caché de auth (5 min) va por token, así que para probar
 // una petición EN FRÍO —que es el caso del partner que entra durante la caída—
@@ -126,6 +127,13 @@ const comprobar = (ok, texto, detalle) => {
     comprobar(ops.status === 503 && ops.body?.code === 'OPORTUNIDADES_UNAVAILABLE',
         'la ruta responde 503 aunque la sesión sea válida',
         `status=${ops.status} body=${JSON.stringify(ops.body)}`);
+
+    // Clientes (la usa la app del instalador): antes respondía 500, y si fallaba la
+    // consulta de los clientes vinculados por oportunidad, recortaba la lista en silencio.
+    const clis = await pedir(servidor, '/api/clientes', 'token-sano');
+    comprobar(clis.status === 503 && clis.body?.code === 'CLIENTES_UNAVAILABLE',
+        'GET /api/clientes responde 503 con la BD caída, no 500 ni una lista recortada',
+        `status=${clis.status} body=${JSON.stringify(clis.body)}`);
 
     console.log('\n── LA BD VUELVE (el susto no puede sobrevivir en caché) ─────');
     estado.bdCaida = false;

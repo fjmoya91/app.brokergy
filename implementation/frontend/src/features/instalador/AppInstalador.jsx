@@ -1,4 +1,4 @@
-// ─── AppInstalador — la app nueva del INSTALADOR (fase 1: solo lectura) ──────
+// ─── AppInstalador — la app nueva del INSTALADOR (fases 1 y 2) ───────────────
 // Se monta EN LUGAR del DashboardLayout cuando `/api/usuarios/me` dice
 // `app_instalador: true` (beta por empresa, APP_INSTALADOR_BETA). Los datos llegan
 // por la prop `api` —la real va contra `/api/instalador-app`; el banco de pruebas
@@ -8,8 +8,13 @@
 // (`onNueva`), abrir una oportunidad (`onAbrirOportunidad`, que la pinta en
 // `externo` dentro de esta misma cáscara), el perfil y los modales de clientes.
 //
-// El botón «atrás» del móvil cierra la ficha abierta (una entrada en el
-// historial por ficha) en vez de sacarte de la app.
+// El botón «atrás» del móvil cierra lo último abierto (la acción dentro de la obra,
+// luego la ficha: una entrada en el historial por cada una) en vez de sacarte de la app.
+//
+// Fase 2: lo que le toca al instalador se hace DENTRO de la obra (AccionesObra.jsx),
+// con la sesión: ninguna llamada lleva token. Tras cada envío (`onCambio`) se borra
+// la caché de detalles y se vuelven a pedir la obra y la lista: la tarea sale de
+// «Te toca a ti» sin recargar.
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { EstiloInstalador, Icono } from './ui/piezas';
 import { MarcoInstalador } from './MarcoInstalador';
@@ -17,13 +22,37 @@ import { InicioView } from './views/InicioView';
 import { ObrasView } from './views/ObrasView';
 import { ObraView } from './views/ObraView';
 import { ClientesView, ClienteView } from './views/ClientesView';
+import { API_DOCS_INSTALADOR } from '../docs/docsApi';
+
+const B = '/api/instalador-app';
+const e = encodeURIComponent;
 
 /** La API de verdad (con la sesión de axios ya puesta por AuthContext). */
 export function apiReal(axios) {
+    const obra = (id) => `${B}/obras/${e(id)}`;
     return {
-        obras: () => axios.get('/api/instalador-app/obras').then((r) => r.data),
-        obra: (id) => axios.get(`/api/instalador-app/obras/${encodeURIComponent(id)}`).then((r) => r.data),
+        obras: () => axios.get(`${B}/obras`).then((r) => r.data),
+        obra: (id) => axios.get(obra(id)).then((r) => r.data),
         clientes: () => axios.get('/api/clientes').then((r) => (Array.isArray(r.data) ? r.data : [])),
+        // ── Fase 2 ──
+        presupuesto: (id) => axios.get(`${obra(id)}/presupuesto`).then((r) => r.data),
+        presupuestoPdf: (id, fileId) => axios.get(`${obra(id)}/presupuesto/${e(fileId)}`, { responseType: 'arraybuffer' }).then((r) => r.data),
+        subirPresupuesto: (id, cuerpo) => axios.post(`${obra(id)}/presupuesto`, cuerpo).then((r) => r.data),
+        facturaProps: (id) => ({ api: `${obra(id)}/factura` }),
+        subirFactura: (id, file) => {
+            const form = new FormData();
+            form.append('files', file);
+            return axios.post(`${obra(id)}/factura/subir`, form).then((r) => r.data);
+        },
+        facturaFichero: (id, ref) => axios.get(`${obra(id)}/factura/fichero/${e(ref)}`, { responseType: 'arraybuffer' }).then((r) => r.data),
+        instalador: (id) => axios.get(`${obra(id)}/instalador`).then((r) => r.data),
+        // Las rutas de las tarjetas de /instalador/:id, con sesión (devuelven lo mismo que las suyas).
+        rutas: (id, tarea) => (tarea === 'cifo'
+            ? { pdf: () => axios.get(`${obra(id)}/cifo/pdf`), subir: (form) => axios.post(`${obra(id)}/cifo`, form) }
+            : tarea === 'fm_decl'
+                ? { pdf: () => axios.get(`${obra(id)}/fm-declaracion/pdf`), subir: (form) => axios.post(`${obra(id)}/fm-declaracion`, form) }
+                : { subir: (form) => axios.post(`${obra(id)}/rite`, form) }),
+        docs: API_DOCS_INSTALADOR,
     };
 }
 
@@ -44,24 +73,30 @@ function useCarga(fn, activo, nonce) {
 export default function AppInstalador({
     api, saludo, empresa, logo,
     onNueva, onAbrirOportunidad, onPerfil, onSalir, onNuevoCliente, onCambiarCliente,
-    externo = null, onCerrarExterno, nonce = 0, seccionInicial = 'inicio',
+    externo = null, onCerrarExterno, nonce = 0, seccionInicial = 'inicio', abrirAlEmpezar = null,
 }) {
     const [seccion, setSeccion] = useState(seccionInicial);
     // Sin la ficha de la empresa todavía (o si no carga), el avatar abre una hoja
     // con lo mínimo: salir. Nunca se cierra la sesión de un toque.
     const [hoja, setHoja] = useState(false);
     const perfil = () => (onPerfil ? onPerfil() : setHoja(true));
-    const [ficha, setFicha] = useState(null); // null | { tipo: 'obra', obra } | { tipo: 'cliente', cliente }
-    const conFicha = useRef(false);
+    // null | { tipo: 'obra', obra, accion? } | { tipo: 'cliente', cliente }
+    const [ficha, setFicha] = useState(null);
+    // Cuántas entradas propias hay en el historial: 1 = la ficha, 2 = una acción dentro.
+    const pila = useRef(0);
+    // Tras un envío dentro de la obra, se vuelve a pedir todo (la recarga de quien nos aloja va aparte).
+    const [cambios, setCambios] = useState(0);
+    const recarga = nonce * 1000 + cambios;
 
     const cargarObras = useCallback(() => api.obras(), [api]);
     const cargarClientes = useCallback(() => api.clientes(), [api]);
-    const obras = useCarga(cargarObras, true, nonce);
+    const obras = useCarga(cargarObras, true, recarga);
     const clientes = useCarga(cargarClientes, seccion === 'clientes' || ficha?.tipo === 'cliente', nonce);
 
     // El detalle se pide una vez por obra y por recarga.
     const cache = useRef(new Map());
-    useEffect(() => { cache.current = new Map(); }, [nonce]);
+    useEffect(() => { cache.current = new Map(); }, [recarga]);
+    const onCambio = useCallback(() => { cache.current = new Map(); setCambios((n) => n + 1); }, []);
     const cargarDetalle = useCallback((id) => {
         if (!cache.current.has(id)) {
             const p = api.obra(id).catch((e) => { cache.current.delete(id); throw e; });
@@ -72,36 +107,62 @@ export default function AppInstalador({
 
     // ── Fichas e historial ──
     useEffect(() => {
-        const alVolver = () => {
-            if (!conFicha.current) return;
-            conFicha.current = false;
-            setFicha(null);
+        const alVolver = (ev) => {
+            if (!pila.current) return;
+            const d = Math.max(0, Math.min(pila.current - 1, Number(ev.state?.iaFicha) || 0));
+            pila.current = d;
+            setFicha((f) => (d === 0 ? null : f ? { ...f, accion: null } : f));
+            document.getElementById('ia-main')?.scrollTo?.(0, 0);
         };
         window.addEventListener('popstate', alVolver);
         return () => window.removeEventListener('popstate', alVolver);
     }, []);
+    const empujar = (n) => {
+        try { window.history.pushState({ iaFicha: n }, ''); pila.current = n; } catch { /* sin historial */ }
+    };
+    const arriba = () => document.getElementById('ia-main')?.scrollTo?.(0, 0);
     const abrirFicha = (f) => {
-        if (!conFicha.current) {
-            try { window.history.pushState({ iaFicha: true }, ''); conFicha.current = true; } catch { /* sin historial */ }
-        }
+        if (!pila.current) empujar(1);
         setFicha(f);
-        document.getElementById('ia-main')?.scrollTo?.(0, 0);
+        arriba();
     };
     const cerrarFicha = () => {
-        if (conFicha.current) { window.history.back(); return; } // el popstate la cierra
+        if (pila.current) { window.history.go(-pila.current); return; } // el popstate la cierra
         setFicha(null);
     };
+    // Una acción (firmar, subir la factura…) se abre DENTRO de su obra.
+    const abrirAccion = (o, destino) => {
+        if (!pila.current) empujar(1);
+        if (pila.current === 1) empujar(2);
+        setFicha({ tipo: 'obra', obra: o, accion: destino });
+        arriba();
+    };
+    const cerrarAccion = () => {
+        if (pila.current === 2) { window.history.back(); return; }
+        setFicha((f) => (f ? { ...f, accion: null } : f));
+        arriba();
+    };
     const ir = (s) => {
-        if (conFicha.current) { conFicha.current = false; try { window.history.back(); } catch { /* */ } }
+        if (pila.current) { const n = pila.current; pila.current = 0; try { window.history.go(-n); } catch { /* */ } }
         setFicha(null);
         setSeccion(s);
         if (externo && onCerrarExterno) onCerrarExterno();
-        document.getElementById('ia-main')?.scrollTo?.(0, 0);
+        arriba();
     };
 
     // Una obra SIN expediente se abre en la página de su oportunidad (la de
     // siempre, dentro de esta cáscara); con expediente, en la ficha nueva.
     const abrirObra = (o) => (o.con_expediente ? abrirFicha({ tipo: 'obra', obra: o }) : onAbrirOportunidad(o.id));
+
+    // El banco de pruebas entra directo en una obra (y una acción): `?obra=&accion=`.
+    const alEmpezar = useRef(abrirAlEmpezar);
+    useEffect(() => {
+        const a = alEmpezar.current;
+        const o = a && obras.datos?.obras?.find((x) => x.id === a.obra);
+        if (!o) return;
+        alEmpezar.current = null;
+        if (a.accion) abrirAccion(o, { tipo: 'accion', accion: a.accion }); else abrirObra(o);
+    }, [obras.datos]); // eslint-disable-line react-hooks/exhaustive-deps
 
     let contenido;
     if (externo) {
@@ -115,6 +176,8 @@ export default function AppInstalador({
         );
     } else if (ficha?.tipo === 'obra') {
         contenido = <ObraView key={ficha.obra.id} obraId={ficha.obra.id} base={ficha.obra} cargarDetalle={cargarDetalle}
+            api={api} nonce={recarga} accion={ficha.accion || null} onCambio={onCambio}
+            onAccion={(d) => (d ? abrirAccion(ficha.obra, d) : cerrarAccion())}
             onVolver={cerrarFicha} onAbrirOportunidad={onAbrirOportunidad} />;
     } else if (ficha?.tipo === 'cliente') {
         const actual = (clientes.datos || []).find((c) => c.id_cliente === ficha.cliente.id_cliente) || ficha.cliente;
@@ -122,13 +185,13 @@ export default function AppInstalador({
             onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva} />;
     } else if (seccion === 'obras') {
         contenido = <ObrasView datos={obras.datos} cargando={obras.cargando} error={obras.error} onReintentar={obras.reintentar}
-            cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onNueva={onNueva} />;
+            cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} onNueva={onNueva} />;
     } else if (seccion === 'clientes') {
         contenido = <ClientesView clientes={clientes.datos} obras={obras.datos?.obras} cargando={clientes.cargando} error={clientes.error}
             onReintentar={clientes.reintentar} onAbrir={(c) => abrirFicha({ tipo: 'cliente', cliente: c })} onNuevo={onNuevoCliente} />;
     } else {
         contenido = <InicioView saludo={saludo} datos={obras.datos} cargando={obras.cargando} error={obras.error}
-            onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} />;
+            onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} />;
     }
 
     const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : externo ? 'obras' : seccion;
