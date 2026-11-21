@@ -26,7 +26,7 @@ defecto, la raíz `/` serviría el `index.html` del CRM en el subdominio.
 **REGLA — el CORS de cee.brokergy.es sale de `CERTAPP_URL`, nunca de `FRONTEND_URL`**: aunque `/api/`
 cuelgue del mismo host, el navegador manda `Origin` en cada POST y el backend corta lo que no está en
 su lista. `FRONTEND_URL` es además la base de los enlaces del CRM (~55 sitios): añadirle el subdominio
-cambiaría los enlaces de los emails. [server.js](implementation/backend/server.js) suma el origen de
+cambiaría los enlaces de los emails. [utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.js) (desde el 21/11/2026; antes, `server.js`) suma el origen de
 `CERTAPP_URL` (por defecto `https://cee.brokergy.es`); en local, `CERTAPP_URL=http://localhost:5173`.
 
 **REGLA — un certificador de la app NO entra en el CRM** (2026-10-24): tiene sesión de Supabase pero

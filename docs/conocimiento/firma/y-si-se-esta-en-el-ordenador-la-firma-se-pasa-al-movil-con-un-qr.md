@@ -53,7 +53,7 @@ ofrece las demás con su propio QR. En producción manda el origen real.
   con el móvil, y en relativo se puede recorrer el proceso ENTERO desde el teléfono entrando
   por `http://<ip-lan>:5173/firmar-anexos/<id>` — que es donde se ve de verdad si los
   documentos se leen en una pantalla de seis pulgadas.
-- El **CORS** del backend rechazaba el origen de la LAN (`esLanPrivada` en `server.js`). Solo
+- El **CORS** del backend rechazaba el origen de la LAN (`esLanPrivada`, hoy en `utils/corsOrigenes.js`). Solo
   se admite fuera de producción y solo en rangos privados: en el VPS `NODE_ENV=production` y
   la lista sigue siendo `FRONTEND_URL`.
 

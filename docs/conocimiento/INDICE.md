@@ -27,14 +27,14 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
-| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 9,7 KB | 4 |
+| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 11,5 KB | 4 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 18,9 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 29,4 KB | 11 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
-| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 11,2 KB | 2 |
+| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 12,8 KB | 3 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,7 KB | 6 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 42,0 KB | 19 |
 
@@ -318,6 +318,8 @@
 - **231** → `.claude/rules/instalador-app.md` — En la app del instalador, cada acción de la obra se DESPACHA a la ruta de siempre; la app solo pone el guard…
 - **232** → `.claude/rules/transversal-backend.md` — Un enlace PÚBLICO con token vale para UNA obra: solo borra y solo sirve ficheros de ESA obra, y lo que escri…
 - **233** → `.claude/rules/instalador-app.md` — «Tu página web»: el instalador PROPONE fotos y textos para su ficha de brokergy.es y nada sale en público ha…
+- **234** → `.claude/rules/instalador-app.md` — El CATÁLOGO del instalador: BROKERGY carga la tarifa del distribuidor por Excel en DOS pasos y sin crear mod…
+- **235** → `.claude/rules/transversal-backend.md` — El CORS de la API lo decide `crearCors` ([utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.j…
 
 ## Documentos por área
 
@@ -714,6 +716,7 @@
 
 ### transversal-backend
 
+- `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md` — El CORS: la web pública (brokergy.es) lee el marketplace, y un origen desconocido recibe un 403, no un 500 (2026-11-21)
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md` — Rutas públicas por enlace: el token vale para UNA obra, y lo que escriben en `documentacion` va clave a clave (2026-11-21)
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md` — Tabla nueva en Supabase: GRANT a `service_role` y RLS en el mismo script (2026-10-20)
 

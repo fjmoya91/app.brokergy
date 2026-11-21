@@ -3,7 +3,6 @@ const dotenv = require('dotenv');
 dotenv.config({ path: path.join(__dirname, '.env') });
 
 const express = require('express');
-const cors = require('cors');
 const compression = require('compression');
 const catastroRoutes = require('./routes/catastro');
 const oportunidadesRoutes = require('./routes/oportunidades');
@@ -28,34 +27,10 @@ process.on('unhandledRejection', (reason) => {
 });
 
 // Middleware
-const allowedOrigins = (process.env.FRONTEND_URL || 'https://app.brokergy.es')
-  .split(',')
-  .map(s => s.trim());
-// La app de certificadores (cee.brokergy.es) llama a esta MISMA API desde su
-// origen. No va en FRONTEND_URL, que es además la base de los enlaces del CRM:
-// su origen sale de CERTAPP_URL (mismo valor por defecto que services/certapp/comun.js).
-try {
-  const origenCertapp = new URL(String(process.env.CERTAPP_URL || 'https://cee.brokergy.es').trim()).origin;
-  if (!allowedOrigins.includes(origenCertapp)) allowedOrigins.push(origenCertapp);
-} catch { /* CERTAPP_URL mal escrita: la app de certificadores no podrá llamar a la API */ }
-// En DESARROLLO se admite también la IP privada del propio equipo: es como se
-// abre la hoja de firma desde el móvil (`/firma-movil/:token`), que no puede
-// entrar por `localhost` porque ahí localhost es el teléfono. Solo rangos
-// privados (RFC 1918) y solo cuando NO estamos en producción — en el VPS esto
-// no aplica y la lista sigue siendo `FRONTEND_URL`.
-const esLanPrivada = (origin) => process.env.NODE_ENV !== 'production'
-  && /^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin);
-
-app.use(cors({
-  origin: (origin, cb) => {
-    // Allow server-to-server calls (no origin) and localhost in dev
-    if (!origin || allowedOrigins.includes(origin) || /^http:\/\/localhost/.test(origin) || esLanPrivada(origin)) {
-      return cb(null, true);
-    }
-    cb(new Error(`CORS: origin ${origin} not allowed`));
-  },
-  credentials: true,
-}));
+// CORS: la app (FRONTEND_URL + CERTAPP_URL + localhost + LAN en desarrollo) como siempre; brokergy.es solo
+// GET sin credenciales a /api/public/marketplace/…; un origen desconocido, 403 (antes un 500). Ver
+// utils/corsOrigenes.js y test_cors_web.js.
+app.use(require('./utils/corsOrigenes').crearCors());
 // Compresión gzip para todas las respuestas JSON — reduce payload ~80-90% en listados
 // con datos_calculo/cee/instalacion (JSONB grandes). Mejora drásticamente tiempos de carga.
 app.use(compression({

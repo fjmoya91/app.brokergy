@@ -27,10 +27,13 @@ Guardianes de las rutas, Supabase (JSONB, listados, escrituras atómicas) y BD c
 
 232. **Un enlace PÚBLICO con token vale para UNA obra: solo borra y solo sirve ficheros de ESA obra, y lo que escribe en `documentacion` va clave a clave** (2026-11-21). `DELETE /api/public/reforma-docs/:uuid/:slot` borraba en Drive cualquier `driveId` y `GET /reforma-thumb/:uuid/:driveId` servía cualquiera, con el token de su obra. Ahora el borrado exige que el fichero esté en `reforma_uploads[slot]` de ESA obra o —Drive manda, regla 20— directamente en su subcarpeta con el nombre de ESE apartado (`ficheroBorrableDelApartado`); si no, **404 sin tocar nada**. La miniatura, que esté en su `reforma_uploads` o cuelgue de su carpeta a ≤ 4 niveles: fuente ÚNICA con `/thumb` y `/fichero` de la app del instalador, [utils/ficheroDeLaObra.js](implementation/backend/utils/ficheroDeLaObra.js). BD caída, 503 (38). **`cifo-upload` y `rite-upload` no reescriben `documentacion` entera** (leían, subían a Drive unos segundos y pisaban lo escrito entretanto): [utils/documentacionAtomica.js](implementation/backend/utils/documentacionAtomica.js) anula SIEMPRE el visto bueno y el rechazo (`merge_expediente_doc_json`, `{campo: null}`), anota la nueva versión en el historial y escribe cada escalar con `set_expediente_doc_field` (TEXTO: `cert_cifo_rev` se lee con `Number()`), **el enlace el último**; si una RPC falla, 500. `rite-upload` ya no abre sus PDF a «cualquiera con el enlace» y ninguna de las dos devuelve enlaces de Drive al instalador (regla 1). `POST /cifo-upload/:id` y `GET /instalador/:id` siguen **sin token a propósito**: el UUID del expediente es la credencial de toda la familia del instalador (el porqué, en el documento). ⚠️ `cee-directo-thumb` sigue sirviendo cualquier `driveId`. Tras tocarlo: `node implementation/backend/scripts/test_rutas_publicas_obra.js`, `test_app_instalador_no_regresion.js`, `test_docs_fotos.js` y `auditar_rutas_sin_guardian.js`. Ver "Rutas públicas por enlace: el token vale para UNA obra".
 
+235. **El CORS de la API lo decide `crearCors` ([utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.js)); brokergy.es solo LEE el marketplace y un origen desconocido recibe 403, nunca 500** (2026-11-21). El `origin` de `cors` hacía `cb(new Error(…))` y, sin manejador de errores, Express contestaba **500** a la web pública. Ahora: la app (sin `Origin`, `FRONTEND_URL`, `CERTAPP_URL`, `localhost`, LAN privada fuera de producción) como siempre, con credenciales; `https://brokergy.es` y `https://www.brokergy.es`, **solo GET/HEAD (y su preflight), sin credenciales y solo bajo `/api/public/marketplace/`**; cualquier otro caso, **403 `ORIGEN_NO_PERMITIDO`** sin cabeceras de CORS y sin ejecutar la ruta (no `cb(null,false)`: un POST simple llegaría a ejecutarse). La web no va en `FRONTEND_URL` (base de los enlaces y daría credenciales). Siempre `Vary: Origin`. Tras tocarlo: `node implementation/backend/scripts/test_cors_web.js` y `auditar_rutas_sin_guardian.js`. Ver "El CORS: la web pública (brokergy.es) lee el marketplace".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
+- `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md` — El CORS: la web pública (brokergy.es) lee el marketplace, y un origen desconocido recibe un 403, no un 500 (2026-11-21) · 2,9 KB
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md` — Rutas públicas por enlace: el token vale para UNA obra, y lo que escriben en `documentacion` va clave a clave (2026-11-21) · 7,5 KB
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md` — Tabla nueva en Supabase: GRANT a `service_role` y RLS en el mismo script (2026-10-20) · 3,3 KB
 
@@ -38,6 +41,9 @@ Guardianes de las rutas, Supabase (JSONB, listados, escrituras atómicas) y BD c
 
 > Son sus frases en negrita, copiadas tal cual. El porqué y los casos, en el documento.
 
+- `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md`
+  - **REGLA — el CORS de la API lo decide `crearCors` en [utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.js),
+y brokergy.es solo LEE el marketplace: GET/HEAD, sin credenciales y solo bajo `/api/public/marketplace/`.**
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md`
   - **REGLA — con un token válido solo se borra un fichero de ESA obra y de ESE apartado; si no, 404 y
 no se toca ni Drive ni `reforma_uploads`.**
