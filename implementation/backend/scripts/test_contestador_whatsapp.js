@@ -304,8 +304,35 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(inv.startsWith(base.prompt) && inv.includes('pregunta si cobrará 5.000 €'), 'la investigación parte del mismo prompt y del motivo');
     ok(inv.includes('node /x/contestador_consultas.js oportunidad') && inv.includes('C:/r/docs/conocimiento/consultas'), 'lleva la orden de consultas y el manual (consultas/ primero)');
     ok(/"borrador"/.test(inv) && /"aviso"/.test(inv) && /"fuentes"/.test(inv) && /SIMULACIÓN/.test(inv), 'pide borrador, aviso y fuentes, y explica el dinero de la simulación');
-    const invFran = cerebro.construirInvestigacion(base.prompt, { motivo: 'se queja: no se fía', para_fran: true }, { orden: 'o', docs: 'd' });
-    ok(invFran.includes('PREPARA LA RESPUESTA PARA FRAN') && invFran.includes('SIEMPRE "ESCALAR"') && !invFran.includes('INVESTIGA Y CONTESTA'), 'lo de Fran: no se contesta, se le prepara el borrador');
+    ok(inv.includes('REVÍSALO Y CONTÉSTALE TÚ') && inv.includes('TU RESPUESTA SE ENVÍA TAL CUAL') && /"por"/.test(inv)
+        && ['PRECIO', 'QUEJA', 'PERSONA', 'FIRMA', 'AJENO', 'SIN_DATOS'].every(x => inv.includes(`"${x}"`)), 'la segunda vuelta contesta ella, y solo escala con un motivo de la lista cerrada');
+    // Lo que SOLO contesta Fran en persona (persona o programa, una llamada): para_fran y SIN acuse.
+    const invFran = cerebro.construirInvestigacion(base.prompt, { motivo: 'pregunta si es un programa', para_fran: true, acuse: '' }, { orden: 'o', docs: 'd' });
+    ok(invFran.includes('PREPARA LA RESPUESTA PARA FRAN') && invFran.includes('SIEMPRE "ESCALAR"') && !invFran.includes('CONTÉSTALE TÚ'), 'persona o programa: no se contesta, se le prepara el borrador');
+    // Lo demás que el cerebro rápido da por «de Fran» (cambiar el titular, una queja…) lo vuelve a mirar el investigador.
+    const invQuiza = cerebro.construirInvestigacion(base.prompt, { motivo: 'pide cambiar el titular', para_fran: true, acuse: 'Lo del cambio de titular lo miro y te digo.' }, { orden: 'o', docs: 'd' });
+    ok(invQuiza.includes('CONTÉSTALE TÚ') && invQuiza.includes('El primer vistazo lo dio por «de Fran»') && !invQuiza.includes('SIEMPRE "ESCALAR"'), 'lo marcado para_fran con acuse se vuelve a mirar: casi nunca es de Fran');
+
+    // Lo investigado SE ENVÍA (21/11/2026): 34 acuses «lo miro y te digo» en tres días y ningún «C12».
+    const rapida = { motivo: 'pregunta a nombre de quién va la factura', para_fran: false, acuse: 'Lo de la factura lo miro y te digo.' };
+    const sinPor = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', acuse: 'Lo de la factura lo confirmo y te digo.', borrador: 'Buenos días, Cristina. La factura va a nombre del titular.\n\nCon su NIF y la dirección de la obra.', motivo: 'no hay ficha' }, rapida);
+    ok(sinPor.accion === 'RESPONDER' && sinPor.parrafos.length === 2 && sinPor.acuse === '' && sinPor._enviado_sin_fran === true && /no hay ficha/.test(sinPor.aviso),
+        'un ESCALAR sin motivo de la lista: su borrador ES la respuesta, y a Fran le llega por qué se lo iba a pasar');
+    const rSinPor = cerebro.rematar(sinPor, ENLACES);
+    ok(rSinPor.accion === 'RESPONDER' && rSinPor.mensaje.startsWith('Buenos días, Cristina.') && rSinPor.acuse === '' && rSinPor.aviso, 'rematado: se envía el texto, sin acuse y con aviso');
+    const conPor = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', por: 'precio', acuse: 'Lo de pagar tú los RITE lo miro y te digo.', borrador: 'x', motivo: 'm' }, rapida);
+    ok(conPor.accion === 'ESCALAR' && cerebro.rematar(conPor, ENLACES).por === 'PRECIO', 'con un motivo de la lista (un precio nuestro) se queda en Fran, con su acuse');
+    ok(cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', por: 'OTRA_COSA', borrador: '', acuse: 'a', motivo: 'm' }, rapida).accion === 'ESCALAR', 'sin borrador no hay nada que enviar: sigue en Fran');
+    ok(cerebro.rematar({ accion: 'ESCALAR', por: 'inventado', parrafos: [], motivo: 'm' }, ENLACES).por === '', 'un «por» que no es de la lista no cuenta');
+    const yaResp = { accion: 'RESPONDER', parrafos: ['Hola'], aviso: '' };
+    ok(cerebro.decisionTrasInvestigar(yaResp, rapida) === yaResp && cerebro.decisionTrasInvestigar({ accion: 'CALLAR' }, rapida).accion === 'CALLAR', 'lo que el investigador contesta o calla no se toca');
+    // Persona o programa / solo una llamada: diga lo que diga el investigador, a Fran y sin acuse.
+    const persona = { motivo: 'pregunta si es un programa', para_fran: true, acuse: '' };
+    ok(cerebro.soloDeFran(persona) && !cerebro.soloDeFran(rapida) && !cerebro.soloDeFran({ para_fran: true, acuse: 'Lo miro' }), 'solo de Fran = para_fran sin acuse');
+    const p1 = cerebro.decisionTrasInvestigar({ accion: 'RESPONDER', parrafos: ['Soy Fran, claro.'], motivo: 'm' }, persona);
+    const p2 = cerebro.decisionTrasInvestigar({ accion: 'ESCALAR', acuse: 'Te llamo', borrador: 'b', motivo: 'm' }, persona);
+    ok(p1.accion === 'ESCALAR' && p1.acuse === '' && p1.borrador === 'Soy Fran, claro.' && p2.accion === 'ESCALAR' && p2.acuse === '' && p2.por === 'PERSONA',
+        'persona o programa: nunca se contesta solo y nunca lleva acuse');
     // Las rutas viajan como MARCAS (el prompt se arma en el backend, Claude corre en el asistente)
     // y las pone quien lanza Claude: las mismas de su permiso de Bash y de su --add-dir.
     const cc = require('./contestador_claude');

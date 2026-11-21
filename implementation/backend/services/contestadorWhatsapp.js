@@ -32,8 +32,8 @@
 //    le contesta, contesta el contestador (Fran, 10/11/2026: «aunque yo conteste, no estés
 //    24 h sin contestar; si yo estoy un tiempo, sé proactivo, no llego a todo»). Y si ya
 //    le ha contestado alguien, no se contesta.
-//  - Topes en el CÓDIGO: 3 respuestas al día por chat (un bot del otro lado no puede
-//    hacer ping-pong), 40 al día en total, 2 por vuelta; pasado un tope, a Fran.
+//  - Topes en el CÓDIGO: 6 respuestas al día por chat (un bot del otro lado no puede
+//    hacer ping-pong), 120 al día en total, 2 por vuelta; pasado un tope, a Fran.
 //  - Certificadores: no se les contesta (un técnico se lleva como a un compañero). Un
 //    número que escribe por PRIMERA vez es de la bienvenida. Un cliente sin obra viva, no.
 //  - INSTALADORES SIN OBRA (16/11/2026): un partner instalador sin obra en marcha, o un
@@ -54,8 +54,12 @@ const CFG = {
     silencioMin: num(process.env.CONTESTADOR_SILENCIO_MIN, 15),
     // Con una persona de la casa en el chat: lo que se le deja para contestar ella antes de relevarla.
     relevoMin: num(process.env.CONTESTADOR_RELEVO_MIN, 30),
-    topeDia: num(process.env.CONTESTADOR_TOPE_DIA, 40),
-    topeChatDia: num(process.env.CONTESTADOR_TOPE_CHAT_DIA, 3),
+    // Eran 40 al día y 3 por chat: del 18 al 20/11/2026 el tope del día se comió 20 respuestas ya
+    // redactadas y buenas («tope del día (40) alcanzado (iba a decirle: …)»), que acabaron en Fran y
+    // sin enviar; y los acuses también cuentan. Siguen siendo un freno (un bucle con el bot de otro
+    // WhatsApp Business, un día desbocado), no el ritmo normal.
+    topeDia: num(process.env.CONTESTADOR_TOPE_DIA, 120),
+    topeChatDia: num(process.env.CONTESTADOR_TOPE_CHAT_DIA, 6),
     porVuelta: num(process.env.CONTESTADOR_POR_VUELTA, 2),
     diasContexto: 10,
     // Lo suyo más antiguo que esto ya no se contesta solo: a Fran. Era 48 h y mandaba a Fran,
@@ -366,6 +370,10 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     if ((b.fuentes || []).length) detalle.fuentes = b.fuentes;
     if (b.borrador) detalle.borrador = b.borrador;
     if (b.aviso) detalle.aviso = b.aviso;
+    // Lo que el investigador iba a pasar a Fran sin ser suyo y se ha contestado con su borrador
+    // (21/11/2026), y por qué se queda en Fran lo que sí se queda: para medirlo.
+    if (b.enviado_sin_fran) detalle.enviado_sin_fran = true;
+    if (b.por) detalle.por = b.por;
     // Ya hay algo ESCALADO en este chat con su acuse y sin contestar: lo nuevo se le AÑADE, sin
     // otro acuse (17/11/2026, 26RES060_OP376: cuatro acuses casi iguales en una hora).
     const abierto = b.accion === 'ESCALAR' ? await escaladoAbiertoDe(conv.chatId, ms) : null;

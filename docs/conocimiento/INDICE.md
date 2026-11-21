@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 50,4 KB | 16 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 52,2 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
@@ -35,7 +35,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 8,6 KB | 1 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,7 KB | 6 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 40,3 KB | 19 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 41,5 KB | 19 |
 
 ## Reglas numeradas → dónde están
 
@@ -312,6 +312,7 @@
 - **226** → `.claude/rules/lotes.md` — El ahorro verificado se GUARDA SOLO en su expediente al llegar el informe, y si sale MENOR que lo declarado …
 - **227** → `.claude/rules/lotes.md` — La CUENTA del S.O. en el REGISTRO NACIONAL DE CAE se guarda TAL CUAL la certifica el MITECO y se CRUZA en ca…
 - **228** → `.claude/rules/instalador-rite.md` — La Memoria RITE declara el ACS con `cambio_acs` VACÍO si hay un equipo de ACS declarado, y el backend y el g…
+- **229** → `.claude/rules/calculo.md` — Un BLOQUE se certifica ENTERO y su vía FM es la del edificio CENTRALIZADO, venga de donde venga el cálculo
 
 ## Documentos por área
 
