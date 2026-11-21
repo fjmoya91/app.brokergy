@@ -21,6 +21,8 @@ const { nombreSaludo } = require('../services/recordatorios');
 // Una versión NUEVA de un documento ya validado lo devuelve a "pendiente de revisar".
 const { invalidarValidacionDocs, invalidarValidacionCee, rechazoBorrador, refirmaPendiente, BORRADORES_CLIENTE } = require('../utils/docValidacion');
 const { requireAuth, isStaff } = require('../middleware/auth');
+const { esFicheroDeLaObra, BdNoDisponible } = require('../utils/ficheroDeLaObra');
+const { escribirSubidaEnDocumentacion } = require('../utils/documentacionAtomica');
 const {
     imageToPdf, imagesToPdf, dniTwoSidesOnePage, readRepresentanteDni, mergePdfs,
 } = require('../utils/dniAnexo');
@@ -1217,9 +1219,15 @@ router.get('/reforma-thumb/:uuid/:driveId', async (req, res) => {
     try {
         const { uuid, driveId } = req.params;
         const { token, sz } = req.query;
-        const { data: opp } = await supabase
-            .from('oportunidades').select('datos_calculo').eq('id', uuid).maybeSingle();
-        if (!opp || opp.datos_calculo?.upload_token !== token) return res.status(403).end();
+        // Solo el token, no `datos_calculo` entero: esta ruta se pide una vez por foto.
+        const { data: opp, error } = await supabase
+            .from('oportunidades').select('upload_token:datos_calculo->>upload_token').eq('id', uuid).maybeSingle();
+        if (error) return res.status(503).end();
+        if (!opp || !token || opp.upload_token !== token) return res.status(403).end();
+        // El token vale para ESTA obra: solo se sirve un fichero suyo (en su
+        // `reforma_uploads` o colgando de su carpeta de Drive, regla 20). Fuente única
+        // con la app del instalador: utils/ficheroDeLaObra.js.
+        if (!(await esFicheroDeLaObra(uuid, driveId))) return res.status(404).end();
 
         const size = /^\d+$/.test(String(sz)) ? String(sz) : '400';
         const img = await miniaturaDeDrive(driveId, size);
@@ -1229,7 +1237,7 @@ router.get('/reforma-thumb/:uuid/:driveId', async (req, res) => {
         return res.send(img.buf);
     } catch (e) {
         console.error('[reforma-thumb]', e.message);
-        return res.status(500).end();
+        return res.status(e instanceof BdNoDisponible ? 503 : 500).end();
     }
 });
 
@@ -1506,6 +1514,47 @@ router.post('/reforma-docs/:uuid/:slot/batch', requireAuth, uploadDocsArray, asy
     }
 });
 
+/**
+ * ¿Se puede borrar este fichero desde el enlace de ESTA obra y ESTE apartado?
+ * Devuelve `{ driveId }` (el fichero a borrar; null si solo está apuntado en la BD) o
+ * null si no es suyo → 404 sin tocar nada.
+ *
+ * Es suyo si:
+ *   · está apuntado en `reforma_uploads[slot]` de esta obra (por `driveId`, o por
+ *     nombre si no llega) — el mismo criterio que el DELETE de la app del instalador;
+ *   · o, porque Drive manda (regla 20) y el gestor enseña también lo que está en Drive
+ *     y no en la BD, es un fichero de la subcarpeta de ESTA obra que corresponde a ESTE
+ *     apartado por su nombre (`fileBelongsToSlot`; en «Otros existentes», cualquier
+ *     fichero suelto de la subcarpeta, que es lo que ese cajón enseña).
+ */
+async function ficheroBorrableDelApartado({ dc, slot, list, driveId, name }) {
+    const enLista = list.find(it => (driveId ? it?.driveId === driveId : (name && it?.name === name)));
+    if (enLista && (driveId || enLista.driveId)) return { driveId: driveId || enLista.driveId };
+
+    const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
+    if (!folderId) return enLista ? { driveId: null } : null;
+    const esFacturas = slot === 'DOC_FACTURAS';
+    const subName = esFacturas ? reformaUploadService.SUBCARPETA_FACTURAS : reformaUploadService.SUBCARPETA_DOCS;
+    const subId = esFacturas
+        ? await driveService.findSubfolderByNameNormalized(folderId, subName)
+        : await driveService.findSubfolderByName(folderId, subName);
+    if (!subId) return enLista ? { driveId: null } : null;
+    const deEsteApartado = (nombre) => !!enLista || slot === 'OTROS_EXISTENTES' || reformaUploadService.fileBelongsToSlot(nombre, slot);
+
+    if (driveId) {
+        const meta = await driveService.getFileMetadata(driveId, 'id, name, mimeType, parents');
+        const ok = meta && (meta.parents || []).includes(subId)
+            && meta.mimeType !== 'application/vnd.google-apps.folder'
+            && deEsteApartado(meta.name);
+        return ok ? { driveId } : null;
+    }
+    // Solo nombre (navegadores antiguos): se busca en la subcarpeta de ESTA obra.
+    if (!deEsteApartado(name)) return null;
+    const fid = await driveService.findFileByName(subId, name);
+    if (fid) return { driveId: fid };
+    return enLista ? { driveId: null } : null;
+}
+
 // DELETE /api/public/reforma-docs/:uuid/:slot?token=&name= → borra un fichero del slot
 router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
     try {
@@ -1513,11 +1562,12 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
         const { token, name, driveId } = req.query;
         if (!name && !driveId) return res.status(400).json({ error: 'Falta el identificador del archivo' });
 
-        const { data: opp } = await supabase
+        const { data: opp, error: oppErr } = await supabase
             .from('oportunidades')
             .select('id, datos_calculo')
             .eq('id', uuid)
             .maybeSingle();
+        if (oppErr) return res.status(503).json({ error: 'No hemos podido comprobarlo ahora. Inténtalo en un momento.' });
         if (!opp) return res.status(404).json({ error: 'Solicitud no encontrada' });
         if (!token || opp.datos_calculo?.upload_token !== token) {
             return res.status(403).json({ error: 'Enlace inválido o caducado.' });
@@ -1526,25 +1576,13 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
         const dc = opp.datos_calculo || {};
         const list = Array.isArray(dc.reforma_uploads?.[slot]) ? dc.reforma_uploads[slot] : [];
 
-        // Borrar de Drive: por driveId (exacto, evita ambigüedad con nombres duplicados);
-        // si no llega, fallback a la entrada de BD por nombre o búsqueda en la subcarpeta.
+        // El token vale para ESTA obra y ESTE apartado: solo se borra un fichero que es
+        // suyo. Antes se borraba en Drive cualquier `driveId` que llegara.
+        const objetivo = await ficheroBorrableDelApartado({ dc, slot, list, driveId, name });
+        if (!objetivo) return res.status(404).json({ error: 'Archivo no encontrado' });
+
         try {
-            const targetId = driveId || list.find(it => it.name === name)?.driveId;
-            if (targetId) {
-                await driveService.deleteFile(targetId);
-            } else if (name) {
-                const folderId = dc.drive_folder_id || dc.inputs?.drive_folder_id;
-                if (folderId) {
-                    const subName = slot === 'DOC_FACTURAS'
-                        ? reformaUploadService.SUBCARPETA_FACTURAS
-                        : reformaUploadService.SUBCARPETA_DOCS;
-                    const subId = slot === 'DOC_FACTURAS'
-                        ? await driveService.findSubfolderByNameNormalized(folderId, subName)
-                        : await driveService.findSubfolderByName(folderId, subName);
-                    const fid = subId ? await driveService.findFileByName(subId, name) : null;
-                    if (fid) await driveService.deleteFile(fid);
-                }
-            }
+            if (objetivo.driveId) await driveService.deleteFile(objetivo.driveId);
         } catch (dErr) { console.warn('[Reforma] DELETE drive:', dErr.message); }
 
         // Filtrar la entrada de la BD por driveId (preferente) o por nombre
@@ -1564,8 +1602,7 @@ router.delete('/reforma-docs/:uuid/:slot', async (req, res) => {
         if (slot === 'DOC_RITE') reformaUploadService.syncRiteToExpediente(uuid, remaining[0]?.link || null);
         // FACTURAS unificadas: al borrar una factura del popup, quítala del expediente.
         if (slot === 'DOC_FACTURAS') {
-            const rid = driveId || list.find(it => it.name === name)?.driveId;
-            reformaUploadService.removeFacturaFromExpediente(uuid, rid);
+            reformaUploadService.removeFacturaFromExpediente(uuid, objetivo.driveId);
         }
 
         return res.json({ success: true, slot, count: remaining.length, estado: remaining.length ? 'subida' : 'pendiente' });
@@ -2545,7 +2582,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
 
         const { data: exp, error } = await supabase
             .from('expedientes')
-            .select('id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
+            .select('id, oportunidad_id, numero_expediente, documentacion, instalacion, clientes!cliente_id(nombre_razon_social, apellidos), oportunidades!oportunidad_id(datos_calculo)')
             .eq('id', expedienteId)
             .maybeSingle();
 
@@ -2563,6 +2600,7 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
             if (pres?.razon_social) instaladorNombre = pres.razon_social;
         }
 
+        if (!exp.oportunidad_id) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
         const driveFolderId = exp.oportunidades?.drive_folder_id || exp.oportunidades?.datos_calculo?.drive_folder_id || exp.oportunidades?.datos_calculo?.inputs?.drive_folder_id;
         if (!driveFolderId) return res.status(400).json({ error: 'El expediente no tiene carpeta Drive configurada' });
 
@@ -2575,7 +2613,8 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         // y el nuevo se nombra `_rev{N}_fdo` (N = nº de versión). La 1ª firma va sin
         // sufijo (`_fdo`). Cubre: 1ª firma, re-firma por requerimiento y sucesivas.
         const prevSignedLink = currentDoc.cert_cifo_signed_link;
-        const prevRev = currentDoc.cert_cifo_rev || (prevSignedLink ? 1 : 0);
+        // `cert_cifo_rev` se guarda como TEXTO (`set_expediente_doc_field`): «2», no 2.
+        const prevRev = Number(currentDoc.cert_cifo_rev) || (prevSignedLink ? 1 : 0);
         let rev, fileName;
         if (prevSignedLink) {
             rev = prevRev + 1;
@@ -2600,20 +2639,24 @@ router.post('/cifo-upload/:expedienteId', upload.single('cifo'), async (req, res
         // `cert_cifo_signed_at` sella CUÁNDO nos llegó esta firma y
         // `cert_cifo_refirma_at: null` cierra la petición de volver a firmar: si se
         // quedara puesta, la página seguiría pidiendo una firma que ya tenemos.
-        const docActualizado = invalidarValidacionDocs(
-            {
-                ...currentDoc,
-                cert_cifo_signed_link: fileLink,
+        //
+        // Clave a clave con las RPC atómicas (regla 19), nunca `update({ documentacion })`
+        // con la copia leída ANTES de subir a Drive: lo que otra ruta escribiera en esos
+        // segundos se perdía. El enlace va el último. Ver utils/documentacionAtomica.js.
+        await escribirSubidaEnDocumentacion(supabase, {
+            expedienteId, oportunidadId: exp.oportunidad_id, docLeida: currentDoc,
+            subidos: ['cert_cifo_signed_link'],
+            quien: { usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR', origen: 'subida por el instalador' },
+            campos: {
                 cert_cifo_rev: rev,
                 cert_cifo_signed_at: new Date().toISOString(),
                 cert_cifo_refirma_at: null,
+                cert_cifo_signed_link: fileLink,
             },
-            'cert_cifo_signed_link',
-            { usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR', origen: 'subida por el instalador' }
-        );
-        await supabase.from('expedientes').update({ documentacion: docActualizado }).eq('id', expedienteId);
+        });
 
-        res.json({ success: true, fileLink, rev });
+        // Sin el enlace de Drive: esta respuesta la lee el instalador (regla 1).
+        res.json({ success: true, rev });
 
         // Si contesta una INEXACTITUD abierta, va solo a su E{n} y al requerimiento.
         setImmediate(() => require('../services/inexactitudesLote')
@@ -2927,40 +2970,45 @@ router.post('/rite-upload/:expedienteId',
                 return driveService.saveFileToFolder(subfolderId, name, mime, buffer);
             };
 
-            let docUpdate = { ...(exp.documentacion || {}) };
+            // Sin `setFolderPublic` (2026-11-21): nada de la app lee estos PDF por un
+            // enlace anónimo —el OCR, el portal, el gestor y el paquete van por la API de
+            // Drive con su id— y la subida del CIFO, gemela de esta, nunca lo hizo. Abrir
+            // el fichero a «cualquiera con el enlace» solo servía para que el enlace,
+            // que viajaba en la respuesta, se pudiera abrir fuera (regla 1).
+            const camposDoc = {};
             const camposSubidos = [];
             let memoriaLink = null;
             let certLink = null;
             if (memFile) {
                 const r = await saveReplacing(`${numexpte} - Memoria RITE_fdo.pdf`, memFile.mimetype, memFile.buffer);
                 memoriaLink = r?.link || null;
-                docUpdate.cert_rite_signed_link = memoriaLink;
+                camposDoc.cert_rite_signed_link = memoriaLink;
                 camposSubidos.push('cert_rite_signed_link');
-                if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
             if (certFile) {
                 const r = await saveReplacing(`${numexpte} - Certificado RITE.pdf`, certFile.mimetype, certFile.buffer);
                 certLink = r?.link || null;
-                docUpdate.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
                 // Sello de "este enlace ES el certificado, no la Memoria". En los
                 // expedientes anteriores al 27/08/2026 no hay `memoria_rite_docx_link`
                 // y la heurística de `esMemoriaRiteEnDriveLink` tomaba por la Memoria
                 // lo que acababa de subir el instalador: el certificado no constaba y
                 // el CIFO seguía bloqueado. Aquí no hay que adivinar nada.
-                docUpdate.cert_rite_aportado_at = new Date().toISOString();
+                camposDoc.cert_rite_aportado_at = new Date().toISOString();
+                camposDoc.cert_rite_drive_link = certLink;   // → slot "Certificado RITE" (validación del agente)
                 camposSubidos.push('cert_rite_drive_link');
-                if (r?.id) try { await driveService.setFolderPublic(r.id, 'reader'); } catch (e) {}
             }
 
-            // Versión nueva ⇒ el slot vuelve a ámbar aunque ya estuviera validado.
-            docUpdate = invalidarValidacionDocs(docUpdate, camposSubidos, {
-                usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR',
-                origen: 'subida por el instalador',
+            // Clave a clave con las RPC atómicas (regla 19): versión nueva ⇒ el slot
+            // vuelve a ámbar aunque ya estuviera validado, y el enlace va el último.
+            const docUpdate = { ...(exp.documentacion || {}), ...camposDoc };
+            await escribirSubidaEnDocumentacion(supabase, {
+                expedienteId, oportunidadId: exp.oportunidad_id, docLeida: exp.documentacion || {},
+                subidos: camposSubidos, campos: camposDoc,
+                quien: { usuario: instaladorNombre !== '—' ? instaladorNombre : 'INSTALADOR', origen: 'subida por el instalador' },
             });
 
-            await supabase.from('expedientes').update({ documentacion: docUpdate }).eq('id', expedienteId);
-
-            res.json({ success: true, memoria_link: memoriaLink, certificado_link: certLink });
+            // Sin los enlaces de Drive: esta respuesta la lee el instalador (regla 1).
+            res.json({ success: true, memoria: !!memoriaLink, certificado: !!certLink });
 
             // Notificación al admin (background)
             setImmediate(async () => {

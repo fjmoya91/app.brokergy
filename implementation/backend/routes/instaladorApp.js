@@ -571,27 +571,13 @@ router.delete('/docs/:id/:slot', enforceAuth, soloBetaInstalador, obraSuya, asyn
 // ── Miniaturas y ficheros para <img> y <a> (sin cabecera de sesión) ──────────
 // ABIERTAS a propósito, con LLAVE: firma HMAC sobre el nº de la obra que caduca a
 // las 12 h (utils/llaveObra.js) y que solo vale para un fichero de ESA obra.
-const _suyos = new Map(); // `${op.id}|${driveId}` → true (solo lo confirmado)
+// El criterio es el MISMO que el de la ruta pública `reforma-thumb`: fuente única en
+// utils/ficheroDeLaObra.js (en su `reforma_uploads` o, porque Drive manda —regla 20—,
+// colgando de su carpeta a ≤ 4 niveles).
+const ficheroDeLaObra = require('../utils/ficheroDeLaObra');
 async function esFicheroDeLaObra(op, driveId) {
-    const k = `${op.id}|${driveId}`;
-    if (_suyos.has(k)) return true;
-    const { data, error } = await supabase.from('oportunidades').select('ru:datos_calculo->reforma_uploads, carpeta:datos_calculo->>drive_folder_id, carpeta2:datos_calculo->inputs->>drive_folder_id').eq('id', op.id).maybeSingle();
-    if (error) throw new BdCaida(error.message);
-    let ok = JSON.stringify(data?.ru || {}).includes(`"${driveId}"`);
-    // Drive manda (regla 20): un fichero que está en Drive y no en la BD también se
-    // enseña. Se sube por sus carpetas hasta la de la obra (4 niveles como mucho).
-    const carpeta = data?.carpeta || data?.carpeta2;
-    if (!ok && carpeta) {
-        const driveService = require('../services/driveService');
-        let ids = [driveId];
-        for (let i = 0; i < 4 && !ok && ids.length; i++) {
-            const meta = await driveService.getFileMetadata(ids[0], 'id, parents');
-            ids = meta?.parents || [];
-            ok = ids.includes(carpeta);
-        }
-    }
-    if (ok) { if (_suyos.size > 5000) _suyos.clear(); _suyos.set(k, true); }
-    return ok;
+    try { return await ficheroDeLaObra.esFicheroDeLaObra(op.id, driveId); }
+    catch (e) { if (e instanceof ficheroDeLaObra.BdNoDisponible) throw new BdCaida(e.message); throw e; }
 }
 
 async function porLlave(req, res) {

@@ -85,7 +85,17 @@ function qb(table) {
 const fakeSb = {
   auth: { getUser: async (t) => ({ data: { user: { id: 'a-' + t } }, error: null }) },
   from: qb,
-  rpc: (fn, args) => { SIDE.rpc.push({ fn, args }); return Promise.resolve({ data: null, error: null }); },
+  // Las dos RPC de `documentacion` (regla 19), aplicadas en memoria como en Postgres.
+  rpc: (fn, args) => {
+    SIDE.rpc.push({ fn, args: JSON.parse(JSON.stringify(args)) });
+    if (fn === 'set_expediente_doc_field') {
+      for (const e of DB.expedientes.filter(x => x.oportunidad_id === args.p_oportunidad_id)) e.documentacion = { ...(e.documentacion || {}), [args.p_field]: args.p_value };
+    } else if (fn === 'merge_expediente_doc_json') {
+      const e = DB.expedientes.find(x => x.id === args.p_expediente_id);
+      if (e) { const d = e.documentacion || {}; const prev = d[args.p_field]; e.documentacion = { ...d, [args.p_field]: Array.isArray(args.p_value) ? [...(Array.isArray(prev) ? prev : [{}]), ...args.p_value] : { ...(prev || {}), ...args.p_value } }; }
+    }
+    return Promise.resolve({ data: null, error: null });
+  },
 };
 // ── Drive, WhatsApp, email y lo que corre en segundo plano: simulados y apuntados ──
 const fakeDrive = {
@@ -165,10 +175,15 @@ const srv = app.listen(0, async () => {
 
   console.log('— Escribir (todo simulado en memoria)');
   const cifo = await mismo('Subir el CIFO firmado', 'POST', `/api/public/cifo-upload/${EXP}`, '/api/instalador-app/obras/26RES060_OP950/cifo', { form: [['cifo', 'cifo_fdo.pdf']] });
-  ok(cifo.db.cert_cifo_signed_link && cifo.db.cert_cifo_rev === 1 && cifo.side.drive.some(d => d[0] === 'guardar' && /Certificado_CIFO_fdo\.pdf$/.test(d[2]) && d[1].endsWith('6. ANEXOS CAE')),
+  ok(cifo.db.cert_cifo_signed_link && Number(cifo.db.cert_cifo_rev) === 1 && cifo.side.drive.some(d => d[0] === 'guardar' && /Certificado_CIFO_fdo\.pdf$/.test(d[2]) && d[1].endsWith('6. ANEXOS CAE')),
     'el CIFO firmado se guarda en «6. ANEXOS CAE» con su nombre y sella la versión', JSON.stringify(cifo.db));
+  ok(cifo.side.updates.every(u => !('documentacion' in u.payload)) && cifo.side.rpc.some(r => r.fn === 'set_expediente_doc_field' && r.args.p_field === 'cert_cifo_signed_link'),
+    'el CIFO se escribe clave a clave por RPC, sin reescribir `documentacion` (regla 19)', JSON.stringify(cifo.side.updates));
   const rite = await mismo('Subir el certificado RITE', 'POST', `/api/public/rite-upload/${EXP}`, '/api/instalador-app/obras/26RES060_OP950/rite', { form: [['certificado', 'rite.pdf']] });
   ok(rite.db.cert_rite_drive_link && rite.side.drive.some(d => d[0] === 'guardar' && d[1].endsWith('7. LEGALIZACION RITE')), 'el RITE va a «7. LEGALIZACION RITE»', JSON.stringify(rite.side.drive));
+  ok(rite.side.updates.every(u => !('documentacion' in u.payload)) && !rite.side.drive.some(d => d[0] === 'publico'),
+    'el RITE se escribe por RPC y su fichero NO se abre a «cualquiera con el enlace»', JSON.stringify(rite.side));
+  ok(!/drive\.google/.test(JSON.stringify([cifo.js, rite.js])), 'las respuestas públicas del CIFO y del RITE no llevan enlaces de Drive (regla 1)', JSON.stringify([cifo.js, rite.js]));
 
   console.log('— El enlace público sigue exigiendo lo de siempre');
   const sinTok = await llamar('GET', `/api/public/factura-instalador/${EXP}`);
