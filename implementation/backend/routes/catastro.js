@@ -5,7 +5,7 @@ const catastroService = require('../services/catastroService');
 const googleService = require('../services/googleService');
 const catastroMonitor = require('../services/catastroMonitor');
 const catastroCache = require('../services/catastroCache');
-const { requireAuth, staffOnly } = require('../middleware/auth');
+const { enforceAuth } = require('../middleware/auth');
 
 // POST /ocr-rc — leer la REFERENCIA CATASTRAL de una foto o captura.
 //
@@ -14,16 +14,19 @@ const { requireAuth, staffOnly } = require('../middleware/auth');
 // es donde se pierde el tiempo y donde se cuela la errata que luego parece que la
 // vivienda no existe en el Catastro.
 //
-// staffOnly: detrás hay una llamada de pago a un LLM, así que este endpoint NO se
+// enforceAuth: detrás hay una llamada de pago a un LLM, así que este endpoint NO se
 // abre al visitante anónimo de la landing (la misma razón por la que el botón solo
-// se pinta en el flujo interno). No consulta al Catastro: devuelve lo leído y es el
-// buscador de siempre quien busca.
+// se pinta en el flujo interno). Sí al PARTNER con sesión (2026-11-16): «Nueva
+// simulación» es la misma pantalla para él, y con `staffOnly` el botón le daba un 403
+// a quien más lo necesita (el instalador con la foto del IBI en el móvil). No devuelve
+// nada de nadie: solo lo que pone la imagen que sube. No consulta al Catastro:
+// devuelve lo leído y es el buscador de siempre quien busca.
 const uploadImagenes = multer({
     storage: multer.memoryStorage(),
     limits: { fileSize: 15 * 1024 * 1024, files: 5 },
 });
 
-router.post('/ocr-rc', requireAuth, staffOnly, (req, res, next) => {
+router.post('/ocr-rc', enforceAuth, (req, res, next) => {
     uploadImagenes.array('files', 5)(req, res, (err) => {
         if (err) {
             if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'La imagen supera los 15 MB.' });

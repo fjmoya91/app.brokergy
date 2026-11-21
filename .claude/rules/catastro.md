@@ -31,7 +31,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/catastro/enlace-a-la-ficha-de-la-sede.md` — El ENLACE a la ficha del inmueble en la Sede (2026-10-07) · 4,9 KB
-- `docs/conocimiento/catastro/modulo-catastro-cambios-profundos.md` — Módulo Catastro — Cambios profundos (2026-05-19) · 11,3 KB
+- `docs/conocimiento/catastro/modulo-catastro-cambios-profundos.md` — Módulo Catastro — Cambios profundos (2026-05-19) · 11,7 KB
 
 ## Las «REGLA —» que contienen esos documentos
 

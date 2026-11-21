@@ -26,10 +26,14 @@ const MARGIN_KEYS_DEEP = [
 //  - `via_fm`: el bono por la vía vigente y por la del FACTOR MULTIPLICADOR, con
 //    su elegibilidad (logic/viaFm.js). Es una comparativa interna para decidir
 //    por qué ficha se pide; a un partner no se le enseña (regla 155).
-//  - `caePriceClientFm` / `cae_client_rate_fm`: el precio CAE propio de esa vía,
-//    si ADMIN tecleó uno distinto del general. Al guardar quien no es ADMIN, se
-//    RESTAURA el que había (routes/oportunidades.js), como el margen.
-const SOLO_ADMIN_DEEP = ['via_fm', 'caePriceClientFm', 'cae_client_rate_fm'];
+//
+// `caePriceClientFm` / `cae_client_rate_fm` (el precio CAE AL CLIENTE de la vía FM)
+// YA NO se quitan (16/11/2026, Fran: «que el partner vea el factor multiplicador»):
+// son la misma clase de dato que `caePriceClient`, que el partner ya ve, y sin ellos
+// su navegador calculaba el «hasta X €» de la vía FM al precio general. Siguen siendo
+// de SOLO LECTURA para quien no es ADMIN: al guardar se RESTAURA el de la BD
+// (`viaFmAlGuardar`). Lo que sigue oculto es `via_fm` (los MWh y la comparativa).
+const SOLO_ADMIN_DEEP = ['via_fm'];
 const MARGIN_DEEP_SET = new Set([...MARGIN_KEYS_DEEP, ...SOLO_ADMIN_DEEP]);
 
 // Compatibilidad con quien ya importaba estos nombres.

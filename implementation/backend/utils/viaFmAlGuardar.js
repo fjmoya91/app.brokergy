@@ -66,10 +66,40 @@ async function viaFmAlGuardar(datosCalculo, existente, esAdmin) {
  */
 function conservarRutaFm(inputs, existente) {
     if (!inputs || typeof inputs !== 'object') return inputs;
-    const bd = existente?.datos_calculo?.inputs?.ruta_fm;
+    const bdInputs = existente?.datos_calculo?.inputs || {};
+    const bd = bdInputs.ruta_fm;
     if (typeof bd === 'boolean') inputs.ruta_fm = bd;
     else delete inputs.ruta_fm;
+    // Y la PETICIÓN del partner de ir por la vía FM (`inputs.peticion_fm`, 16/11/2026):
+    // la escribe solo `POST /:id/peticion-fm`. Se queda la de la BD tal cual (sin pasar
+    // por `normalizeData`, que la pondría en mayúsculas).
+    if (bdInputs.peticion_fm && typeof bdInputs.peticion_fm === 'object') inputs.peticion_fm = bdInputs.peticion_fm;
+    else delete inputs.peticion_fm;
+    // Igual la de «Solicitar revisión» (`POST /:id/peticion-revision`, 17/11/2026).
+    if (bdInputs.peticion_revision && typeof bdInputs.peticion_revision === 'object') inputs.peticion_revision = bdInputs.peticion_revision;
+    else delete inputs.peticion_revision;
     return inputs;
+}
+
+// ── La PETICIÓN del partner: «Pedir que vaya por FM» (16/11/2026) ────────────────
+// Las cinco preguntas del popup «¿Cumple tu cliente el factor multiplicador?». Cada
+// respuesta es true (sí), false (no) o null (no lo sé): booleanos, para que
+// `normalizeData` no tenga nada que poner en mayúsculas.
+const PREGUNTAS_FM = ['caldera', 'habitual', 'aerotermia', 'fechas', 'retirada'];
+
+function limpiarRespuestasFm(r) {
+    const o = r && typeof r === 'object' ? r : {};
+    const out = {};
+    for (const k of PREGUNTAS_FM) out[k] = o[k] === true ? true : o[k] === false ? false : null;
+    return out;
+}
+
+/** 'cumple' (todo sí) · 'no_cumple' (algún no) · 'faltan' (alguna sin saber). */
+function veredictoFm(respuestas) {
+    const v = PREGUNTAS_FM.map(k => respuestas?.[k]);
+    if (v.some(x => x === false)) return 'no_cumple';
+    if (v.every(x => x === true)) return 'cumple';
+    return 'faltan';
 }
 
 /**
@@ -93,4 +123,5 @@ async function viaFmDe(datosCalculo) {
     return viaFmDesdeDatosCalculo(datosCalculo || {});
 }
 
-module.exports = { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe, PRECIO_FM_KEYS };
+module.exports = { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe, PRECIO_FM_KEYS,
+    PREGUNTAS_FM, limpiarRespuestasFm, veredictoFm };

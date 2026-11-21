@@ -300,6 +300,9 @@ async function atender() {
             await supabase.from('cee_ia_trabajos')
                 .update({ ...fin, terminado_at: new Date().toISOString(), latido_at: new Date().toISOString() })
                 .eq('id', t.id);
+            // Si era la «Solicitar revisión» de un partner y no ha quedado resuelta
+            // (el CEE no llegó a cargarse), se avisa a administración.
+            await req('./services/revisionPartner').trasTrabajo(t, fin).catch(() => {});
             ocupado = null;
             console.log(`\n✓ ${t.clave}: ${fin.estado}${fin.resultado ? ` · ${fin.resultado.coste_usd} $` : ''}${fin.error ? ` · ${fin.error}` : ''}`);
             if (una) return;

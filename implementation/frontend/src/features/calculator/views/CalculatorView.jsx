@@ -2,6 +2,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CalculatorForm } from '../components/CalculatorForm';
 import { ResultsPanel } from '../components/ResultsPanel';
+import { ResumenOportunidadPartner } from '../components/partner/ResumenOportunidadPartner';
+import { CorregirDatosPartner } from '../components/partner/CorregirDatosPartner';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { useAuth } from '../../../context/AuthContext';
 import {
     calculateDemand,
@@ -231,6 +234,16 @@ const getEstadoColor = (estado) => {
 export function CalculatorView({ initialData, onBack, onNavigate }) {
     const { user } = useAuth();
     const [showBrokergy, setShowBrokergy] = useState(false);
+    // El PARTNER ve SU página de la oportunidad (ResumenOportunidadPartner, piel
+    // «carta de pago», 16/11/2026) en vez de la barra oscura del bono y de Resultados.
+    // Sus botones se los pide al ResultsPanel (`accionExterna`), que sigue montado sin
+    // pintarse (`vistaPartner`): es quien obliga a guardar antes y abre los popups. El
+    // formulario va plegado y se abre con «Corregir datos».
+    const esPartner = !!user && !getRoleFlags(user).isStaff;
+    const [accionPartner, setAccionPartner] = useState(null);
+    const [verFormulario, setVerFormulario] = useState(false);
+    const [sinGuardar, setSinGuardar] = useState(false);
+    const formularioRef = useRef(null);
 
     // Flag que indica si el usuario ha modificado algún input desde la carga inicial.
     // Mientras sea false y haya un resultado guardado, no recalculamos para preservar el estado guardado.
@@ -1169,9 +1182,9 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
     };
 
     return (
-        <div className={`animate-fade-in text-white ${result?.financials?.caeBonus !== undefined ? 'md:pt-28 max-md:pb-28' : ''}`}>
-            {/* Sticky Bono Badge */}
-            {result?.financials?.caeBonus !== undefined && (() => {
+        <div className={`animate-fade-in text-white ${result?.financials?.caeBonus !== undefined ? (esPartner ? 'max-md:pb-28' : 'md:pt-28 max-md:pb-28') : ''}`}>
+            {/* Sticky Bono Badge (equipo interno; el partner tiene su resumen) */}
+            {!esPartner && result?.financials?.caeBonus !== undefined && (() => {
                 const showDual = inputs.isReforma && result.financialsRes080;
                 const showOnlyReforma = showDual && inputs?.comparativaReforma === false;
                 const fmt = (n) => new Intl.NumberFormat('es-ES', { minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
@@ -1373,7 +1386,8 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                     )}
                 </div>
 
-                <div className="hidden md:flex items-center gap-3">
+                {/* El partner tiene el nº y el estado en su página: aquí sobraban. */}
+                <div className={esPartner && result ? 'hidden' : 'hidden md:flex items-center gap-3'}>
                     {prescriptor && (() => {
                         const { titulo, sub } = nombrePartner(prescriptor);
                         return (
@@ -1460,26 +1474,74 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                 </div>
             </div>
 
+            {esPartner && result?.financials?.caeBonus !== undefined && (
+                <ResumenOportunidadPartner
+                    inputs={inputs}
+                    result={result}
+                    expediente={associatedExpediente}
+                    sinGuardar={sinGuardar}
+                    formularioAbierto={verFormulario}
+                    onAccion={(accion) => setAccionPartner({ accion, n: Date.now() })}
+                    onCorregir={() => {
+                        setVerFormulario(true);
+                        setTimeout(() => formularioRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+                    }}
+                />
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
-                {/* Columna Izquierda: Formulario (en móvil va DEBAJO de Resultados) */}
-                <div className="lg:col-span-7 order-2 lg:order-1">
-                    <CalculatorForm
-                        inputs={inputs}
-                        onInputChange={setInputs}
-                        onCalculate={handleCalculate}
-                        result={result}
-                        showBrokergy={showBrokergy}
-                        demandMode={inputs.demandMode}
-                        onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
-                        xmlDemandData={inputs.xmlDemandData}
-                        onOpenEmisionesTable={() => setShowEficiencia(true)}
-                        dbModels={dbModels}
-                    />
+                {/* Columna Izquierda: Formulario (en móvil va DEBAJO de Resultados).
+                    Del partner: a todo lo ancho y plegado hasta «Corregir datos»; sin
+                    resultado todavía, abierto (es lo único que hay que hacer). */}
+                <div
+                    ref={formularioRef}
+                    className={esPartner
+                        ? `lg:col-span-12 scroll-mt-6${verFormulario || !result ? '' : ' hidden'}`
+                        : 'lg:col-span-7 order-2 lg:order-1 scroll-mt-6'}
+                >
+                    {(() => {
+                        const formulario = (
+                            <CalculatorForm
+                                inputs={inputs}
+                                onInputChange={setInputs}
+                                onCalculate={handleCalculate}
+                                result={result}
+                                showBrokergy={showBrokergy}
+                                demandMode={inputs.demandMode}
+                                onDemandModeChange={(mode) => setInputs(prev => ({...prev, demandMode: mode}))}
+                                xmlDemandData={inputs.xmlDemandData}
+                                onOpenEmisionesTable={() => setShowEficiencia(true)}
+                                dbModels={dbModels}
+                            />
+                        );
+                        if (!esPartner) return formulario;
+                        // Del partner, en su tarjeta clara (regla 217): «Listo» lo pliega y
+                        // vuelve arriba; «Guardar cambios» es el guardar de siempre.
+                        const conCifras = result?.financials?.caeBonus !== undefined;
+                        return (
+                            <CorregirDatosPartner
+                                conCifras={conCifras}
+                                sinGuardar={sinGuardar}
+                                onListo={conCifras ? () => {
+                                    // el que scrollea es el <main> del layout, no la ventana
+                                    const scroller = formularioRef.current?.closest('main') || window;
+                                    setVerFormulario(false);
+                                    scroller.scrollTo({ top: 0, behavior: 'smooth' });
+                                } : null}
+                                onGuardar={conCifras ? () => setAccionPartner({ accion: 'guardar', n: Date.now() }) : null}
+                            >
+                                {formulario}
+                            </CorregirDatosPartner>
+                        );
+                    })()}
                 </div>
 
-                {/* Columna Derecha: Resultados (en móvil va ARRIBA — acciones accesibles primero) */}
-                <div className="lg:col-span-5 order-1 lg:order-2">
+                {/* Columna Derecha: Resultados (en móvil va ARRIBA — acciones accesibles primero).
+                    Del partner no se pinta: solo sus popups (`vistaPartner`). */}
+                <div className={esPartner ? 'contents' : 'lg:col-span-5 order-1 lg:order-2'}>
                     <ResultsPanel
+                        vistaPartner={esPartner}
+                        onSinGuardar={esPartner ? setSinGuardar : null}
                         result={result}
                         inputs={inputs}
                         onInputChange={setInputs}
@@ -1489,6 +1551,7 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                         onOpenRes060FCDetail={() => setShowRes060FCDetail(true)}
                         onOpenRes080FMDetail={() => setShowRes080FMDetail(true)}
                         expedienteAsociado={associatedExpediente}
+                        accionExterna={esPartner ? accionPartner : null}
                         onAcceptOpportunity={['ENVIADA', 'PTE ENVIAR', 'PRE-ACEPTADO'].includes(inputs.estado?.toUpperCase()) && !associatedExpediente ? () => {
                             setManualExpNumber('');
                             setIsManualMode(false);

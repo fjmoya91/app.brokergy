@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import axios from 'axios';
 import { useAuth } from '../../../context/AuthContext';
 import { useModal } from '../../../context/ModalContext';
@@ -255,7 +255,11 @@ function ResultCard({ title, value, unit, subtext, color = 'cyan' }) {
     );
 }
 
-export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail, onOpenRes080FMDetail, expedienteAsociado = null }) {
+// `vistaPartner`: el PARTNER no ve este panel (su página es ResumenOportunidadPartner,
+// que ya enseña las mismas cifras); solo se montan los popups que su página abre con
+// `accionExterna` (propuesta, guardar, fotos, historial, tabla). `onSinGuardar` le
+// cuenta si hay cambios sin guardar, para que su página lo diga.
+export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAcceptOpportunity, showEficiencia, setShowEficiencia, onOpenRes060FCDetail, onOpenRes080FMDetail, expedienteAsociado = null, accionExterna = null, vistaPartner = false, onSinGuardar = null }) {
     const { user } = useAuth();
     const { showAlert } = useModal();
     const [showComparative, setShowComparative] = React.useState(false);
@@ -505,6 +509,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
 
     const currentSnapshot = getSnapshot(inputs, result);
     const isDirty = lastSavedSnapshot !== null && currentSnapshot !== null && lastSavedSnapshot !== currentSnapshot;
+    useEffect(() => { onSinGuardar?.(isDirty); }, [isDirty]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // ─── Presupuestos leídos de los PDF adjuntos a la propuesta ─────────────────
     // La propuesta se abre SIEMPRE con la oportunidad guardada (requestAction). Si
@@ -641,7 +646,19 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
         abrirEnvolvente: () => abrirEnvolvente(),
     });
 
+    // La acción pedida desde FUERA del panel: el botón «Ver y enviar la propuesta»
+    // del resumen del PARTNER (ResumenOportunidadPartner). Pasa por `requestAction`
+    // (vía ref: se declara más abajo, tras el `return` sin resultado), así que obliga
+    // a guardar igual que el botón de aquí. `n` cambia en cada pulsación.
+    const requestActionRef = useRef(null);
+    const nAccionExterna = accionExterna?.n;
+    useEffect(() => {
+        if (nAccionExterna && accionExterna?.accion) requestActionRef.current?.(accionExterna.accion);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [nAccionExterna]);
+
     if (!result) {
+        if (vistaPartner) return null;
         return (
             <SectionCard className="h-full flex flex-col items-center justify-center text-center p-8 opacity-50">
                 <div className="w-16 h-16 bg-slate-800 rounded-full flex items-center justify-center mb-4">
@@ -729,6 +746,12 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     const runAction = (action) => {
         if (action === 'pdf') setShowProposal(true);
         else if (action === 'tabla') handleGenerateImagePopup();
+        else if (action === 'guardar') setShowSaveOpportunity(true);
+        else if (action === 'historial') setShowHistorial(true);
+        else if (action === 'fotos') {
+            if (!inputs.id_oportunidad) setShowSaveOpportunity(true);
+            else setShowSubirFotos(true);
+        }
     };
 
     // Garantiza que la oportunidad quede registrada en el CRM antes de generar el
@@ -739,6 +762,8 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
     // ya existe pero está "sucia", saltarse el guardado en el modal de guardia.
     // El PARTNER nunca puede saltárselo: así siempre registra la oportunidad.
     const requestAction = (action) => {
+        // Guardar, fotos e historial no producen un entregable: no exigen guardar antes.
+        if (['guardar', 'fotos', 'historial'].includes(action)) { runAction(action); return; }
         if (isAdmin && action === 'tabla') { runAction(action); return; }
         const needsSave = !inputs.id_oportunidad || isDirty;
         if (!needsSave) { runAction(action); return; }
@@ -752,10 +777,13 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
             setShowPdfGuard(true);
         }
     };
+    // Para la acción pedida desde fuera (efecto de más arriba, antes del `return`).
+    requestActionRef.current = requestAction;
 
 
     return (
         <div className="relative h-full">
+            {!vistaPartner && (
             <SectionCard className="h-full flex flex-col">
                 <div className="flex-1">
                     <div className="mb-6 flex justify-between items-start text-white">
@@ -1264,6 +1292,26 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                             </div>
 
                             {/* ── La VÍA elegida (inputs.ruta_fm): solo el equipo interno, sin importes ── */}
+                            {/* La PETICIÓN del partner de ir por la vía FM (popup de requisitos,
+                                `POST /:id/peticion-fm`): la ve el equipo, que elige la vía abajo. */}
+                            {isStaff && inputs?.peticion_fm?.at && !expedienteAsociado && (() => {
+                                const p = inputs.peticion_fm;
+                                const v = p.veredicto === 'cumple' ? 'dice que cumple los cinco requisitos'
+                                    : p.veredicto === 'no_cumple' ? 'con algún requisito que NO cumple'
+                                    : 'con requisitos por confirmar';
+                                return (
+                                    <div className="mt-4 px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-500/10 text-[11px] text-amber-100 leading-snug">
+                                        🧾 <b>{p.por || 'El partner'}</b> pide la vía del <b>factor multiplicador</b> ({v}) el {new Date(p.at).toLocaleDateString('es-ES')}. Las respuestas, en el historial.
+                                    </div>
+                                );
+                            })()}
+                            {/* «Solicitar revisión» del partner (bono < 3.000 €, `POST /:id/peticion-revision`):
+                                el CEE inicial ya está encargado a la IA; su XML pasa la simulación a cálculo real. */}
+                            {isStaff && inputs?.peticion_revision?.at && !expedienteAsociado && !inputs?.xmlDemandData && (
+                                <div className="mt-4 px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-500/10 text-[11px] text-amber-100 leading-snug">
+                                    🔎 <b>{inputs.peticion_revision.por || 'El partner'}</b> pide <b>revisión con el CEE</b> el {new Date(inputs.peticion_revision.at).toLocaleDateString('es-ES')} (bono {inputs.peticion_revision.bono} €). CEE inicial encargado a la IA: al cargar su XML, la cifra pasa a cálculo real.
+                                </div>
+                            )}
                             {isStaff && (
                                 <ConmutadorViaFm
                                     inputs={inputs}
@@ -1466,6 +1514,7 @@ export function ResultsPanel({ result, inputs, onInputChange, showBrokergy, onAc
                     )}
                 </div>
             </SectionCard>
+            )}
 
             {/* TABLA OCULTA PARA CAPTURA (OFF-SCREEN) */}
             {/* Solo usamos 2 columnas si está el modo reforma activo y tenemos resultados financieros para ambos */}

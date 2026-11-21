@@ -131,7 +131,11 @@ function lineasCarga(r, fase) {
         const cuanto = `ahorro ${kwh(r.antes.ahorroKwh)} → ${kwh(r.despues.ahorroKwh)} · bono ${eur(r.antes.bono)} → ${eur(r.despues.bono)}`
             + ` · ayuda total ${eur(r.antes.total)} → ${eur(r.despues.total)}`
             + (r.despues.precio !== r.antes.precio ? ` · precio CAE ${r.antes.precio} → ${r.despues.precio} €/MWh` : ` · precio CAE ${r.despues.precio} €/MWh`);
-        if (r.cargado) return [`✓ XML del CEE inicial CARGADO en la SIMULACIÓN de la oportunidad: ${dice}`, `  ${cuanto}`];
+        // La «Solicitar revisión» del partner, si la había: cerrada y a quién se avisó.
+        const rev = r.revision?.cerrada
+            ? [`✓ Revisión del partner CERRADA: ${r.revision.avisados?.length ? `WhatsApp a ${r.revision.avisados.join(', ')}` : 'sin teléfono del partner, NO se le ha avisado'}`]
+            : [];
+        if (r.cargado) return [`✓ XML del CEE inicial CARGADO en la SIMULACIÓN de la oportunidad: ${dice}`, `  ${cuanto}`, ...rev];
         if (r.omitido === 'en seco') return [`+ con --escribir se cargará el XML del CEE inicial en la simulación: ${dice}`, `  ${cuanto}`];
     }
     if (r.cargado) return [`✓ XML del CEE ${fase} CARGADO en la app («Cargar CEE»): ${dice}`

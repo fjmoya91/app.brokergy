@@ -26,7 +26,13 @@ y `.fx-kpis` traen el `grid-area` del cuadro de Facturación y fuera de él hay 
 **ficha del lote** (`LoteDetailModal` y sus pestañas, 12/11/2026, Fran: «toma como referencia lo
 que has creado para el visor del Sujeto Obligado… el nuevo kit de marca… que sea incluso más fácil
 de usar. Todo»): monta el mismo `CSS` y lo suyo con `.lt-` ([loteFichaEstilo.js](implementation/frontend/src/features/lotes/components/loteFichaEstilo.js));
-la lista de lotes sigue oscura. Ver "La ficha del lote, en crema" (área lotes).
+la lista de lotes sigue oscura. Ver "La ficha del lote, en crema" (área lotes). Y la **«Nueva
+simulación» del PARTNER** (16/11/2026, Fran: «actualizar el diseño… con el nuevo kit de marca» del
+formulario con el que dan de alta): no es una pantalla nueva sino la PIEL de la landing pública
+(`.lf .theme-light`, [estiloCarta.js](implementation/frontend/src/features/landing/estiloCarta.js)),
+que `LandingFunnelView` pone también en modo interno cuando entra un partner
+(`carta = !isInternal || esPartner`); el equipo interno la sigue viendo oscura y la calculadora de
+la oportunidad sigue oscura para todos. Ver "El alta del PARTNER" (área oportunidades).
 
 **Las páginas de referencia** (copiar de ahí, no reinventar):
 - [RecibidoCobroView.jsx](implementation/frontend/src/features/cobro/views/RecibidoCobroView.jsx):

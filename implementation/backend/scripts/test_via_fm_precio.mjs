@@ -99,12 +99,14 @@ console.log('\n3. Guardar quien NO es ADMIN');
     check(admin.inputs.caePriceClientFm === 140 && admin.via_fm.marca === 'navegador', 'con ADMIN no se toca nada');
 }
 
-console.log('\n4. El precio FM no le llega a quien no es ADMIN');
+console.log('\n4. A quien no es ADMIN le llega el precio FM (al cliente), pero no `via_fm`');
 {
+    // 16/11/2026: el partner ve la vía FM en €; su navegador la calcula con este precio.
     const dc = { caePriceClientFm: 120, inputs: { caePriceClient: 100, caePriceClientFm: 120, cae_client_rate_fm: 120 }, via_fm: { eur_fm: 1 } };
     const fuera = stripDatosCalculoMargin(dc);
-    check(fuera.caePriceClientFm === undefined && fuera.inputs.caePriceClientFm === undefined && fuera.inputs.cae_client_rate_fm === undefined,
-        'se quitan las dos claves a cualquier nivel', JSON.stringify(fuera));
+    check(fuera.caePriceClientFm === 120 && fuera.inputs.caePriceClientFm === 120 && fuera.inputs.cae_client_rate_fm === 120,
+        'el precio FM al cliente se conserva a cualquier nivel', JSON.stringify(fuera));
+    check(fuera.via_fm === undefined, '`via_fm` (MWh y comparativa) se sigue quitando');
     check(fuera.inputs.caePriceClient === 100, 'el precio general (del cliente) se conserva');
 }
 
@@ -144,6 +146,36 @@ console.log('\n6. La vía elegida (`inputs.ruta_fm`) no la escribe el guardado d
     check(c.ruta_fm === false, 'un navegador viejo sin la clave no la borra');
     const d = conservarRutaFm({ ruta_fm: true }, null);
     check(d.ruta_fm === undefined, 'oportunidad nueva: sin marca');
+
+    // La PETICIÓN del partner (16/11/2026): solo la escribe POST /:id/peticion-fm.
+    const pet = { respuestas: { caldera: true }, veredicto: 'faltan', por: 'P1', at: '2026-11-16T10:00:00Z' };
+    const e = conservarRutaFm({}, { datos_calculo: { inputs: { peticion_fm: pet } } });
+    check(e.peticion_fm === pet, 'el guardado no borra la petición del partner');
+    const f = conservarRutaFm({ peticion_fm: { veredicto: 'cumple' } }, { datos_calculo: { inputs: {} } });
+    check(f.peticion_fm === undefined, 'ni la puede poner el navegador en el cuerpo del guardado');
+    // Y la de «Solicitar revisión» (17/11/2026): solo la escribe POST /:id/peticion-revision.
+    const rev = { por: 'P1', at: '2026-11-17T10:00:00Z', bono: 2640, trabajo_id: 't1' };
+    const g = conservarRutaFm({}, { datos_calculo: { inputs: { peticion_revision: rev } } });
+    check(g.peticion_revision === rev, 'el guardado no borra la petición de revisión');
+    const h = conservarRutaFm({ peticion_revision: { at: 'x' } }, { datos_calculo: { inputs: {} } });
+    check(h.peticion_revision === undefined, 'ni la petición de revisión la pone el navegador');
+    {
+        const { ofrecerRevision } = await front('calculator/logic/revisionPartner.js');
+        const base = { id_oportunidad: 'OP1', estado: 'PTE ENVIAR' };
+        check(ofrecerRevision(base, 2999) === true, 'revisión: se ofrece por debajo de 3.000 €');
+        check(ofrecerRevision(base, 3000) === false, 'revisión: no a partir de 3.000 €');
+        check(ofrecerRevision({ ...base, xmlDemandData: { demandaCalefaccion: 1 } }, 2000) === false, 'revisión: no con el CEE ya cargado');
+        check(ofrecerRevision(base, 2000, { numero_expediente: 'X' }) === false, 'revisión: no si ya es expediente');
+    }
+
+    const { limpiarRespuestasFm, veredictoFm } = require('../utils/viaFmAlGuardar');
+    const { veredictoRequisitosFm, PREGUNTAS_FM } = await front('calculator/logic/requisitosFm.js');
+    const casos = [{}, { caldera: true, habitual: true, aerotermia: true, fechas: true, retirada: true },
+        { caldera: true, habitual: null, aerotermia: true, fechas: true, retirada: true }, { caldera: false, habitual: true }];
+    check(casos.every(r => veredictoFm(limpiarRespuestasFm(r)) === veredictoRequisitosFm(r).estado),
+        'el veredicto del servidor es el del popup', casos.map(r => veredictoFm(limpiarRespuestasFm(r))).join());
+    check(PREGUNTAS_FM.map(p => p.id).join() === require('../utils/viaFmAlGuardar').PREGUNTAS_FM.join(),
+        'las cinco claves son las mismas en el popup y en el servidor');
 }
 
 console.log(`\n═══ ${ok} correctas · ${ko} fallos ═══`);

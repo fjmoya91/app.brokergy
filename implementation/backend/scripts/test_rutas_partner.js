@@ -111,6 +111,21 @@ const srv = app.listen(0, async () => {
   await t('partner', 'PATCH', '/api/oportunidades/26RES060_OP900/cod-cliente', 200, { cod_cliente_interno: 'X1' });
   await t('partner', 'PATCH', '/api/oportunidades/26RES060_OP901/cod-cliente', 404, { cod_cliente_interno: 'X1' });
   await t('partner', 'PATCH', '/api/oportunidades/26RES060_OP901/estado', 404, { nuevo_estado: 'ENVIADA' });
+  console.log('— Vía del factor multiplicador (16/11/2026)');
+  // El partner PIDE la vía FM en la suya (respuestas como booleanos) y no en la ajena;
+  // ELEGIRLA (ruta-fm) sigue siendo del equipo interno.
+  await t('partner', 'POST', '/api/oportunidades/26RES060_OP900/peticion-fm', 200,
+    { respuestas: { caldera: true, habitual: 'SI', aerotermia: null, fechas: true, retirada: false, colada: true } },
+    (js) => {
+      const p = js?.peticion_fm; if (!p) return 'sin peticion_fm';
+      const r = p.respuestas || {};
+      if (Object.keys(r).sort().join() !== 'aerotermia,caldera,fechas,habitual,retirada') return 'claves ' + Object.keys(r);
+      if (r.habitual !== null || r.retirada !== false || r.caldera !== true) return 'respuestas ' + JSON.stringify(r);
+      return p.veredicto === 'no_cumple' || 'veredicto ' + p.veredicto;
+    });
+  await t('partner', 'POST', '/api/oportunidades/26RES060_OP901/peticion-fm', 404, { respuestas: {} });
+  await t('anónimo', 'POST', '/api/oportunidades/26RES060_OP900/peticion-fm', 401, { respuestas: {} });
+  await t('partner', 'POST', '/api/oportunidades/26RES060_OP900/ruta-fm', 403, { activar: true });
   console.log('— Anexos (Drive)');
   await t('partner', 'GET', '/api/oportunidades/26RES060_OP900/anexos?driveFolderId=drive-B', 200, null,
     (js) => js?.[0]?.id === 'listado-de-pres-drive-A' || 'listó ' + js?.[0]?.id);

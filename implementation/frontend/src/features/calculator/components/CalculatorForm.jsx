@@ -29,6 +29,7 @@ import { ACS_METHOD, resolveDacs } from '../../expedientes/logic/demandaAcs';
 // El OBJETO de la simulación: una vivienda o el EDIFICIO completo.
 import { pctDeComision, comisionDePct } from '../logic/comisionPartner';
 import { HIBRIDACION_PROPUESTA, modoHibridacionPropuesta } from '../logic/hibridacionPropuesta';
+import { NotaTitular } from './partner/NotaTitular';
 import { esBloque, TIPO_INMUEBLE, clasificarTipoEdificio, etiquetaTipoEdificio, avisoTipoEdificio, IRPF_EDIFICIO_REQUISITO } from '../logic/tipoInmueble';
 import { FV, FV_OPCIONES, normalizarFotovoltaica, potenciaTexto, etiquetaFotovoltaica } from '../../expedientes/logic/fotovoltaica';
 import { normalizarAiresOportunidad, MAX_AIRES } from '../../expedientes/logic/confirmacionCliente';
@@ -39,6 +40,8 @@ import { opcionDeEquipo, BUSCAR_EQUIPO } from '../../expedientes/logic/aerotermi
 import SearchableSelect from '../../../components/SearchableSelect';
 import LeerPlacaModal from './LeerPlacaModal';
 import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
+import { SuperficieCalefaccion } from './SuperficieCalefaccion';
 import CeeUploadModal from '../../cee/CeeUploadModal';
 import CeeRealModal from './CeeRealModal';
 import { seedCalculoRealReforma, ceesCargadosReforma } from '../logic/ceeSeed';
@@ -56,6 +59,10 @@ export function CalculatorForm({
 }) {
     const { user } = useAuth();
     const isAdmin = user?.rol?.toUpperCase() === 'ADMIN';
+    // El PARTNER (instalador/distribuidor) ve la oportunidad SIMPLIFICADA (Fran,
+    // 16/11/2026): sin «Envolvente térmica» —la decide el CEE, no él— y con la
+    // superficie calefactada explicada y con candado. El equipo interno, todo.
+    const esPartner = !getRoleFlags(user).isStaff;
 
     // El coste del informe de verificación es para CASOS PUNTUALES: la pantalla de
     // siempre no lleva ese campo, y por eso nace plegado. Si la oportunidad ya trae un
@@ -911,11 +918,14 @@ export function CalculatorForm({
                 </div>
             )}
 
-            <div className="flex items-center justify-between mb-6">
-                <div>
-                    <h2 className="text-2xl font-bold text-white mb-1">Cálculo de Eficiencia</h2>
-                    <p className="text-sm text-slate-400">Personaliza los parámetros técnicos</p>
-                </div>
+            <div className={`flex items-center mb-6 ${esPartner ? 'justify-end' : 'justify-between'}`}>
+                {/* Del partner, el titular lo pone su tarjeta (`CorregirDatosPartner`). */}
+                {!esPartner && (
+                    <div>
+                        <h2 className="text-2xl font-bold text-white mb-1">Cálculo de Eficiencia</h2>
+                        <p className="text-sm text-slate-400">Personaliza los parámetros técnicos</p>
+                    </div>
+                )}
                 {/* Reforma. En TERCIARIO se deshabilita: la RES080 es
                     "rehabilitación profunda de edificios de VIVIENDAS" y no existe en
                     el terciario, así que al marcar Terciario se apaga y el botón se
@@ -1619,18 +1629,16 @@ export function CalculatorForm({
                                             }}
                                         />
                                     </div>
-                                    <div>
-                                        <Label htmlFor="superficieCalefactable">Sup. Calef. (m²)</Label>
-                                        <Input
-                                            id="superficieCalefactable"
-                                            type="text"
-                                            inputMode="decimal"
-                                            min={0}
-                                            value={formatDisplay(inputs.superficieCalefactable)}
-                                            onChange={e => handleSmartNumberChange('superficieCalefactable', e.target.value)}
-                                            placeholder="Igual o mayor"
-                                        />
-                                    </div>
+                                    {/* Con su (i) y su candado: por debajo de la útil, la ayuda
+                                        baja y el partner lo confirma (logic/superficieCalefaccion.js). */}
+                                    <SuperficieCalefaccion
+                                        inputs={inputs}
+                                        onInputChange={onInputChange}
+                                        onNumero={handleSmartNumberChange}
+                                        formatDisplay={formatDisplay}
+                                        esPartner={esPartner}
+                                        usuario={user}
+                                    />
                                     <div>
                                         <Label htmlFor="plantas">Plantas</Label>
                                         <Input
@@ -1691,10 +1699,11 @@ export function CalculatorForm({
                 </div>
                 )}
 
-                {demandMode === 'estimated' && <Divider />}
+                {demandMode === 'estimated' && !esPartner && <Divider />}
 
-                {/* Envolvente térmica - COLAPSABLE (oculto en modo REAL) */}
-                {demandMode === 'estimated' && inputs.reformaType !== 'onlyReforma' && (
+                {/* Envolvente térmica - COLAPSABLE (oculto en modo REAL, y al PARTNER:
+                    las transmitancias las fija el CEE, no quien da de alta) */}
+                {demandMode === 'estimated' && inputs.reformaType !== 'onlyReforma' && !esPartner && (
                 <div className={`relative rounded-2xl bg-slate-900/40 border border-slate-800/50 ${inputs.showEnvolvente ? 'z-10 overflow-visible' : 'z-0 overflow-hidden'} transition-all duration-300`}>
                     <button
                         onClick={() => onInputChange(prev => ({ ...prev, showEnvolvente: !prev.showEnvolvente }))}
@@ -2018,6 +2027,24 @@ export function CalculatorForm({
                                                         </option>
                                                     ))}
                                                 </Select>
+                                                {/* Lo leído de la PLACA en el alta («Nueva simulación»): de dónde sale
+                                                    la fila, a la vista de quien la abre después (no hace falta abrir fotos). */}
+                                                {inputs.placa_caldera && (inputs.placa_caldera.marca || inputs.placa_caldera.modelo || inputs.placa_caldera.potencia_kw) && (() => {
+                                                    const pc = inputs.placa_caldera;
+                                                    const partes = [
+                                                        [pc.marca, pc.modelo].filter(Boolean).join(' '),
+                                                        pc.potencia_kw ? `${String(pc.potencia_kw).replace('.', ',')} kW` : null,
+                                                        pc.anio ? `${pc.anio}${pc.anio_tecleado ? ' (tecleado)' : ''}` : 'sin año',
+                                                    ].filter(Boolean);
+                                                    const dudosa = pc.veredicto && pc.veredicto !== 'ok';
+                                                    return (
+                                                        <p className={`mt-1 ml-1 text-[11px] leading-snug ${dudosa ? 'text-amber-300' : 'text-slate-400'}`}>
+                                                            <span className="font-bold uppercase tracking-wider text-[9px] mr-1">De la placa:</span>
+                                                            {partes.join(' · ')}
+                                                            {dudosa && ' · foto a revisar'}
+                                                        </p>
+                                                    );
+                                                })()}
                                                 {/* Combustible SÓLIDO: la tabla no distingue carbón de biomasa y de eso
                                                     depende la deducción del IRPF (con biomasa exige placas). Se ELIGE y manda
                                                     sobre lo que dijeran el funnel o la placa (irpfBiomasa.js, 26RES060_OP403). */}
@@ -3149,14 +3176,17 @@ export function CalculatorForm({
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     {/* Sección Impacto Fiscal del CAE - SOLO PARTICULARES */}
                                     {(inputs.titularType === 'particular' || !inputs.titularType) && (
-                                        <div className="p-4 rounded-xl bg-gradient-to-br from-pink-900/20 to-rose-900/20 border border-pink-500/20 flex flex-col justify-between">
+                                        <div className={`p-4 rounded-xl bg-gradient-to-br from-pink-900/20 to-rose-900/20 border border-pink-500/20 flex flex-col justify-between${esPartner ? ' md:col-span-2' : ''}`}>
                                             <div className="flex items-center justify-between mb-3 group relative">
                                                 <h4 className="text-[10px] font-bold text-pink-400 uppercase tracking-wider flex items-center gap-2">
                                                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                     </svg>
-                                                    IRPF del CAE
+                                                    {esPartner ? 'Titular de la vivienda' : 'IRPF del CAE'}
                                                 </h4>
+                                                {/* El partner no aplica la tributación del bono (es cosa de la renta de
+                                                    su cliente): ve qué cambia según el titular, en la nota de abajo. */}
+                                                {!esPartner && (<>
                                                 <label className="flex items-center gap-2 cursor-pointer">
                                                     <div className="relative flex items-center">
                                                         <input
@@ -3173,10 +3203,11 @@ export function CalculatorForm({
                                                 <div className="absolute top-full left-0 mt-2 p-2 bg-slate-900 border border-slate-700 rounded-lg text-[9px] text-white/70 w-full opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 shadow-xl hidden lg:block">
                                                     Tributación del ingreso CAE como ganancia patrimonial en IRPF (base del ahorro).
                                                 </div>
+                                                </>)}
                                             </div>
 
                                             <div className="flex items-center justify-between gap-3 relative z-0">
-                                                <Label htmlFor="titularType" className="text-[10px] font-bold text-slate-400">Titular:</Label>
+                                                <Label htmlFor="titularType" className="text-[10px] font-bold text-slate-400">{esPartner ? '¿A nombre de quién está?' : 'Titular:'}</Label>
                                                 <Select
                                                     id="titularType"
                                                     value={inputs.titularType || 'particular'}
@@ -3196,14 +3227,15 @@ export function CalculatorForm({
                                                     <option value="empresa">Empresa</option>
                                                 </Select>
                                             </div>
+                                            {esPartner && <NotaTitular tipo="particular" />}
                                         </div>
                                     )}
 
                                     {/* Titular Type Selector - SOLO PARA NO PARTICULARES (Para que no desaparezca el selector principal) */}
                                     {inputs.titularType && inputs.titularType !== 'particular' && (
-                                        <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-center">
+                                        <div className={`p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-center${esPartner ? ' md:col-span-3' : ''}`}>
                                             <div className="flex items-center justify-between gap-3">
-                                                <Label htmlFor="titularType" className="text-[10px] font-bold text-slate-400">Titular:</Label>
+                                                <Label htmlFor="titularType" className="text-[10px] font-bold text-slate-400">{esPartner ? '¿A nombre de quién está?' : 'Titular:'}</Label>
                                                 <Select
                                                         id="titularType"
                                                         value={inputs.titularType}
@@ -3225,6 +3257,7 @@ export function CalculatorForm({
                                                         <option value="empresa">Empresa</option>
                                                 </Select>
                                             </div>
+                                            {esPartner && <NotaTitular tipo={inputs.titularType} />}
                                         </div>
                                     )}
 
@@ -3256,7 +3289,10 @@ export function CalculatorForm({
                                         </div>
                                     )}
 
-                                    {/* Sección Descuento Certificados */}
+                                    {/* Sección Descuento Certificados. Del partner NO (Fran, 17/11/2026:
+                                        «el formulario de esta gente debe ser muy simple»): asumir el
+                                        coste de los certificados lo decide Brokergy. */}
+                                    {!esPartner && (
                                     <div className="p-4 rounded-xl bg-gradient-to-br from-amber-900/20 to-orange-900/20 border border-amber-500/20 flex flex-col justify-between">
                                         <div className="flex items-center justify-between mb-3">
                                             <h4 className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
@@ -3281,6 +3317,7 @@ export function CalculatorForm({
                                             Asumir coste de certificados energéticos.
                                         </div>
                                     </div>
+                                    )}
 
                                     {/* Perfil exigente (solo ADMIN): la propuesta lleva el
                                         compromiso de cesión en exclusiva y la compensación del
@@ -3320,7 +3357,9 @@ export function CalculatorForm({
                                     </div>
                                 )}
 
-                                    {/* Sección Legalización */}
+                                    {/* Sección Legalización. Del partner NO (17/11/2026): la
+                                        legalización la presupuesta y tramita Brokergy. */}
+                                    {!esPartner && (
                                     <div className={`p-4 rounded-xl bg-gradient-to-br from-amber-900/10 to-orange-900/10 border border-amber-500/10 transition-all duration-300 ${inputs.includeLegalization ? 'sm:col-span-2' : ''}`}>
                                         <div className="flex items-center justify-between">
                                             <h4 className="text-[10px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-2">
@@ -3376,6 +3415,7 @@ export function CalculatorForm({
                                             </div>
                                         )}
                                     </div>
+                                    )}
 
                                     {/* Sección Ahorro Anual */}
                                     <div className={`p-4 rounded-xl bg-gradient-to-br from-emerald-900/20 to-cyan-900/20 border border-emerald-500/20 ${inputs.includeAnnualSavings ? 'sm:col-span-2' : ''}`}>

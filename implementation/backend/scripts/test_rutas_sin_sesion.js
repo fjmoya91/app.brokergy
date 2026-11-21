@@ -34,6 +34,8 @@ app.use('/api/whatsapp', require(path.join(B, 'routes/whatsapp')));
 app.use('/api/expedientes', require(path.join(B, 'routes/expedientes')));
 app.use('/api/instalador-app', require(path.join(B, 'routes/instaladorApp')));
 app.use('/api/escaparate-revision', require(path.join(B, 'routes/escaparateRevision')));
+app.use('/api/catastro', require(path.join(B, 'routes/catastro')));
+app.use('/api/factura-ocr', require(path.join(B, 'routes/facturaOcr')));
 const srv = app.listen(0, async () => {
   const base = `http://127.0.0.1:${srv.address().port}`;
   const casos = [];
@@ -97,6 +99,13 @@ const srv = app.listen(0, async () => {
   q('tok-partner', 'GET', '/api/expedientes/X/fichas-tecnicas/cal', 403);
   q('anónimo', 'POST', '/api/expedientes/X/cert-ack', 400, {});
   q('anónimo', 'GET', '/api/expedientes/X/approve-cee-from-email', 'no 401/403');
+  // Los LECTORES con IA del alta (referencia de una foto, presupuesto, placa de la caldera):
+  // el anónimo NO (llamada de pago a un LLM); el PARTNER con sesión SÍ (16/11/2026: da de
+  // alta desde su perfil). Sin fichero, 400: ha pasado el guardián.
+  for (const r of ['/api/catastro/ocr-rc', '/api/factura-ocr/extract', '/api/oportunidades/leer-placa-caldera']) {
+    q('anónimo', 'POST', r, 401, {});
+    q('tok-partner', 'POST', r, 400, {});
+  }
   // Una sesión de Supabase SIN fila en `usuarios` (certificador de cee.brokergy.es) no entra al CRM.
   q('tok-ext', 'GET', '/api/oportunidades', 403);
   q('tok-ext', 'POST', '/api/oportunidades', 403, {});

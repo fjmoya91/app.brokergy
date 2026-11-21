@@ -1314,7 +1314,8 @@ function App() {
             onAddressSelect={handleAddressSelect}
             onGeolocate={handleGeolocate}
             onManualEntry={() => handleOpenCalculator(null)}
-            permiteFotoRc={isStaffUser}
+            // Cualquiera con sesión (también el partner): la ruta es enforceAuth.
+            permiteFotoRc={!!user}
           />
         </div>
       )}

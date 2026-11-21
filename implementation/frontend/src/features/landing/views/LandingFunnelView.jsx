@@ -21,6 +21,7 @@ import { ConfirmationCard } from '../../../components/ConfirmationCard';
 import { GeoLocatingOverlay } from '../../../components/GeoLocatingOverlay';
 import { DynamicNetworkBackground } from '../../../components/DynamicNetworkBackground';
 import { MapPickerModal } from '../../../components/MapPickerModal';
+import { husoDe, utmALatLon } from '../../cee-envolvente/logic/ortofoto';
 
 import { useFunnelState } from '../hooks/useFunnelState';
 import { funnelToCalculatorInputs, shouldWarnBiomasa } from '../data/funnelToInputs';
@@ -46,6 +47,8 @@ import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
 import { buildAccentVars } from '../../../utils/partnerTheme';
 import { CSS_LANDING_CARTA } from '../estiloCarta';
+import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { IconCard } from '../components/IconCard';
 import { IconoFunnel } from '../components/IconosFunnel';
 
@@ -55,6 +58,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const isInternal = mode === 'internal';
     // Un PRESUPUESTO de la app del instalador (App.jsx → `presupuestoInicial`): solo en el flujo interno.
     const presuIni = isInternal && presupuestoInicial?.id ? presupuestoInicial : null;
+    // El PARTNER (instalador/distribuidor) que da de alta desde su perfil: misma
+    // «Nueva simulación» que el equipo interno, pero con la piel de la marca.
+    const { user } = useAuth();
+    const esPartner = isInternal && !!user && !getRoleFlags(user).isStaff;
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
     const FUNNEL_ENTRY_PHASE = isReformaVariant ? 'OBRA_ESTADO' : 'FUNNEL';
@@ -326,12 +333,31 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
         );
     });
 
+    // «¿No es este? Elegir en el mapa» desde la ficha del inmueble (2026-11-16, Fran:
+    // «falta lo de no es este el inmueble»). Buscando por REFERENCIA (tecleada o leída de
+    // la foto) se salta la tarjeta de confirmación, que es donde vivía el mapa. El mapa
+    // se abre centrado en la casa: su UTM de Catastro pasada a lat/lon (la misma cuenta
+    // que los enlaces a Google de la envolvente).
+    const elegirOtroEnElMapa = () => {
+        const utm = catastro?.utm;
+        const huso = husoDe(utm?.srs) || Number(utm?.zone) || null;
+        if (!utm?.x || !utm?.y || !huso) return;
+        const { lat, lon } = utmALatLon(Number(utm.x), Number(utm.y), huso);
+        setLastGeoCoords({ lat, lng: lon });
+        setShowMapPicker(true);
+    };
+    const puedeElegirEnMapa = !!(catastro?.utm?.x && catastro?.utm?.y && (husoDe(catastro?.utm?.srs) || catastro?.utm?.zone));
+
     // Usuario ajustó la chincheta en el mapa y confirmó
     const handleMapPickConfirm = async (propertyData) => {
         setShowMapPicker(false);
         setGeoStage('neighbors');
         try {
             const candidate = await buildCandidateFromPropertyData(propertyData, lastGeoCoords);
+            // Desde la ficha: se vuelve a la tarjeta «¿Es esta?» (con sus vecinos y, en
+            // una parcela con varias viviendas, la elección de la suya), como al buscar
+            // por dirección. Confirmarla vuelve a la ficha con la nueva.
+            if (phase === 'PROPERTY_REVIEW') { setCatastro(null); setPhase('HOME'); }
             setConfirmCandidate(candidate);
         } catch (err) {
             setCatastroError('No pudimos cargar el entorno de la vivienda seleccionada.');
@@ -598,8 +624,9 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     const accentVars = accentColor ? buildAccentVars(accentColor) : null;
     // Lo que ve el visitante, en estilo «carta de pago» (regla 164; ver
     // estiloCarta.js). La «Nueva simulación» del CRM es este mismo componente
-    // en modo interno y sigue oscura.
-    const carta = !isInternal;
+    // en modo interno: oscura para el equipo interno y CON la piel de la marca
+    // para el PARTNER (Fran, 16/11/2026: el formulario con el que dan de alta).
+    const carta = !isInternal || esPartner;
     return (
         <div className={`min-h-screen bg-slate-950 relative overflow-x-hidden ${accentVars ? 'partner-accent' : ''} ${carta ? 'lf theme-light' : ''}`}
             style={accentVars || undefined}>
@@ -735,8 +762,9 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     onManualEntry={null}
                                     geolocatePrimary={isReformaVariant}
                                     // Leer la referencia de una foto: solo en el flujo INTERNO.
-                                    // La ruta es staffOnly (detrás hay una llamada de pago a un
-                                    // LLM) y en la landing pública el botón daría un 403.
+                                    // La ruta pide sesión (enforceAuth: detrás hay una llamada de
+                                    // pago a un LLM): el partner en «Nueva simulación» sí; en la
+                                    // landing pública el botón daría un 401.
                                     permiteFotoRc={isInternal}
                                     initialQuery={rcDelCee}
                                     direccionInicial={presuIni?.direccion || ''}
@@ -819,6 +847,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             isInternal={isInternal}
                             onConfirm={handlePropertyReviewConfirm}
                             onBack={() => { setCatastro(null); setPhase('HOME'); }}
+                            onElegirOtro={isInternal && puedeElegirEnMapa ? elegirOtroEnElMapa : null}
                         />
                     )}
 

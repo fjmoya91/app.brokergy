@@ -73,3 +73,16 @@ de nada.
 caldera existente que en un RES093 se teclea para la base del Cb. Es el MISMO número,
 así que `instalacionExistente()` lo mira también — antes un expediente que ya lo tenía
 escrito volvía a pedirlo.
+
+### También al dar de ALTA, con el partner delante de la caldera (2026-11-16)
+
+La misma lectura (`leerPlacaCaldera`, sin combustible: en el alta aún no está declarado)
+se hace en «Nueva simulación», en la pantalla de las fotos de la caldera:
+`POST /api/oportunidades/leer-placa-caldera` (`enforceAuth`: el partner con sesión, no el
+anónimo). Aquí no se escribe nada: las fotos se leen y se tiran, y las que se quedan suben a
+sus apartados de la oportunidad recién creada. Lo nuevo es el VEREDICTO para quien la sube
+(`ok` / `incompleta` / `no_valida`, [utils/placaCalderaAlta.js](implementation/backend/utils/placaCalderaAlta.js)),
+decidido por el código, y que en una placa POLICOMBUSTIBLE se devuelve la potencia de CADA
+familia (`potencias_por_combustible`) para que la elija el combustible que confirme. El
+combustible leído sigue sin escribirse como combustible. Ver "El alta del PARTNER" (área
+oportunidades, regla 217).

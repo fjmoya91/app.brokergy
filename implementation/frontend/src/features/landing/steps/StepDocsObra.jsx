@@ -4,10 +4,11 @@ import { StepLayout } from '../components/StepLayout';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 
 /**
- * StepDocsObra — el ÚNICO paso económico del flujo interno (SOLO staff).
+ * StepDocsObra — el ÚNICO paso económico del flujo interno («Nueva simulación»: staff
+ * y PARTNER con sesión; la lectura es `enforceAuth` desde el 16/11/2026).
  *
  * Sustituye a la pregunta "¿tienes un presupuesto orientativo?" cuando quien rellena
- * es staff y tiene los papeles delante: en vez de teclear una cifra a ojo, suelta el
+ * tiene los papeles delante: en vez de teclear una cifra a ojo, suelta el
  * PDF y la app lee el importe, el nº de documento, la fecha y los equipos.
  *
  * REGLA — la pregunta del dinero se hace UNA vez. Antes eran dos pantallas seguidas:

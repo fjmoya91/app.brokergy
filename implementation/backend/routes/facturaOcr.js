@@ -13,14 +13,18 @@
  *     el expediente (titular, instalador, alcance de la ficha), y aquí no hay contra
  *     qué cruzar. Las incidencias se levantan luego, al aceptar.
  *
- * staffOnly: la factura lleva importes, y los importes no salen del staff
- * (misma regla que el panel de facturación).
+ * enforceAuth (2026-11-16; antes staffOnly): el PARTNER con sesión también da de alta
+ * en «Nueva simulación» y suelta SU presupuesto en `docs_obra`, así que con staffOnly
+ * se llevaba un 403 y tecleaba el importe a mano. Lo que devuelve es solo lo que pone
+ * el documento que él mismo sube (su importe, su nº, sus equipos): ningún importe ni
+ * margen de BROKERGY, que sigue siendo solo de ADMIN. El anónimo de la landing, no:
+ * detrás hay una llamada de pago a un LLM.
  */
 
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { requireAuth, staffOnly } = require('../middleware/auth');
+const { enforceAuth } = require('../middleware/auth');
 
 const upload = multer({
     storage: multer.memoryStorage(),
@@ -203,7 +207,7 @@ async function extraerDocumentoObra(files, tipoPedido = 'factura') {
  *   equipos — marca/modelo/nº de serie leídos en las líneas, para pre-rellenar la
  *             pestaña Instalación del expediente sin volver a leer nada.
  */
-router.post('/extract', requireAuth, staffOnly, uploadFiles, async (req, res) => {
+router.post('/extract', enforceAuth, uploadFiles, async (req, res) => {
     try {
         const files = req.files || [];
         if (!files.length) return res.status(400).json({ error: 'No se recibió ningún fichero (campo "files").' });

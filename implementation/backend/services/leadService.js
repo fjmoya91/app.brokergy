@@ -518,6 +518,22 @@ async function createLead({ contacto, catastro, funnel, calculatorInputs, precom
         }]
     };
 
+    // La caldera dada de alta con la FOTO de su placa («Nueva simulación»): se ANOTA
+    // qué se leyó, qué confirmó quien estaba delante y si la foto servía, para que
+    // quien la reciba sepa de dónde sale la caldera sin abrir las fotos.
+    if (isInternal && inputsConRef.placa_caldera?.origen === 'nueva_simulacion') {
+        const texto = require('../utils/placaCalderaAlta').notaHistorialPlaca(inputsConRef.placa_caldera);
+        if (texto) {
+            datosCalculo.historial.push({
+                id: `${Date.now()}_placa_caldera`,
+                tipo: 'comentario',
+                fecha: now,
+                usuario: 'Sistema',
+                texto,
+            });
+        }
+    }
+
     // REGLA — un alta sobre una vivienda que YA tiene oportunidad se ANOTA.
     // Aquí no se reutiliza nada: o es otro titular (dos vecinos legítimos: el que
     // compra y el que vende, el propietario y su instalador) o la anterior ya está

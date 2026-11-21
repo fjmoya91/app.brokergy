@@ -63,7 +63,7 @@ paths:
 - `docs/conocimiento/placas-catalogos/el-n-de-serie-de-una-placa-dos-lecturas-y-lo-decide-el-codigo.md` — El Nº DE SERIE de una placa: dos lecturas, y lo decide el código (2026-09-30) · 5,4 KB
 - `docs/conocimiento/placas-catalogos/el-n-de-serie-repetido-se-avisa.md` — El Nº DE SERIE repetido entre expedientes se AVISA (2026-10-08) · 3,5 KB
 - `docs/conocimiento/placas-catalogos/la-ficha-del-catalogo-cuando-son-varios-papeles.md` — La ficha del catálogo cuando son VARIOS papeles (2026-09-11) · 5,7 KB
-- `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13) · 5,1 KB
+- `docs/conocimiento/placas-catalogos/la-placa-de-la-caldera-se-lee-con-ia.md` — La PLACA de la caldera se lee con IA (2026-09-13) · 6,0 KB
 - `docs/conocimiento/placas-catalogos/la-placa-la-lee-tambien-el-certificador.md` — La PLACA la lee también el CERTIFICADOR · 0,9 KB
 - `docs/conocimiento/placas-catalogos/las-tarifas-del-distribuidor-por-modelo.md` — Las TARIFAS del distribuidor, por modelo del catálogo (2026-11-21) · 2,0 KB
 - `docs/conocimiento/placas-catalogos/las-tres-placas-de-la-obra-de-un-boton/00-las-tres-placas-de-la-obra-de-un-boton.md` — Las TRES placas de la obra, de un botón (2026-09-15) · 19,0 KB

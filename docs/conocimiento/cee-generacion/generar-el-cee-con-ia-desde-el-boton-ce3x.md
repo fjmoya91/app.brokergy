@@ -58,7 +58,14 @@ la ventana de la envolvente lo avisa arriba: al escribir, lo suyo sustituye a lo
 
 **REGLA — no se pide** con el CEE inicial REGISTRADO, en una oportunidad ya ACEPTADA (su CEE vive
 en el expediente) ni para la fase FINAL (la skill del agente es la del inicial). Solo el equipo
-interno: cuesta dinero y lo decide Brokergy.
+interno: cuesta dinero y lo decide Brokergy. **Excepción (17/11/2026, Fran): el PARTNER con el bono
+por debajo de 3.000 €** lo pide con «Solicitar revisión» en su oportunidad, por su propia ruta
+(`POST /api/oportunidades/:id/peticion-revision`, que comprueba el umbral con lo guardado), **siempre
+por la API** (`porVia: 'api'`, la cola del PC, aunque la vía por defecto sea el WhatsApp) y con
+`origen: 'revision_partner'`, que cambia el encargo: al acabar, cargar el XML en la simulación, sin
+escribir al partner ni al cliente. El aviso al partner lo manda la app al cargar el XML
+(`cerrarRevision`) y, si el trabajo acaba sin cargarlo, `trasTrabajo` avisa a administración. Ver
+«"Solicitar revisión" de punta a punta» en `oportunidades/el-alta-del-partner-con-la-foto-de-la-placa.md`.
 
 **REGLA — parar es entre vueltas**: «Parar la IA» marca `cancelar` y el agente lo mira antes de cada
 llamada a la API (`debeParar` de `correrAgente`), que es la que cuesta. En cola, se retira sin más.

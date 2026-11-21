@@ -22,6 +22,7 @@ import { StepLayout } from '../components/StepLayout';
 import { DocsManager } from '../../docs/DocsManager';
 import { esCaptadorDeLeads } from '../../../components/PrescriptorPicker';
 import { useAuth } from '../../../context/AuthContext';
+import { getRoleFlags } from '../../../utils/roleFlags';
 import { Step3_EdadCaldera } from '../steps/Step3_EdadCaldera';
 import { Step4_Emisores } from '../steps/Step4_Emisores';
 import { Step5_ACS } from '../steps/Step5_ACS';
@@ -29,6 +30,9 @@ import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { StepDocsObra } from '../steps/StepDocsObra';
+import { StepPlacaCaldera, PLACA_CALDERA_VACIA } from '../steps/StepPlacaCaldera';
+import { inputsDesdeCalderaPlaca } from '../data/calderaDesdePlaca';
+import { prepararImagenParaSubir } from '../../../utils/imageResize';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
@@ -52,7 +56,7 @@ const BOILER_COMBUSTIBLE = ['gas', 'gasoleo', 'carbon', 'biomasa'];
 const SCREEN_PROGRESS = {
     estado: 0.07, tipo: 0.15,
     ejec_fecha: 0.22, ejec_terminada: 0.3,
-    combustible: 0.3, edad: 0.4, emisores: 0.5, acs: 0.6,
+    placa_caldera: 0.3, combustible: 0.3, edad: 0.4, emisores: 0.5, acs: 0.6,
     placas: 0.64,
     elementos: 0.68, aviso_no_cae: 0.68,
     facturas: 0.68, factura_fecha: 0.73, cee_previo: 0.76,
@@ -89,6 +93,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // fotos si es ADMIN en la pantalla de documentación.
     const { user } = useAuth();
     const isAdminUser = (user?.rol || user?.rol_nombre || '').toUpperCase() === 'ADMIN';
+    // Un PARTNER (sesión que no es del equipo interno) no pasa por «Sube ahora las fotos
+    // del antes»: repetía la caldera que acababa de fotografiar y pedía paredes que aún no
+    // hacen falta (se piden al ACEPTAR, sin volver a pedir lo que ya está). Va directo a
+    // la oportunidad cuando se han guardado sus ficheros (Fran, 16/11/2026, regla 217).
+    const esPartner = isInternal && !!user && !getRoleFlags(user).isStaff;
     // Oportunidad recién creada en internal (para abrir su documentación in-situ).
     const [createdOpp, setCreatedOpp] = useState(null);
 
@@ -127,6 +136,16 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
         const d = !isInternal ? null : presupuestoInicial?.id ? docDelPresupuesto(presupuestoInicial) : docDelEquipo(equipoInicial);
         return d ? [d] : [];
     });
+    // Las fotos de la caldera y su placa (pantalla `placa_caldera`, solo internal) y lo
+    // que se leyó de ellas. Viven aquí y no en el paso para no perderlas al ir atrás;
+    // se suben a sus apartados en cuanto existe la oportunidad (subirDocsPendientes).
+    const [placaCaldera, setPlacaCaldera] = useState(PLACA_CALDERA_VACIA);
+    // La caldera CONFIRMADA desde la placa ({ caldera, placa }): con ella se fijan la
+    // fila de rendimiento, la potencia y `inputs.placa_caldera` al crear (doSubmitInternal).
+    const [calderaPlaca, setCalderaPlaca] = useState(null);
+    // Subida en curso de lo que se traía en la mano, y versión para recargar el gestor.
+    const [subiendoDocs, setSubiendoDocs] = useState(false);
+    const [docsVersion, setDocsVersion] = useState(0);
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
     // A dónde se sale de la pantalla de placas. Se pregunta desde DOS sitios
     // (el recorrido largo tras el ACS, y el atajo del resumen de certificados) y
@@ -167,6 +186,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // donde iba. Así los dos caminos —el largo y el atajo de los certificados—
     // pasan por ella, y ninguna oportunidad nace sin el dato.
     const irAPlacas = useCallback((destino) => { setTrasPlacas(destino); push('placas'); }, [push]);
+
+    // La caldera de hoy: en la «Nueva simulación» (internal) se empieza por sus FOTOS,
+    // que contestan solas el combustible, la antigüedad y la condensación; quien no
+    // tenga la foto cae a las preguntas de siempre. La web pública sigue preguntando.
+    const irACaldera = () => push(isInternal ? 'placa_caldera' : 'combustible');
 
     // En modo internal saltamos la pregunta de gasto anual (el partner la afina
     // luego en la calculadora, igual que el funnel interno clásico) y en vez de
@@ -395,20 +419,34 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // contando lo que ya hay en Drive, y en paralelo dos subidas pueden calcular el
     // mismo índice y pisarse. Nunca lanza: subir documentación no puede tumbar la
     // creación de la oportunidad, que ya está hecha.
-    const subirDocsPendientes = async (oportunidadUuid) => {
+    //
+    // Las fotos de la caldera y de su placa (pantalla `placa_caldera`) van también aquí:
+    //   placa → FOTO_PLACA_CALDERA_ANTES (ENTERA: hay que poder leer el nº de serie)
+    //   sala  → FOTO_CALDERA_ANTES (reducida, como las sube el gestor de documentación)
+    // Se suben aunque luego se contestara «a mano»: la foto vale para el expediente.
+    //
+    // REGLA — va con el TOKEN de la oportunidad. La sesión solo le basta al equipo
+    // interno; un PARTNER recibía un 403 y sus ficheros (presupuesto, facturas) se
+    // perdían sin que nadie se enterara. El token lo devuelve la propia creación
+    // (`upload_token`), así no hay una segunda petición que pueda generar otro distinto.
+    const subirDocsPendientes = async (oportunidadUuid, token = null) => {
         const pendientes = [];
         if (ceeIni?._files?.length) ceeIni._files.forEach(f => pendientes.push({ slot: 'DOC_CEE_EXISTENTE', file: f }));
         if (ceeFin?._files?.length) ceeFin._files.forEach(f => pendientes.push({ slot: 'DOC_CEE_POSTERIOR', file: f }));
         docsObra.forEach(d => (d.files || []).forEach(f => pendientes.push({ slot: d.slot, file: f })));
+        (placaCaldera.placa || []).forEach(f => pendientes.push({ slot: 'FOTO_PLACA_CALDERA_ANTES', file: f, fullRes: true }));
+        (placaCaldera.sala || []).forEach(f => pendientes.push({ slot: 'FOTO_CALDERA_ANTES', file: f }));
         if (!pendientes.length) return;
 
-        for (const { slot, file } of pendientes) {
+        for (const { slot, file, fullRes } of pendientes) {
             try {
                 const form = new FormData();
-                form.append('file', file);
-                // Sesión de staff: el endpoint público acepta la cookie de sesión sin token.
+                form.append('file', (file.type || '').startsWith('image/')
+                    ? await prepararImagenParaSubir(file, { fullRes: !!fullRes })
+                    : file);
                 await axios.post(`/api/public/reforma-docs/${oportunidadUuid}/${slot}`, form, {
                     headers: { 'Content-Type': 'multipart/form-data' },
+                    ...(token ? { params: { token } } : {}),
                 });
             } catch (e) {
                 console.warn(`[ReformaSubFlow] no se pudo subir ${file.name} a ${slot}:`,
@@ -434,6 +472,13 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             // El equipo elegido en el Catálogo: modelo, SCOP y potencia por el camino de la calculadora.
             if (equipoInicial?.id) {
                 await aplicarEquipoInicial(calculatorInputs, equipoInicial, (id) => axios.get(`/api/aerotermia/${encodeURIComponent(id)}`).then(r => r.data));
+            }
+            // La caldera leída de su PLACA y confirmada en `placa_caldera`: la fila de
+            // rendimiento por el año de la placa (regla 99, no por el «más de 20 años»),
+            // la potencia y la placa entera, que el expediente hereda. Solo si no se
+            // cambió luego a mano el combustible (se fue atrás y se contestó otra cosa).
+            if (calderaPlaca && calderaPlaca.caldera?.funnel?.combustible_actual === funnel.combustible_actual) {
+                Object.assign(calculatorInputs, inputsDesdeCalderaPlaca(calderaPlaca, funnelConContacto));
             }
             // Certificados aportados en la puerta (admin): la siembra completa —qué
             // demanda manda, qué columna de emisiones se rellena y con qué— vive en
@@ -494,12 +539,33 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             };
 
             const res = await axios.post('/api/oportunidades/internal-simulation', payload);
+            const uuidCreada = res.data?.oportunidad_uuid || res.data?.id;
+            // PARTNER: se ESPERA a que suban sus fotos y su presupuesto (sin la pantalla de
+            // fotos no habría dónde verlos a medias) y se abre la oportunidad. Un fallo de
+            // subida no para el alta: se avisa en consola, como siempre, y el agente de la
+            // aceptación pedirá lo que falte.
+            if (esPartner) {
+                if (uuidCreada) {
+                    setSubiendoDocs(true);
+                    try { await subirDocsPendientes(uuidCreada, res.data?.upload_token || null); }
+                    finally { setSubiendoDocs(false); }
+                }
+                setSubmitting(false);
+                if (onCreated) onCreated(res.data);
+                return;
+            }
             setSubmitting(false);
             // Los ficheros que traíamos en la mano (certificados, presupuesto, facturas)
             // se suben ahora, que ya hay carpeta de Drive. NO bloquea el paso a la
             // pantalla de fotos: si alguno falla, se ve ahí mismo como slot vacío.
             const uuid = res.data?.oportunidad_uuid || res.data?.id;
-            if (uuid) subirDocsPendientes(uuid);
+            if (uuid) {
+                // La pantalla de fotos se pinta ya; al terminar la subida se vuelve a
+                // cargar (`docsVersion`), o enseñaría vacías las fotos recién hechas.
+                setSubiendoDocs(true);
+                subirDocsPendientes(uuid, res.data?.upload_token || null)
+                    .finally(() => { setSubiendoDocs(false); setDocsVersion(v => v + 1); });
+            }
             // En vez de abrir la calculadora directamente, llevamos al instalador a
             // la pantalla de documentación (la misma del enlace) para que suba las
             // fotos del ANTES in-situ. El "Finalizar" de esa pantalla llama a onCreated.
@@ -620,7 +686,17 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     </p>
                 </div>
 
-                <DocsManager mode="admin" idOrUuid={oppId} embedded canValidate={isAdminUser} />
+                {subiendoDocs && (
+                    <div className="mb-4 flex items-center justify-center gap-3 px-4 py-3 rounded-2xl bg-amber-500/10 border border-amber-500/30">
+                        <div className="relative w-4 h-4">
+                            <div className="absolute inset-0 border-2 border-amber-500/20 rounded-full" />
+                            <div className="absolute inset-0 border-2 border-transparent border-t-amber-400 rounded-full animate-spin" />
+                        </div>
+                        <span className="text-amber-200 text-[12.5px] font-bold">Guardando las fotos y documentos que ya habías puesto…</span>
+                    </div>
+                )}
+
+                <DocsManager key={docsVersion} mode="admin" idOrUuid={oppId} embedded canValidate={isAdminUser} />
 
                 <div className="mt-8 flex flex-col items-center gap-3">
                     <button onClick={() => { if (onCreated) onCreated(createdOpp); }} className={primaryBtn}>
@@ -643,7 +719,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 reforma_aires_count: null,
                 // obra_estado ya está fijado desde la pantalla de estado — no sobreescribir
             });
-            push('combustible');
+            irACaldera();
         };
         const pickIntegral = () => {
             updateFunnel({
@@ -651,7 +727,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                 reforma_elementos: { caldera: false, ventanas: false, cubierta: false, suelo: false, paredes: false, placas: false, aires: false },
                 reforma_aires_count: null,
             });
-            push('combustible');
+            irACaldera();
         };
         return (
             <div className="animate-fade-in">
@@ -1047,6 +1123,27 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             <IconCard icon={<IconoFunnel n="obraMedias" />} title={t('Tengo factura parcial', 'Hay factura parcial')} subtitle="Aún queda obra por hacer"
                 onClick={() => { updateFunnel({ obra_estado: 'a_medias' }); irATipo(); }} />
         </StepLayout></>);
+    }
+
+    // ---- INTERNAL: la caldera de hoy, desde las FOTOS de su placa ----
+    // Contesta sola el combustible, la antigüedad y la condensación (y fija la fila
+    // de rendimiento por el año de la placa). «Contestar a mano» → `combustible`.
+    if (screen === 'placa_caldera') {
+        return (<><BackBtn /><StepPlacaCaldera
+            estado={placaCaldera}
+            setEstado={setPlacaCaldera}
+            ej={ej}
+            onContinuar={({ caldera, placa }) => {
+                setCalderaPlaca({ caldera, placa });
+                updateFunnel({ ...caldera.funnel, reforma_sin_caldera: false, caldera_desde_placa: true });
+                push('emisores');
+            }}
+            onSinFoto={() => {
+                setCalderaPlaca(null);
+                updateFunnel({ caldera_desde_placa: false });
+                push('combustible');
+            }}
+        /></>);
     }
 
     // ---- TÉRMICO: combustible (Step2 + opción "sin caldera") ----
@@ -1584,6 +1681,11 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
                     mode="internal"
                     prescriptores={isAdminUser ? prescriptores : null}
                 />
+                {esPartner && subiendoDocs && (
+                    <p role="status" className="mt-4 text-center text-[13px] font-bold text-amber-300">
+                        Guardando las fotos y el presupuesto…
+                    </p>
+                )}
             </>
         );
     }

@@ -6,7 +6,9 @@
  * de Superficie Útil = construida × 0,8) donde el instalador puede seleccionar
  * qué zonas quiere climatizar.
  *
- * Las fotos (fachada + plano catastral) aparecen al final de la pantalla.
+ * Las fotos (fachada + plano catastral): en el flujo INTERNO, arriba, bajo la
+ * dirección y con los botones de Google Maps y del Catastro, para confirmar que
+ * es la casa; en el PÚBLICO, al final de la pantalla.
  *
  * En el flujo PÚBLICO (el cliente, casi siempre con el móvil) las zonas no son
  * una tabla sino una pregunta — ver components/ZonasCalefaccion — y no se le
@@ -17,6 +19,7 @@
 import React, { useState, useEffect } from 'react';
 import { desgloseConstrucciones } from '../../../utils/construcciones';
 import { ZonasCalefaccion } from '../components/ZonasCalefaccion';
+import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
 
 const API_URL = '/api/catastro';
 
@@ -45,15 +48,15 @@ function getFloorLabel(floor) {
     return `Planta ${num}`;
 }
 
-function StatCard({ label, value, highlight = false }) {
+function StatCard({ label, value, highlight = false, compacto = false }) {
     return (
-        <div className={`p-4 rounded-2xl border ${highlight
+        <div className={`${compacto ? 'px-3.5 py-2.5 rounded-xl' : 'p-4 rounded-2xl'} border ${highlight
             ? 'bg-amber-500/[0.08] border-amber-500/20'
             : 'bg-white/[0.04] border-white/[0.07]'}`}>
             <p className={`text-[10px] uppercase tracking-widest mb-1 font-bold ${highlight ? 'text-amber-400/50' : 'text-white/35'}`}>
                 {label}
             </p>
-            <p className={`font-black text-xl leading-tight ${highlight ? 'text-amber-400' : 'text-white'}`}>
+            <p className={`font-black ${compacto ? 'text-lg' : 'text-xl'} leading-tight ${highlight ? 'text-amber-400' : 'text-white'}`}>
                 {value}
             </p>
         </div>
@@ -78,7 +81,7 @@ export function direccionLegible(addr = '') {
     }).join(' ');
 }
 
-export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal = false }) {
+export function LandingPropertyReview({ catastro, onConfirm, onBack, onElegirOtro = null, isInternal = false }) {
     const [selectedElements, setSelectedElements] = useState([]);
     const [facadeError, setFacadeError] = useState(false);
     const [parcelError, setParcelError] = useState(false);
@@ -115,6 +118,12 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
 
     const canContinue = constructions.length === 0 || selectedElements.length > 0;
 
+    const imagenes = (
+        <ImagenesInmueble imageUrl={imageUrl} parcelUrl={parcelUrl}
+            facadeError={facadeError} setFacadeError={setFacadeError}
+            parcelError={parcelError} setParcelError={setParcelError} />
+    );
+
     // La selección llega por parámetro desde la pregunta del flujo público: allí
     // se elige y se continúa en el MISMO toque, y el estado aún no se ha
     // actualizado cuando se llama.
@@ -141,7 +150,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
 
             {/* ── Atrás ─────────────────────────────────────────────────────── */}
             <button type="button" onClick={onBack}
-                className="flex items-center gap-2 text-white/40 hover:text-amber-400 transition-colors text-xs uppercase tracking-widest font-bold py-2 mb-6">
+                className={`flex items-center gap-2 text-white/40 hover:text-amber-400 transition-colors text-xs uppercase tracking-widest font-bold py-2 ${isInternal ? 'mb-2' : 'mb-6'}`}>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                 </svg>
@@ -149,7 +158,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
             </button>
 
             {/* ── Título ────────────────────────────────────────────────────── */}
-            <div className="text-center mb-8">
+            <div className={`text-center ${isInternal ? 'mb-5' : 'mb-8'}`}>
                 <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-tight">
                     {isInternal
                         ? <>Ficha del <span className="text-amber-400">inmueble</span></>
@@ -162,22 +171,42 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                     </svg>
                     <span>{isInternal ? catastro?.address : direccionLegible(catastro?.address)}</span>
                 </p>
-                {/* La referencia catastral es jerga para el cliente: solo el equipo. */}
-                {isInternal && catastro?.rc && (
-                    <div className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 rounded-xl bg-white/[0.04] border border-white/[0.07]">
-                        <span className="text-white/30 text-[10px] uppercase tracking-widest font-bold">RC</span>
-                        <code className="text-amber-400 font-mono text-xs font-black">{catastro.rc}</code>
+                {/* En UNA fila (solo el equipo; la referencia catastral es jerga para el
+                    cliente): la RC, la casa en Google Maps y en la Sede (otra pestaña) y,
+                    si no es esta, elegir otra en el mapa del Catastro. */}
+                {isInternal && (
+                    <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+                        {catastro?.rc && (
+                            <div className="h-9 inline-flex items-center gap-2 px-3 rounded-lg bg-white/[0.04] border border-white/[0.07]">
+                                <span className="text-white/30 text-[10px] uppercase tracking-widest font-bold">RC</span>
+                                <code className="text-amber-400 font-mono text-xs font-black">{catastro.rc}</code>
+                            </div>
+                        )}
+                        <EnlacesInmueble rc={catastro?.rc} direccion={direccionLegible(catastro?.address)} compacto />
+                        {onElegirOtro && (
+                            <button type="button" onClick={onElegirOtro}
+                                className="h-9 px-3 rounded-lg border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 text-[11px] font-black flex items-center gap-1.5">
+                                <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                                </svg>
+                                ¿No es este? Elegir en el mapa
+                            </button>
+                        )}
                     </div>
                 )}
             </div>
 
+            {/* ── Imágenes: arriba en la ficha interna, para confirmar la casa ── */}
+            {isInternal && imagenes}
+
             {/* ── Stats rápidas ─────────────────────────────────────────────── */}
             {isInternal ? (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-                    <StatCard label="Año construcción" value={catastro?.yearBuilt || '—'} />
-                    <StatCard label="Sup. total"       value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
-                    <StatCard label="Zona CTE"         value={catastro?.climateInfo?.climateZone || '—'} highlight />
-                    <StatCard label="Participación"    value={`${(catastro?.participation || '100,00').replace('%', '')}%`} />
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-5">
+                    <StatCard compacto label="Año construcción" value={catastro?.yearBuilt || '—'} />
+                    <StatCard compacto label="Sup. total"       value={catastro?.totalSurface ? `${catastro.totalSurface} m²` : '—'} />
+                    <StatCard compacto label="Zona CTE"         value={catastro?.climateInfo?.climateZone || '—'} highlight />
+                    <StatCard compacto label="Participación"    value={`${(catastro?.participation || '100,00').replace('%', '')}%`} />
                 </div>
             ) : (
                 <div className="grid grid-cols-2 gap-2 mb-7">
@@ -284,7 +313,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                                 <div
                                     key={idx}
                                     onClick={() => toggleElement(idx)}
-                                    className={`px-4 py-3 cursor-pointer transition-all border-b border-white/[0.04] last:border-0
+                                    className={`px-4 py-2 cursor-pointer transition-all border-b border-white/[0.04] last:border-0
                                         ${isSelected ? 'bg-amber-500/[0.07]' : 'hover:bg-white/[0.02] opacity-50'}`}
                                     style={{ display: 'grid', gridTemplateColumns: '28px 1fr 72px 72px', gap: '0' }}
                                 >
@@ -304,12 +333,12 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                                     </div>
 
                                     {/* Tipo + Planta */}
-                                    <div className="pl-2 flex flex-col justify-center gap-0.5 min-w-0 overflow-hidden">
-                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-bold self-start ${tag.cls}`}>
+                                    <div className="pl-2 flex items-center gap-2 min-w-0 overflow-hidden">
+                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[11px] font-bold shrink-0 ${tag.cls}`}>
                                             <span>{tag.icon}</span>
                                             <span className="truncate">{tag.label}</span>
                                         </span>
-                                        <span className="text-white/30 text-[10px] pl-0.5 truncate">
+                                        <span className="text-white/35 text-[11px] truncate">
                                             {getFloorLabel(c.floor)}
                                         </span>
                                     </div>
@@ -334,7 +363,7 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                         {/* Totales */}
                         {selectedElements.length > 0 && (
                             <div
-                                className="px-4 py-3 bg-amber-500/[0.06] border-t border-amber-500/15"
+                                className="px-4 py-2.5 bg-amber-500/[0.06] border-t border-amber-500/15"
                                 style={{ display: 'grid', gridTemplateColumns: '28px 1fr 72px 72px', gap: '0' }}
                             >
                                 <div />
@@ -373,7 +402,18 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
             </button>
             )}
 
-            {/* ── Imágenes (al final) ───────────────────────────────────────── */}
+            {/* ── Imágenes: al final en la landing del cliente ─────────────── */}
+            {!isInternal && imagenes}
+
+        </div>
+    );
+}
+
+// Fachada y plano catastral. En la ficha INTERNA van arriba (2026-11-16, Fran:
+// «no me está mostrando la foto del catastro para confirmar que es la correcta»):
+// estaban debajo de «Continuar al formulario» y no se llegaban a ver.
+function ImagenesInmueble({ imageUrl, parcelUrl, facadeError, setFacadeError, parcelError, setParcelError }) {
+    return (
             <div className="mb-8">
                 <p className="text-white/25 text-[10px] uppercase tracking-widest font-bold mb-3">
                     Imágenes del inmueble
@@ -419,7 +459,5 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, isInternal 
                     </div>
                 </div>
             </div>
-
-        </div>
     );
 }

@@ -16,7 +16,7 @@ export function Label({ htmlFor, children }) {
     );
 }
 
-export function Input({ id, type = 'text', value, onChange, placeholder, min, max, step, disabled, inputMode, className = '' }) {
+export function Input({ id, type = 'text', value, onChange, onBlur, placeholder, min, max, step, disabled, inputMode, className = '' }) {
     return (
         <input
             id={id}
@@ -24,6 +24,7 @@ export function Input({ id, type = 'text', value, onChange, placeholder, min, ma
             inputMode={inputMode}
             value={value}
             onChange={onChange}
+            onBlur={onBlur}
             placeholder={placeholder}
             min={min}
             max={max}

@@ -76,7 +76,7 @@ gesto que se iba a hacer a continuación de todos modos.
 | Qué | Dónde |
 |---|---|
 | Lectura (prompt + esquema + validación) | [catastroOcrService.js](implementation/backend/services/catastroOcrService.js) |
-| Ruta | `POST /api/catastro/ocr-rc` (multipart `files[]`), **staffOnly** |
+| Ruta | `POST /api/catastro/ocr-rc` (multipart `files[]`), **enforceAuth** (antes staffOnly; abierta al partner el 16/11/2026) |
 | Superficie | `CatastroSearchBox`, prop `permiteFotoRc` |
 
 **REGLA — el modelo solo LEE; qué es una referencia lo decide el código.** `normalizarRC`
@@ -93,9 +93,13 @@ su vivienda. Se enseñan las dos rotuladas y con el contexto leído (dirección 
 para poder comprobarlo. Con una sola, se busca directamente.
 
 **REGLA — el lector es del flujo INTERNO, no de la landing.** Detrás hay una llamada de
-pago a un LLM: la ruta es `staffOnly` y el botón solo se pinta con `permiteFotoRc`
-(`isInternal` en `LandingFunnelView`, `isStaff` en `App.jsx`). Un partner que lo viera
-solo se llevaría un 403.
+pago a un LLM: la ruta pide SESIÓN (`enforceAuth`) y el botón solo se pinta con
+`permiteFotoRc` (`isInternal` en `LandingFunnelView`, con sesión en `App.jsx`).
+**El PARTNER con sesión sí lo usa** (16/11/2026, Fran: «que les resulte fácil» dar de alta
+desde su perfil): «Nueva simulación» es la misma pantalla para él y con `staffOnly` se
+llevaba un 403 justo quien tiene la foto del IBI en el móvil. No devuelve nada de nadie:
+solo lo que pone la imagen que sube. Lo mismo `POST /api/factura-ocr/extract` (su
+presupuesto en `docs_obra`) y `POST /api/oportunidades/leer-placa-caldera`.
 
 Es un **gemelo pequeño** de `ceeOcrService`, del que reutiliza `normalizeToPdf` (varias
 fotos se unen en un PDF antes de leer). No se bifurcó aquel: leer 21 campos de un CEE de

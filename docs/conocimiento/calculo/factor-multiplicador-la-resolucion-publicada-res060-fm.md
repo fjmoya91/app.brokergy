@@ -272,8 +272,12 @@ se sigue restando); el relleno, sin rehacer la economía, desplaza el precio fin
 columna también. El bono es lineal en MWh: `máx(0, MWh × precio × 1,21 si es empresa con IVA −
 legalización)` (`bonoConKwh`), y cuadra con el guardado en 463 de 463.
 
-**REGLA — quien no es ADMIN no ve el precio FM, no lo cambia y no estropea `via_fm`.** Las dos claves
-están en `SOLO_ADMIN_DEEP` (y en `MONEY_KEYS_*` del certificador). Al guardar alguien que no es ADMIN,
+**REGLA — quien no es ADMIN VE el precio FM al cliente (16/11/2026), pero no lo cambia y no estropea
+`via_fm`.** Hasta el 16/11/2026 las dos claves estaban en `SOLO_ADMIN_DEEP`; Fran pidió que el PARTNER
+viera el factor multiplicador, y su navegador calcula el «hasta X €» de la vía FM con
+`inputs.caePriceClientFm`: sin él salía al precio general. Es la misma clase de dato que
+`caePriceClient`, que el partner ya ve, así que `SOLO_ADMIN_DEEP` queda en `['via_fm']` (los MWh y la
+comparativa siguen ocultos). Siguen en `MONEY_KEYS_*` del certificador. Al guardar alguien que no es ADMIN,
 [utils/viaFmAlGuardar.js](../../../implementation/backend/utils/viaFmAlGuardar.js) **restaura** el precio
 FM de la BD y **rehace `via_fm` en el servidor** (`viaFmDesdeDatosCalculo`): su navegador lo calculó sin
 ese precio. Pruebas: `node implementation/backend/scripts/test_via_fm_precio.mjs` y

@@ -181,15 +181,23 @@ async function cerrarSiYaEsta(t, ia) {
 }
 
 /** El texto del encargo: lo compone el SERVIDOR, el mismo que el del asistente de la app. */
-function textoEncargo({ clave, usuario, rehacer, negocio = null }) {
+function textoEncargo({ clave, usuario, rehacer, negocio = null, origen = null }) {
     const { TAREAS } = require('./asistenteApp');
     // La obra de un certificador externo: ni es un cliente nuestro ni hay a
     // quién escribirle; lo que falte va al informe (TAREAS.cee_inicial lo dice).
     const ext = negocio === 'ext';
     return [
         ext ? `Encargo de la APP DE CERTIFICADORES: lo pide ${usuario || 'un certificador externo'}.`
-            : `Encargo desde el BOTÓN CE3X de la app («Generar con IA»): lo pide ${usuario || 'alguien del equipo'}.`,
+            : origen === 'revision_partner'
+                ? `Encargo de un PARTNER con «Solicitar revisión» en su oportunidad (bono de la simulación por debajo de 3.000 €, regla 161): lo pide ${usuario || 'el partner'}.`
+                : `Encargo desde el BOTÓN CE3X de la app («Generar con IA»): lo pide ${usuario || 'alguien del equipo'}.`,
         TAREAS.cee_inicial.instruccion(clave),
+        // Regla 161: el XML del CEE se CARGA en la simulación (cálculo real), y la
+        // cifra nueva la ve Fran antes que nadie. Al partner y al cliente no se les
+        // escribe: la oportunidad se lo enseña al partner cuando cambia.
+        origen === 'revision_partner'
+            ? 'Al acabar, CARGA su XML en la simulación de la oportunidad (`cee_inicial.js aplicar --escribir`, regla 161) para que pase a cálculo real, y dime el bono antes → después. NO escribas al partner ni al cliente.'
+            : '',
         rehacer ? 'Ya había un CEE inicial hecho por la IA y se pide REHACERLO: el anterior va a OLD.' : '',
         // Fran, 25/10/2026: «no quiero que me vaya actualizando el proceso». En una
         // obra de la app el aviso es UNO, el de «listo para revisar», y lo manda la
@@ -206,7 +214,7 @@ function textoEncargo({ clave, usuario, rehacer, negocio = null }) {
  * Apunta el encargo. 409 si ya hay uno vivo (`EN_MARCHA`), si la IA ya lo hizo
  * y no se pide `rehacer` (`YA_GENERADO`) o si es una oportunidad aceptada.
  */
-async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }) {
+async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial', origen = null, porVia = null }) {
     if (fase !== 'inicial') throw fallo(400, 'Con IA solo se genera el CEE INICIAL.');
     const f = await filaDe(negocio, id);
     if (f.expediente) {
@@ -235,7 +243,9 @@ async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }
                 : 'El PC dejó de dar señales a medias: se ha vuelto a pedir.',
         }).eq('id', vivo.id).eq('estado', 'EN_CURSO');
     }
-    const porWhatsapp = via() === 'whatsapp';
+    // `porVia` fuerza el camino: la revisión del partner va por la API (la cola del
+    // PC con la llave), decisión de Fran del 17/11/2026 («a través del token»).
+    const porWhatsapp = (porVia || via()) === 'whatsapp';
     const ahora = new Date().toISOString();
     // Por la suscripción la fila se apunta ya EN_CURSO: la toma el Claude del
     // WhatsApp, no el PC. Va ANTES del encargo para que el índice único impida
@@ -252,12 +262,14 @@ async function pedir({ negocio, id, usuario, rehacer = false, fase = 'inicial' }
     }
     if (!porWhatsapp) return data;
     const r = await require('./asistenteCanal').pedirTarea({
-        texto: textoEncargo({ clave: f.clave, usuario, rehacer: data.rehacer, negocio: f.negocio }),
+        texto: textoEncargo({ clave: f.clave, usuario, rehacer: data.rehacer, negocio: f.negocio, origen }),
         clave: `ce3x:${f.clave}:cee_inicial`,
         // Una obra de la app de certificadores va SIN acuse y en silencio: el
         // encargo ya se lo ha dicho la app al equipo (certapp/ia.textoEncargo).
         ...(f.negocio === 'ext' ? { silencioso: true }
-            : { acuse: `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.` }),
+            : { acuse: origen === 'revision_partner'
+                ? `Me pongo con el CEE inicial de ${f.clave}: el partner ha pedido revisión (bono por debajo de 3.000 €). Te aviso con la cifra antes → después.`
+                : `Me pongo con el CEE inicial de ${f.clave} (me lo han pedido con el botón CE3X de la app). Te aviso cuando esté listo.` }),
     });
     if (!r.ok) {
         await supabase.from('cee_ia_trabajos')

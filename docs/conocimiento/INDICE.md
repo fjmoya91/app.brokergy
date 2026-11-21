@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 52,2 KB | 16 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 52,6 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
@@ -30,12 +30,12 @@
 | `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 25,3 KB | 8 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 18,9 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 29,4 KB | 11 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 37,1 KB | 12 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 12,8 KB | 3 |
-| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 16,8 KB | 7 |
+| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 17,3 KB | 7 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 42,0 KB | 19 |
 
 ## Reglas numeradas → dónde están
@@ -302,6 +302,7 @@
 - **213** → `.claude/rules/lotes.md` — El EQUIPO de verificación (verificador jefe y revisor técnico, con email y teléfono) se LEE del plan y de la…
 - **215** → `.claude/rules/lotes.md` — El Anexo I del LOTE lleva las firmas ANCLADAS al pie de la hoja, y sus casillas se MIDEN
 - **216** → `.claude/rules/cuadro-mando.md` — El cuadro de mando es de DIRECCIÓN y en el navegador no se hace ninguna cuenta de dinero: todo sale de [cuad…
+- **217** → `.claude/rules/oportunidades.md` — El PARTNER da de alta la caldera con la FOTO de su placa, y ve la oportunidad simplificada
 - **217** → `.claude/rules/whatsapp.md` — El SEGUIMIENTO: toda propuesta enviada y todo CEE inicial sin material tiene su escalera de recordatorios, y…
 - **218** → `.claude/rules/oportunidades.md` — Una oportunidad puede llevar un COMISIONISTA: la PERSONA que trajo la obra, aparte del partner (empresa) del…
 - **219** → `.claude/rules/instalador-rite.md` — El instalador puede HACER la factura de la obra en la app, en SU plantilla, y se guarda como si la hubiera S…
@@ -676,6 +677,7 @@
 - `docs/conocimiento/oportunidades/al-aceptar-el-cliente-confirma-sus-emisores-placas-y-aires.md` — Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29)
 - `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01)
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23)
+- `docs/conocimiento/oportunidades/el-alta-del-partner-con-la-foto-de-la-placa.md` — El alta del PARTNER: la caldera desde la FOTO de su placa, y la oportunidad simplificada (2026-11-16)
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20)
 - `docs/conocimiento/oportunidades/el-comisionista-de-una-oportunidad.md` — El COMISIONISTA de una oportunidad: la persona que trajo la obra (2026-11-16)
 - `docs/conocimiento/oportunidades/el-formulario-calcula-tu-ayuda-la-obra-viene-en-el-enlace.md` — El formulario «Calcula tu ayuda»: la obra viene en el enlace, y pregunta lo que decide el FM (2026-11-09)

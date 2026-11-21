@@ -113,7 +113,9 @@ async function cargarCeeEnOportunidad(oportunidadId, xmlTexto,
         .update({ datos_calculo: { ...dc, result, historial }, demanda_calefaccion: despues.demanda })
         .eq('id', op.id);
     if (eUp) throw new Error(`No se ha podido guardar el resultado: ${eUp.message}`);
-    return { cargado: true, parsed, antes, despues };
+    // «Solicitar revisión» del partner: con el CEE cargado, se cierra y se le avisa.
+    const revision = await require('../revisionPartner').cerrarRevision(op.id, { antes, despues });
+    return { cargado: true, parsed, antes, despues, revision };
 }
 
 /** Ahorro y bono de un RES080: los de la rama por vector (`res080` / `financialsRes080`). */
@@ -236,7 +238,8 @@ async function cargarRes080EnOportunidad(oportunidadId, xmlInicial, xmlPrevisto,
                   demanda_calefaccion: Number(xIni.demandaCalefaccion) || null })
         .eq('id', op.id);
     if (eUp) throw new Error(`No se ha podido guardar el resultado: ${eUp.message}`);
-    return { cargado: true, ...dice, antes, despues };
+    const revision = await require('../revisionPartner').cerrarRevision(op.id, { antes, despues });
+    return { cargado: true, ...dice, antes, despues, revision };
 }
 
 module.exports = { cargarCeeEnOportunidad, cargarRes080EnOportunidad };

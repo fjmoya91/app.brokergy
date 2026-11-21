@@ -92,8 +92,10 @@ Pantalla **`docs_obra`** ([StepDocsObra.jsx](implementation/frontend/src/feature
 solo flujo interno: sustituye a "¿tienes un presupuesto orientativo?" por soltar el PDF.
 `POST /api/factura-ocr/extract` ([routes/facturaOcr.js](implementation/backend/routes/facturaOcr.js))
 es el gemelo **sin expediente** del OCR de facturas: mismo `facturaOcrService`, pero no guarda en Drive
-(aún no hay carpeta) ni levanta incidencias (no hay expediente contra el que cruzar). `staffOnly`:
-lleva importes.
+(aún no hay carpeta) ni levanta incidencias (no hay expediente contra el que cruzar). Pide sesión
+(`enforceAuth`; era `staffOnly` hasta el 16/11/2026): el PARTNER también da de alta aquí y lee SU
+presupuesto, que solo trae lo que pone su documento — ningún importe ni margen de BROKERGY. El
+anónimo de la landing, no (llamada de pago a un LLM).
 
 **REGLA — facturas y presupuesto no se suman.** Si hay facturas, la inversión son ellas; el presupuesto
 solo manda mientras no haya factura. Sumar los dos duplica la inversión del Anexo y el tope de

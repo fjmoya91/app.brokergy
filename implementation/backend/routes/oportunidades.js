@@ -20,7 +20,7 @@ const { createLead } = require('../services/leadService');
 // (residencial), las declara una persona. Fuente única en utils/fichas.js.
 const { FICHAS, detectPrograma } = require('../utils/fichas');
 const { sellarPrecioCae } = require('../utils/precioCae');
-const { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe } = require('../utils/viaFmAlGuardar');
+const { viaFmAlGuardar, conservarRutaFm, conservarFmEnPropuesta, viaFmDe, limpiarRespuestasFm, veredictoFm } = require('../utils/viaFmAlGuardar');
 const { sellarGuiaTransmitancias } = require('../utils/guiaTransmitancias');
 const { conservarCiega, sinCiegaParaPartner: _sinCiegaParaPartner, cargarLogicaCiega } = require('../utils/estimacionCiega');
 const { capaComisionista } = require('../utils/comisionista');
@@ -205,12 +205,76 @@ router.post('/internal-simulation', enforceAuth, async (req, res) => {
         });
 
         console.log(`[oportunidades/internal-simulation] Creada: ${result.id_oportunidad} (rol=${req.user?.rol_nombre})`);
+
+        // El TOKEN de subida, en la misma respuesta: con él el formulario sube lo que
+        // traía en la mano (fotos de la caldera y su placa, presupuesto, facturas) por
+        // el canal de siempre. A un PARTNER no le basta la sesión en ese canal (403) y
+        // sus ficheros se perdían. Generarlo AQUÍ, antes de que la pantalla de fotos lo
+        // pida, evita que dos peticiones a la vez creen dos tokens distintos y el
+        // primero deje de valer (`attachUploadToken` es idempotente con uno ya puesto).
+        // Es SU oportunidad: el mismo token que ya le da `GET /:id/docs`.
+        if (result?.oportunidad_uuid) {
+            try {
+                const { token } = await reformaUploadService.attachUploadToken(result.oportunidad_uuid);
+                result.upload_token = token;
+            } catch (e) {
+                console.warn('[oportunidades/internal-simulation] sin token de subida:', e.message);
+            }
+        }
         return res.status(201).json(result);
     } catch (err) {
         console.error('[oportunidades/internal-simulation] Error:', err.message);
         const msg = err.message || 'Error creando la simulación';
         const isValidation = /Falta|obligatorio|inválid|inválido|Necesitamos/i.test(msg);
         return res.status(isValidation ? 400 : 500).json({ error: msg });
+    }
+});
+
+// ─── La PLACA de la caldera en «Nueva simulación» (partner y equipo) ───
+// POST /api/oportunidades/leer-placa-caldera  (multipart `files[]`, hasta 6 fotos)
+//
+// El instalador sube la foto de la placa (y de la caldera entera) al dar de alta,
+// y la app le dice en el momento si sirve y qué ha leído: marca, modelo, potencia,
+// combustible y año, que rellenan la caldera de la simulación sin preguntárselo.
+//
+// REGLA — es la MISMA lectura que la del expediente (`leerPlacaCaldera`, regla
+// 27.d) y aquí NO SE ESCRIBE NADA: las fotos se leen y se tiran. Las fotos que
+// se quedan son las que el formulario sube a sus apartados de la oportunidad
+// recién creada (FOTO_PLACA_CALDERA_ANTES · FOTO_CALDERA_ANTES), por la subida
+// de siempre; lo leído viaja en `inputs.placa_caldera`, que el expediente hereda.
+//
+// `enforceAuth` y no `staffOnly`, a propósito: es el partner quien está delante
+// de la caldera (decisión del usuario, 16/11/2026). Cada lectura cuesta ~0,001 €
+// (medido, regla 27.d) y lleva tope de fotos y de tamaño.
+const uploadPlacaCalderaAlta = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 15 * 1024 * 1024, files: 6 },
+}).array('files', 6);
+router.post('/leer-placa-caldera', enforceAuth, (req, res, next) => {
+    uploadPlacaCalderaAlta(req, res, (err) => {
+        if (err) return res.status(400).json({ error: `No se pudo leer la foto: ${err.message}` });
+        next();
+    });
+}, async (req, res) => {
+    try {
+        const files = (req.files || []).filter((f) => (f.mimetype || '').startsWith('image/'));
+        if (!files.length) return res.status(400).json({ error: 'Adjunta al menos una foto de la placa.' });
+        const { leerPlacaCaldera, elegirPotencia } = require('../services/placaOcrService');
+        const { veredictoPlaca, potenciasPorCombustible } = require('../utils/placaCalderaAlta');
+        // Sin combustible: en el alta todavía no está declarado. Una placa
+        // policombustible devuelve la potencia de cada familia (abajo).
+        const r = await leerPlacaCaldera(files, {});
+        return res.json({
+            leido: r.leido,
+            potencia_kw: r.potencia_kw,
+            potencia_base: r.potencia_base,
+            potencias_por_combustible: potenciasPorCombustible(r.leido?.potencias, elegirPotencia),
+            avisos: r.avisos || [],
+            veredicto: veredictoPlaca(r),
+        });
+    } catch (err) {
+        console.error('[oportunidades/leer-placa-caldera]', err.message);
+        return res.status(err.status || 500).json({ error: err.status ? err.message : 'No se ha podido leer la placa. Vuelve a intentarlo.' });
     }
 });
 
@@ -1860,6 +1924,133 @@ router.post('/:id/fm-en-propuesta', staffOnly, async (req, res) => {
         res.json({ fm_en_propuesta: mostrar });
     } catch (e) {
         res.status(e.status || 500).json({ error: e.message });
+    }
+});
+
+// ── «Pedir que vaya por FM» (16/11/2026, Fran) ────────────────────────────────────
+// El PARTNER no elige la vía (el conmutador de arriba es del equipo interno): PIDE
+// que su oportunidad vaya por el factor multiplicador, con sus respuestas a las cinco
+// preguntas del popup de requisitos. Se guarda en `inputs.peticion_fm` (RPC de merge,
+// nunca leyendo y reescribiendo `inputs`) y se anota en el historial; la vía la
+// decide después el equipo con el conmutador. `{ cancelar: true }` la retira.
+// El guardado de la calculadora no la toca (`conservarRutaFm`).
+router.post('/:id/peticion-fm', enforceAuth, suyaSiPartner, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        let q = supabase.from('oportunidades').select('id, id_oportunidad');
+        q = UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id);
+        const { data: op, error } = await q.order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se ha podido leer la oportunidad.' });
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        const { data: exp, error: eErr } = await supabase
+            .from('expedientes').select('numero_expediente').eq('oportunidad_id', op.id).maybeSingle();
+        if (eErr) return res.status(503).json({ error: 'No se ha podido comprobar si ya es expediente.' });
+        if (exp) return res.status(409).json({ error: `Ya es el expediente ${exp.numero_expediente}: la vía la lleva el equipo de BROKERGY.` });
+
+        const usuario = nombreUsuario(req);
+        if (req.body?.cancelar === true) {
+            const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { peticion_fm: null } });
+            if (mErr) return res.status(503).json({ error: 'No se ha podido retirar la petición.' });
+            try { await anotarHistorial(op.id, 'Retirada la petición de ir por la vía del FACTOR MULTIPLICADOR.', usuario); } catch { /* no tumba */ }
+            return res.json({ peticion_fm: null });
+        }
+
+        const respuestas = limpiarRespuestasFm(req.body?.respuestas);
+        const veredicto = veredictoFm(respuestas);
+        const peticion = { respuestas, veredicto, por: usuario, at: new Date().toISOString() };
+        const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { peticion_fm: peticion } });
+        if (mErr) return res.status(503).json({ error: 'No se ha podido guardar la petición.' });
+
+        const ETQ = { caldera: 'caldera de gas/GLP/gasóleo', habitual: 'vivienda habitual', aerotermia: 'aerotermia con calefacción y ACS',
+                      fechas: 'obra en fechas', retirada: 'caldera retirada' };
+        const txt = (v) => v === true ? 'sí' : v === false ? 'NO' : 'no lo sabe';
+        const linea = Object.keys(ETQ).map(k => `${ETQ[k]}: ${txt(respuestas[k])}`).join(' · ');
+        const cab = veredicto === 'cumple' ? 'cumple los cinco requisitos'
+            : veredicto === 'no_cumple' ? 'con algún requisito que NO cumple' : 'con requisitos por confirmar';
+        try {
+            await anotarHistorial(op.id, `🧾 Se PIDE ir por la vía del FACTOR MULTIPLICADOR (${cab}). ${linea}. La vía se elige con el conmutador «Vía de tramitación».`, usuario);
+        } catch { /* la línea del historial no puede tumbar la petición */ }
+        res.json({ peticion_fm: peticion });
+    } catch (e) {
+        console.error('[peticion-fm]', e.message);
+        res.status(500).json({ error: 'No se ha podido guardar la petición.' });
+    }
+});
+
+// ── «Solicitar revisión» (17/11/2026, Fran) ───────────────────────────────────────
+// El PARTNER cuyo bono sale por debajo de 3.000 € (el umbral de la regla 161) pide
+// que se haga el CEE INICIAL de la vivienda: se le encarga a la IA por la MISMA
+// cola del botón CE3X (`ceeIa.pedir`, un trabajo vivo por oportunidad), y al acabar
+// su XML se carga en la simulación (cálculo real). La cifra y el umbral los mira el
+// SERVIDOR con lo GUARDADO, nunca con lo que mande el navegador. Se apunta en
+// `inputs.peticion_revision` (RPC de merge) y en el historial.
+const UMBRAL_REVISION_EUR = 3000;
+router.post('/:id/peticion-revision', enforceAuth, suyaSiPartner, async (req, res) => {
+    try {
+        const id = String(req.params.id);
+        let q = supabase.from('oportunidades').select(`id, id_oportunidad,
+            bono:datos_calculo->result->financials->caeBonus,
+            bono080:datos_calculo->result->financialsRes080->caeBonus,
+            reforma:datos_calculo->inputs->isReforma,
+            comparativa:datos_calculo->inputs->comparativaReforma,
+            cee_origen:datos_calculo->inputs->cee_previo->>origen,
+            cee_fichero:datos_calculo->inputs->cee_previo->>fileName,
+            xml_cal:datos_calculo->inputs->xmlDemandData->>demandaCalefaccion,
+            pedida:datos_calculo->inputs->peticion_revision->>at`);
+        q = UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id);
+        const { data: op, error } = await q.order('created_at', { ascending: false }).limit(1).maybeSingle();
+        if (error) return res.status(503).json({ error: 'No se ha podido leer la oportunidad.' });
+        if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+        if (op.pedida) return res.status(409).json({ error: 'La revisión ya está pedida.', code: 'YA_PEDIDA' });
+        if (op.cee_origen || op.cee_fichero || op.xml_cal != null) {
+            return res.status(409).json({ error: 'Esta simulación ya está calculada con el CEE de la vivienda.', code: 'CON_CEE' });
+        }
+        const soloReforma = op.reforma === true && op.comparativa === false;
+        const bono = Number(soloReforma ? op.bono080 : op.bono);
+        if (!(bono > 0)) return res.status(409).json({ error: 'Guarda antes la simulación.', code: 'SIN_CIFRA' });
+        if (bono >= UMBRAL_REVISION_EUR) {
+            return res.status(409).json({ error: 'La revisión es para bonos por debajo de 3.000 €.', code: 'POR_ENCIMA' });
+        }
+
+        const usuario = nombreUsuario(req);
+        // El encargo (y sus 409: ya aceptada, ya en marcha, ya generado por la IA).
+        // Si la IA ya lo está haciendo o ya lo hizo (botón CE3X del equipo), para el
+        // partner es lo mismo: queda pedida, sin un segundo encargo ni otro gasto.
+        let trabajo = null;
+        try {
+            trabajo = await require('../services/ceeIa').pedir({ negocio: 'op', id: op.id, usuario, origen: 'revision_partner' });
+        } catch (e) {
+            const code = e.extra?.code || null;
+            if (code === 'ACEPTADA') return res.status(409).json({ error: 'Ya es expediente: el CEE lo lleva el equipo de BROKERGY.', code });
+            if (code !== 'EN_MARCHA' && code !== 'YA_GENERADO') {
+                const st = e.status || 500;
+                return res.status(st).json({ error: st >= 500 ? 'No se ha podido pedir la revisión ahora mismo. Vuelve a intentarlo.' : e.message, code });
+            }
+        }
+
+        const peticion = { por: usuario, at: new Date().toISOString(), bono: Math.round(bono), trabajo_id: trabajo?.id || null };
+        const { error: mErr } = await supabase.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { peticion_revision: peticion } });
+        if (mErr) console.warn('[peticion-revision] encargada pero sin apuntar en inputs:', mErr.message);
+        try {
+            await anotarHistorial(op.id, `🔎 Se PIDE REVISIÓN con el CEE de la vivienda (bono de la simulación: ${Math.round(bono)} €). Encargado el CEE inicial a la IA; su XML pasará la simulación a cálculo real.`, usuario);
+        } catch { /* la línea del historial no puede tumbar la petición */ }
+        // A administración: quién la pide y si hay un PC atendiendo la cola (sin él,
+        // el encargo espera). Nunca tumba la petición.
+        try {
+            const ceeIa = require('../services/ceeIa');
+            const est = await ceeIa.estado('op', op.id).catch(() => null);
+            const pc = est?.vigilante?.listo ? `el PC ${est.vigilante.equipo || ''} la tiene en cola`.replace('  ', ' ')
+                : `NINGÚN PC está atendiendo la cola (${est?.vigilante?.motivo || 'sin señales'}): enciende atender.cmd`;
+            await require('../services/whatsappService').sendText(process.env.WHATSAPP_ADMIN_CHAT || '34623926179',
+                `REVISIÓN PEDIDA POR UN PARTNER · ${op.id_oportunidad}\n\n${usuario} pide revisar con el CEE de la vivienda (bono de la simulación ${Math.round(bono)} €). `
+                + `CEE inicial encargado a la IA por la API: ${trabajo ? pc : 'ya estaba en marcha o hecho por la IA'}. `
+                + 'Al cargar su XML, el partner recibe el aviso solo.');
+        } catch (e) { console.warn('[peticion-revision] aviso a administración:', e.message); }
+        res.json({ peticion_revision: peticion });
+    } catch (e) {
+        console.error('[peticion-revision]', e.message);
+        res.status(500).json({ error: 'No se ha podido pedir la revisión.' });
     }
 });
 
