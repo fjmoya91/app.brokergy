@@ -25,6 +25,13 @@
 //   ?tarifa=1         → la carga del Excel del CRM (solo ADMIN), en sus dos pasos,
 //                       contestada aquí (el fichero que elijas no sale del navegador);
 //                       con ?fallo=1, «Guardar» da el 409 de «el plan ha cambiado»
+// Fase 5 (pulido, instalable, marca):
+//   La pantalla y la ficha viajan en la dirección (las MISMAS claves que la app de
+//   verdad: seccion, obra, accion, cliente, equipo): recargar y «atrás» se prueban aquí.
+//   ?marca=1      → su logo y su color (azul); ?marca=claro → un amarillo (se oscurece a AA)
+//   ?instalar=iphone|android → la invitación «Ponla en tu pantalla de inicio» en el PC
+//   ?sinred=1     → sin conexión (navigator.onLine = false); `__volverRed()` en la
+//                   consola la devuelve y la app vuelve a pedir todo sola
 /* eslint-disable react-refresh/only-export-components -- es un punto de entrada, no un módulo */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -40,6 +47,14 @@ const p = new URLSearchParams(window.location.search);
 const VACIO = p.has('vacio');
 const ERROR = p.has('error');
 const FALLO = p.has('fallo');
+let sinRedAhora = p.has('sinred');
+if (sinRedAhora) {
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, get: () => !sinRedAhora });
+    window.__volverRed = () => { sinRedAhora = false; window.dispatchEvent(new Event('online')); };
+}
+const MARCA = p.get('marca');
+// Un logo de mentira (SVG en línea: nada sale del navegador).
+const LOGO_DEMO = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96"><rect width="96" height="96" rx="20" fill="#1565c0"/><text x="48" y="60" font-family="Arial" font-weight="700" font-size="34" fill="#fff" text-anchor="middle">IP</text></svg>')}`;
 
 // ── Nada sale del navegador ─────────────────────────────────────────────────
 const corta = (que) => { console.warn(`[instalador-demo] BLOQUEADO ${que}`); };
@@ -219,7 +234,7 @@ const resumen = (obras) => ({
     te_toca: obras.filter((o) => o.quien === 'tu').length, cobradas: obras.filter((o) => o.quien === 'fin').length,
     tareas: obras.reduce((s, o) => s + o.tareas.length, 0),
 });
-const espera = (v, ms = 350) => new Promise((ok, ko) => setTimeout(() => (ERROR ? ko(new Error('503')) : ok(v)), ms));
+const espera = (v, ms = 350) => new Promise((ok, ko) => setTimeout(() => ((ERROR || sinRedAhora) ? ko(new Error('503')) : ok(v)), ms));
 const envia = (efecto, ms = 900) => new Promise((ok, ko) => setTimeout(() => {
     if (FALLO) { const e = new Error('500'); e.response = { data: { error: 'En el banco de pruebas, con ?fallo=1, todos los envíos fallan.' } }; ko(e); return; }
     efecto?.(); ok({ data: { ok: true } });
@@ -526,9 +541,10 @@ function Demo() {
             api={api}
             saludo="RCA"
             empresa="Instalaciones de Prueba, S.L."
-            seccionInicial={['obras', 'clientes', 'pagina', 'catalogo'].includes(p.get('seccion')) ? p.get('seccion') : (p.get('equipo') ? 'catalogo' : 'inicio')}
             paginaVista={p.has('elegir') ? 'elegir' : 'pagina'}
-            abrirAlEmpezar={p.get('obra') ? { obra: p.get('obra'), accion: p.get('accion') } : p.get('equipo') ? { equipo: p.get('equipo') } : null}
+            logo={MARCA ? LOGO_DEMO : null}
+            colorMarca={MARCA === 'claro' ? '#ffd400' : MARCA ? '#1565c0' : null}
+            instalarComo={['iphone', 'android'].includes(p.get('instalar')) ? p.get('instalar') : null}
             onNueva={(o) => window.alert(o?.equipo
                 ? `Banco de pruebas: «Nueva simulación» con ${o.equipo.marca} ${o.equipo.nombre} y ${o.equipo.precio_sin_iva ?? 'sin'} € sin IVA (${o.equipo.origen || 'sin precio'}) como presupuesto de la aerotermia.`
                 : 'Banco de pruebas: «Nueva simulación». En la app de verdad se abre lo de siempre.')}

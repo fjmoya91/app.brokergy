@@ -5,7 +5,7 @@
 // marcas). NADA se publica desde aquí: lo propone y lo revisa BROKERGY.
 // Los envíos, con el popup de la casa (`alSubir` → SendActionOverlay).
 import React, { useEffect, useRef, useState } from 'react';
-import { Icono, Esqueleto, AvisoError, eur, iniciales } from '../ui/piezas';
+import { Icono, Esqueleto, AvisoError, eur, iniciales, useHojaTeclado } from '../ui/piezas';
 import { useEnvio } from './AccionesObra';
 import { ElegirFotosView } from './ElegirFotosView';
 
@@ -136,7 +136,7 @@ function Fotos({ d, onAbrir, onElegir, onSubir }) {
             )}
             {noValen.length > 0 && (
                 <div className="ia-aviso tu" role="status">
-                    <b>{noValen.length === 1 ? 'Una foto no vale' : `${noValen.length} fotos no valen`}.</b> Tócala para ver por qué{noValen[0].motivo ? `: «${noValen[0].motivo}»` : ''}.
+                    <b>{noValen.length === 1 ? 'Una foto no vale' : `${noValen.length} fotos no valen`}.</b> Tócala para ver por qué{noValen[0].motivo ? `: «${String(noValen[0].motivo).trim().replace(/[.\s]+$/, '')}»` : ''}.
                 </div>
             )}
             <button type="button" className="ia-btn ia-btn-pri" onClick={onElegir}><Icono n="obras" size={22} /> Elegir fotos de mis obras</button>
@@ -150,6 +150,7 @@ function Fotos({ d, onAbrir, onElegir, onSubir }) {
 
 // ── La hoja de una foto: grande, su estado, su motivo y «Quitar» ─────────────
 function HojaFoto({ foto, api, alSubir, onCerrar, onHecho }) {
+    const hojaRef = useHojaTeclado(onCerrar);
     const c = CHIP_FOTO[foto.estado] || CHIP_FOTO.revision;
     const quitar = async () => {
         try {
@@ -159,7 +160,7 @@ function HojaFoto({ foto, api, alSubir, onCerrar, onHecho }) {
     };
     return (
         <div className="ia-velo" onPointerDown={(e) => { if (e.target === e.currentTarget) onCerrar(); }}>
-            <div className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu foto">
+            <div ref={hojaRef} className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu foto">
                 <div className="ia-hoja-asa" />
                 <div className="ia-hoja-foto"><img src={foto.miniatura} alt="" /></div>
                 <div className="ia-pg-quien" style={{ padding: '12px 2px 10px' }}>
@@ -180,6 +181,7 @@ function HojaFoto({ foto, api, alSubir, onCerrar, onHecho }) {
 
 // ── Subir del móvil: el permiso antes de enviar ──────────────────────────────
 function HojaSubida({ ficheros, api, alSubir, onCerrar, onHecho }) {
+    const hojaRef = useHojaTeclado(onCerrar);
     const [permiso, setPermiso] = useState(false);
     const n = ficheros.length;
     const grandes = ficheros.filter((f) => f.size > 10 * 1024 * 1024).length;
@@ -194,7 +196,7 @@ function HojaSubida({ ficheros, api, alSubir, onCerrar, onHecho }) {
     const listo = permiso && !grandes && n <= 10;
     return (
         <div className="ia-velo" onPointerDown={(e) => { if (e.target === e.currentTarget) onCerrar(); }}>
-            <div className="ia-hoja" role="dialog" aria-modal="true" aria-label="Subir fotos del móvil">
+            <div ref={hojaRef} className="ia-hoja" role="dialog" aria-modal="true" aria-label="Subir fotos del móvil">
                 <div className="ia-hoja-asa" />
                 <p className="ia-eyebrow" style={{ padding: '4px 2px 6px' }}>Subir del móvil</p>
                 <p className="ia-toca-h" style={{ padding: '0 2px 10px' }}>{n === 1 ? 'Vas a subir 1 foto' : `Vas a subir ${n} fotos`}</p>

@@ -37,7 +37,7 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
                 <h1 className="ia-display">Clientes</h1>
                 {onNuevo && (
                     <button type="button" className="ia-btn ia-btn-tinta ia-btn-peq" onClick={onNuevo}>
-                        <Icono n="mas" size={20} grosor={2.4} /> Nuevo
+                        <Icono n="mas" size={20} grosor={2.4} /> Nuevo cliente
                     </button>
                 )}
             </div>

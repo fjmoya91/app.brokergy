@@ -171,12 +171,12 @@ function PanelObra({ obra, cargarDetalle, onAbrirObra, onAbrirOportunidad, onAbr
                 <div className="ia-aviso">{TEXTO_QUIEN[o.quien]}</div>
             )}
             <div className="ia-tres">
-                <div><span>Tu presupuesto</span><b>{o.presupuesto?.importe ? eur(o.presupuesto.importe) : det ? 'Sin presupuesto' : '…'}</b></div>
-                <div><span>Tu factura</span><b>{!o.con_expediente ? 'Aún no toca' : fac ? (o.papeles?.find((p) => p.key === 'factura')?.estado || (fac.n ? 'Subida' : 'Sin hacer')) : '…'}</b></div>
-                <div><span>Fotos y papeles</span><b>{!o.con_expediente ? 'Aún no toca' : o.papeles ? `${o.papeles_listos} de ${o.papeles.length} listos` : '…'}</b></div>
+                <div><span>Tu presupuesto</span><b>{o.presupuesto?.importe ? eur(o.presupuesto.importe) : det ? 'Sin presupuesto' : fallo ? '—' : '…'}</b></div>
+                <div><span>Tu factura</span><b>{!o.con_expediente ? 'Aún no toca' : fac ? (o.papeles?.find((p) => p.key === 'factura')?.estado || (fac.n ? 'Subida' : 'Sin hacer')) : fallo ? '—' : '…'}</b></div>
+                <div><span>Fotos y papeles</span><b>{!o.con_expediente ? 'Aún no toca' : o.papeles ? `${o.papeles_listos} de ${o.papeles.length} listos` : fallo ? '—' : '…'}</b></div>
             </div>
             {det?.cuentas && <CuentasCliente cuentas={det.cuentas} compacta />}
-            {fallo && <p className="ia-pequeno">No hemos podido traer el detalle ahora mismo.</p>}
+            {fallo && <p className="ia-pequeno">No hemos podido traer el detalle ahora mismo. Ábrela entera para volver a intentarlo.</p>}
             <button type="button" className="ia-btn ia-btn-sec" onClick={() => (o.con_expediente ? onAbrirObra(o) : onAbrirOportunidad(o.id))}>
                 Abrir la obra entera <Icono n="chevron" size={20} />
             </button>

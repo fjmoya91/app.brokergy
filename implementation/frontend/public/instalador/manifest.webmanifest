@@ -1,0 +1,19 @@
+{
+  "name": "BROKERGY · Tus obras con ayuda",
+  "short_name": "BROKERGY",
+  "description": "Tus obras con ayuda CAE: qué te toca, el bono de tus clientes, tu catálogo y tu página web.",
+  "id": "/?app=instalador",
+  "start_url": "/?seccion=inicio",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "lang": "es",
+  "background_color": "#faf9f7",
+  "theme_color": "#faf9f7",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/instalador/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/instalador/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

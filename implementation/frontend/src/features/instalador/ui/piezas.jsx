@@ -2,7 +2,7 @@
 // Iconos (trazos del prototipo), chips de «quién tiene la pelota», la barra de los
 // cinco pasos, el buscador, los vacíos y las esperas. Sin datos ni llamadas: las
 // fases 2 y 3 (presupuesto, factura, catálogo) reutilizan esto tal cual.
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { CSS } from './estilo';
 
 /** Monta el CSS `.ia-` una sola vez (como `.fx-` en Facturación). */
@@ -33,6 +33,8 @@ export const ICONOS = {
     // Fase 3 («Tu página web»).
     web: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18ZM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18',
     compartir: 'M12 15V3M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7',
+    // Fase 5.
+    movil: 'M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2ZM11 18h2',
     camara: 'M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2ZM12 16.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z',
 };
 
@@ -99,7 +101,10 @@ export function iniciales(nombre) {
 /** «MARÍA JOSÉ» → «María José» (las fichas vienen en MAYÚSCULAS). */
 export function nombrePropio(s) {
     return String(s || '').toLowerCase().replace(/(^|[\s\-'(])([\p{L}])/gu, (m, a, b) => a + b.toUpperCase())
-        .replace(/\b(De|Del|La|Las|Los|Y|E)\b/g, (m) => m.toLowerCase()).replace(/^./, (c) => c.toUpperCase());
+        .replace(/\b(De|Del|La|Las|Los|Y|E)\b/g, (m) => m.toLowerCase()).replace(/^./, (c) => c.toUpperCase())
+        // Las siglas de sociedad siguen en mayúsculas: «Hermanos Calvo, S.L.», no «S.l.».
+        .replace(/\b(s\.\s?l(\.\s?u)?|s\.\s?a|s\.\s?c|c\.\s?b|s\.\s?coop)\.?(?=$|[\s,)])/gi, (m) => m.toUpperCase())
+        .replace(/\b(slu?)\b/gi, (m) => m.toUpperCase());
 }
 
 // ── Chips de «quién tiene la pelota» ─────────────────────────────────────────
@@ -153,13 +158,63 @@ export function Esqueleto({ alto = 120, n = 3 }) {
     );
 }
 
-/** Lo que se dice cuando la BD no contesta (regla 38: nunca un cero tranquilo). */
+/** Una hoja (popup de abajo) con el TECLADO (fase 5): al abrirse, el foco entra en
+ *  ella; Tab no se escapa a lo de detrás; Escape la cierra; al cerrarse, el foco
+ *  vuelve al botón que la abrió. Devuelve el `ref` para la `.ia-hoja`. */
+export function useHojaTeclado(onCerrar) {
+    const ref = useRef(null);
+    const cerrar = useRef(onCerrar);
+    cerrar.current = onCerrar;
+    useEffect(() => {
+        const antes = document.activeElement;
+        const el = ref.current;
+        const enfocables = () => Array.from(el?.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), textarea, select, [tabindex]:not([tabindex="-1"])') || []);
+        try { enfocables()[0]?.focus({ preventScroll: true }); } catch { /* */ }
+        const tecla = (e) => {
+            if (e.key === 'Escape') { e.stopPropagation(); cerrar.current?.(); return; }
+            if (e.key !== 'Tab' || !el) return;
+            const f = enfocables();
+            if (!f.length) return;
+            const i = f.indexOf(document.activeElement);
+            if (e.shiftKey && (i <= 0)) { e.preventDefault(); f[f.length - 1].focus(); }
+            else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+        };
+        document.addEventListener('keydown', tecla, true);
+        return () => {
+            document.removeEventListener('keydown', tecla, true);
+            try { if (antes && document.contains(antes)) antes.focus({ preventScroll: true }); } catch { /* */ }
+        };
+    }, []);
+    return ref;
+}
+
+/** ¿Hay conexión? (`navigator.onLine` y sus eventos; sin `navigator`, se supone que sí). */
+export function useEnLinea() {
+    const [en, setEn] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine !== false));
+    useEffect(() => {
+        const si = () => setEn(true); const no = () => setEn(false);
+        window.addEventListener('online', si); window.addEventListener('offline', no);
+        return () => { window.removeEventListener('online', si); window.removeEventListener('offline', no); };
+    }, []);
+    return en;
+}
+
+/** Lo que se dice cuando la BD no contesta (regla 38: nunca un cero tranquilo).
+ *  Sin conexión lo dice así, y en cuanto vuelve la cobertura lo intenta él solo (fase 5). */
 export function AvisoError({ onReintentar, texto }) {
+    const enLinea = useEnLinea();
+    const [antes, setAntes] = useState(enLinea);
+    useEffect(() => {
+        if (enLinea && !antes && onReintentar) onReintentar();
+        setAntes(enLinea);
+    }, [enLinea]); // eslint-disable-line react-hooks/exhaustive-deps
     return (
         <div className="ia-card" role="alert" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <p className="ia-eyebrow n">Ahora mismo no podemos enseñarte esto</p>
+            <p className="ia-eyebrow n">{enLinea ? 'Ahora mismo no podemos enseñarte esto' : 'No tienes conexión'}</p>
             <p style={{ margin: 0, fontSize: 15, lineHeight: 1.55, color: 'var(--gris)' }}>
-                {texto || 'Es un fallo nuestro y pasajero. Tus obras siguen ahí: vuelve a intentarlo en un momento.'}
+                {enLinea
+                    ? (texto || 'Es un fallo nuestro y pasajero. Tus obras siguen ahí: vuelve a intentarlo en un momento.')
+                    : 'Tu móvil no tiene internet ahora mismo. No se ha perdido nada: en cuanto vuelva la cobertura lo cargamos solo, o pulsa «Volver a intentarlo».'}
             </p>
             {onReintentar && <button type="button" className="ia-btn ia-btn-sec" onClick={onReintentar}>Volver a intentarlo</button>}
         </div>

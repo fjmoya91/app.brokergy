@@ -61,6 +61,8 @@ export function CuentasCliente({ cuentas, compacta = false, cliente = null }) {
     );
 }
 
+// «Caldera de gasóleo OTRA»: la marca de relleno del alta no se enseña.
+const marcaQueSeEnseña = (m) => (/^(otr[ao]s?|desconocid[ao]|sin marca|n\/?a|-+)$/i.test(String(m || '').trim()) ? null : m);
 const ICONO_TONO = { ok: 'ok', tu: 'aviso', nos: 'reloj' };
 
 // Qué acción abre cada papel (si la hay) y cada tarea.
@@ -215,7 +217,7 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                                 {o.caldera_retirada && (
                                     <div className={o.equipo ? undefined : 'primera'}>
                                         <dt>Se quitó</dt>
-                                        <dd>{[o.caldera_retirada.tipo || 'Caldera', o.caldera_retirada.combustible && `de ${String(o.caldera_retirada.combustible).toLowerCase()}`, o.caldera_retirada.marca].filter(Boolean).join(' ')}</dd>
+                                        <dd>{[o.caldera_retirada.tipo || 'Caldera', o.caldera_retirada.combustible && `de ${String(o.caldera_retirada.combustible).toLowerCase()}`, marcaQueSeEnseña(o.caldera_retirada.marca)].filter(Boolean).join(' ')}</dd>
                                     </div>
                                 )}
                             </dl>

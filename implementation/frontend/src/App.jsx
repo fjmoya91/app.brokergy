@@ -186,6 +186,13 @@ function App() {
     return params.get('op') || null;
   });
   const [opLinkHandled, setOpLinkHandled] = useState(false);
+  // La dirección y el historial con los que se CARGÓ la página, antes de que el
+  // efecto de la URL de abajo los toque: la app del instalador abre ahí al recargar
+  // o desde un enlace directo, también tras iniciar sesión (fase 5).
+  const [direccionDeCarga] = useState(() => ({
+    search: window.location.search,
+    iaFicha: window.history.state?.iaFicha,
+  }));
 
   const [firmaOportunidadId] = useState(() => {
     const path = window.location.pathname;
@@ -988,6 +995,16 @@ function App() {
   // una oportunidad abierta en la calculadora (?op=), o una pestaña a secas (?tab=).
   useEffect(() => {
     if (!user || window.location.pathname !== '/') return;
+    // La app del INSTALADOR escribe ella misma dónde está (`seccion`, `obra`…: ver
+    // features/instalador/ui/direccion.js). Aquí solo se lleva `op` (la oportunidad
+    // abierta dentro de su cáscara) y se respeta el estado del historial.
+    if (user.app_instalador) {
+      const u = new URL(window.location);
+      u.searchParams.delete('tab');
+      if (openOportunidadId) u.searchParams.set('op', openOportunidadId); else u.searchParams.delete('op');
+      window.history.replaceState(window.history.state, '', u);
+      return;
+    }
     const url = new URL(window.location);
     const p = url.searchParams;
     // 'estados'/'opestado' solo sirven para sembrar el filtro AL ABRIR la
@@ -1472,6 +1489,8 @@ function App() {
             <HostInstalador
               user={user}
               signOut={signOut}
+              direccion={direccionDeCarga.search}
+              fichaEnHistorial={direccionDeCarga.iaFicha}
               onNueva={openNewSimulation}
               onAbrirOportunidad={(id) => {
                 setError(null);

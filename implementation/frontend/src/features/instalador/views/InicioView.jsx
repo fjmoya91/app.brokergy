@@ -2,13 +2,17 @@
 import React from 'react';
 import { Icono, iconoDeTarea, Esqueleto, AvisoError } from '../ui/piezas';
 import { Destino } from './Tarea';
+import { InvitacionInstalar } from '../ui/Instalar';
 
-export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina }) {
+export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina, instalarComo = null }) {
     const obras = datos?.obras || [];
     const r = datos?.resumen || { total: 0, en_marcha: 0, te_toca: 0, cobradas: 0 };
     // Todas las tareas de todas las obras, en una lista (las de cada obra, en su orden).
     const tareas = obras.flatMap((o) => (o.tareas || []).map((t) => ({ ...t, obra: o })));
     const n = tareas.length;
+    // Las COSAS son tareas; el número del menú y del filtro «Te toca» cuenta OBRAS.
+    // Si no coinciden (una obra con dos cosas), se dicen las dos (fase 5).
+    const nObras = obras.filter((o) => (o.tareas || []).length > 0).length;
 
     return (
         <div className="ia-pagina estrecha">
@@ -16,7 +20,7 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                 <h1 className="ia-display">Hola, {saludo}</h1>
                 {!cargando && !error && (
                     n > 0
-                        ? <p>Hoy tienes <span className="ia-mark"><b>{n} {n === 1 ? 'cosa' : 'cosas'}</b></span> que hacer. Lo demás lo llevamos nosotros.</p>
+                        ? <p>Hoy tienes <span className="ia-mark"><b>{n} {n === 1 ? 'cosa' : 'cosas'}</b></span> que hacer{nObras && nObras !== n ? ` en ${nObras} ${nObras === 1 ? 'obra' : 'obras'}` : ''}. Lo demás lo llevamos nosotros.</p>
                         : <p>Hoy <b>no tienes nada pendiente</b>. Lo demás lo llevamos nosotros.</p>
                 )}
             </div>
@@ -50,7 +54,7 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                             <p id="ia-obras-tit" className="ia-eyebrow" style={{ marginBottom: 14 }}>Tus obras</p>
                             <div className="ia-cifras">
                                 <div><b>{r.en_marcha}</b><span>en marcha</span></div>
-                                <div><b style={{ color: r.te_toca ? 'var(--naranja-txt)' : undefined }}>{r.te_toca}</b><span>esperan por ti</span></div>
+                                <div><b style={{ color: r.te_toca ? 'var(--naranja-txt)' : undefined }}>{r.te_toca}</b><span>{r.te_toca === 1 ? 'te espera' : 'te esperan'}</span></div>
                                 <div><b style={{ color: r.cobradas ? 'var(--verde-txt)' : undefined }}>{r.cobradas}</b><span>cobradas</span></div>
                             </div>
                             <button type="button" className="ia-ver-todas" onClick={onVerObras}>
@@ -79,6 +83,8 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                     )}
                 </>
             )}
+
+            <InvitacionInstalar forzar={instalarComo} />
         </div>
     );
 }

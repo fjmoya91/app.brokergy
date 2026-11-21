@@ -26,8 +26,18 @@
 // en el avatar de la cabecera y en el pie del menú lateral). «Calcular una obra con
 // este equipo» llama a `onNueva({ equipo })`: quien nos aloja abre la Nueva
 // simulación con el equipo y su precio ya puestos.
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { EstiloInstalador, Icono } from './ui/piezas';
+//
+// Fase 5: la pantalla y la ficha abiertas viajan en la DIRECCIÓN (ui/direccion.js:
+// `?seccion=&obra=&accion=&cliente=&equipo=`, nada personal), así que recargar, el
+// «atrás» del móvil y un enlace directo dejan al instalador donde estaba. La app se
+// puede instalar (ui/cabeceraApp.js: manifiesto crema solo mientras está montada) y
+// lleva la marca de su empresa (ui/marca.js). Sin conexión, lo dice y lo vuelve a
+// intentar sola al volver la cobertura.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { EstiloInstalador, Icono, useEnLinea, useHojaTeclado } from './ui/piezas';
+import { leerDireccion, clavesDe, escribir } from './ui/direccion';
+import { ponerCabeceraInstalador } from './ui/cabeceraApp';
+import { varsDeMarca } from './ui/marca';
 import { MarcoInstalador } from './MarcoInstalador';
 import { InicioView } from './views/InicioView';
 import { ObrasView } from './views/ObrasView';
@@ -102,11 +112,17 @@ function useCarga(fn, activo, nonce) {
 }
 
 export default function AppInstalador({
-    api, saludo, empresa, logo,
+    api, saludo, empresa, logo, colorMarca = null,
     onNueva, onAbrirOportunidad, onPerfil, onSalir, onNuevoCliente, onCambiarCliente,
-    externo = null, onCerrarExterno, nonce = 0, seccionInicial = 'inicio', abrirAlEmpezar = null, paginaVista = 'pagina',
+    externo = null, onCerrarExterno, nonce = 0, paginaVista = 'pagina', instalarComo = null,
+    // Dónde abrir: la dirección con la que se cargó la página (quien nos aloja la
+    // guarda ANTES de que nada la toque) y cuántas fichas había en el historial.
+    direccion = typeof window !== 'undefined' ? window.location.search : '',
+    fichaEnHistorial = typeof window !== 'undefined' ? window.history.state?.iaFicha : undefined,
 }) {
-    const [seccion, setSeccion] = useState(seccionInicial);
+    const inicio = useRef(null);
+    if (inicio.current === null) inicio.current = leerDireccion(direccion);
+    const [seccion, setSeccion] = useState(inicio.current.seccion);
     // El avatar y «Perfil» abren una hoja: «Mis datos de empresa» (si la ficha ha
     // cargado), «Tu página web» y salir. Nunca se cierra la sesión de un toque.
     const [hoja, setHoja] = useState(false);
@@ -114,7 +130,9 @@ export default function AppInstalador({
     // null | { tipo: 'obra', obra, accion? } | { tipo: 'cliente', cliente } | { tipo: 'equipo', equipo }
     const [ficha, setFicha] = useState(null);
     // Cuántas entradas propias hay en el historial: 1 = la ficha, 2 = una acción dentro.
+    // Al recargar con una ficha abierta, sus entradas siguen ahí: se recupera su número.
     const pila = useRef(0);
+    const [tickUrl, setTickUrl] = useState(0);
     // Tras un envío dentro de la obra, se vuelve a pedir todo (la recarga de quien nos aloja va aparte).
     const [cambios, setCambios] = useState(0);
     const recarga = nonce * 1000 + cambios;
@@ -149,6 +167,7 @@ export default function AppInstalador({
     // ── Fichas e historial ──
     useEffect(() => {
         const alVolver = (ev) => {
+            setTickUrl((n) => n + 1); // la dirección vuelve a decir lo que se ve
             if (!pila.current) return;
             const d = Math.max(0, Math.min(pila.current - 1, Number(ev.state?.iaFicha) || 0));
             pila.current = d;
@@ -158,12 +177,19 @@ export default function AppInstalador({
         window.addEventListener('popstate', alVolver);
         return () => window.removeEventListener('popstate', alVolver);
     }, []);
-    const empujar = (n) => {
-        try { window.history.pushState({ iaFicha: n }, ''); pila.current = n; } catch { /* sin historial */ }
+    // Cada ficha (y cada acción) es una entrada del historial CON su dirección.
+    const empujar = (n, f) => {
+        escribir(clavesDe({ seccion, ficha: f }), { push: true, estado: { iaFicha: n } });
+        pila.current = n;
     };
-    const arriba = () => document.getElementById('ia-main')?.scrollTo?.(0, 0);
+    // Arriba del todo, y el foco al contenido: con el teclado se sigue desde ahí.
+    const arriba = () => {
+        const m = document.getElementById('ia-main');
+        m?.scrollTo?.(0, 0);
+        try { m?.focus?.({ preventScroll: true }); } catch { /* */ }
+    };
     const abrirFicha = (f) => {
-        if (!pila.current) empujar(1);
+        if (!pila.current) empujar(1, f);
         setFicha(f);
         arriba();
     };
@@ -173,9 +199,10 @@ export default function AppInstalador({
     };
     // Una acción (firmar, subir la factura…) se abre DENTRO de su obra.
     const abrirAccion = (o, destino) => {
-        if (!pila.current) empujar(1);
-        if (pila.current === 1) empujar(2);
-        setFicha({ tipo: 'obra', obra: o, accion: destino });
+        const f = { tipo: 'obra', obra: o, accion: destino };
+        if (!pila.current) empujar(1, { tipo: 'obra', obra: o });
+        if (pila.current === 1) empujar(2, f);
+        setFicha(f);
         arriba();
     };
     const cerrarAccion = () => {
@@ -184,6 +211,7 @@ export default function AppInstalador({
         arriba();
     };
     const ir = (s) => {
+        setNoEncontrada(null);
         if (pila.current) { const n = pila.current; pila.current = 0; try { window.history.go(-n); } catch { /* */ } }
         setFicha(null);
         setSeccion(s);
@@ -195,25 +223,84 @@ export default function AppInstalador({
     // siempre, dentro de esta cáscara); con expediente, en la ficha nueva.
     const abrirObra = (o) => (o.con_expediente ? abrirFicha({ tipo: 'obra', obra: o }) : onAbrirOportunidad(o.id));
 
-    // El banco de pruebas entra directo en una obra (y una acción): `?obra=&accion=`,
-    // o en la ficha de un equipo del catálogo: `?equipo=`.
-    const alEmpezar = useRef(abrirAlEmpezar);
+    // ── Abrir donde dice la dirección (recargar, un enlace directo, el banco) ──
+    // Recargando, el historial ya tiene las entradas de la ficha (`iaFicha`): se abre
+    // sin empujar más. Con un enlace nuevo, la entrada actual pasa a ser la pantalla
+    // y la ficha se empuja encima: «atrás» vuelve a la lista, no fuera de la app.
+    const alEmpezar = useRef(undefined);
+    if (alEmpezar.current === undefined) {
+        const d = inicio.current;
+        alEmpezar.current = (d.obra || d.cliente || d.equipo)
+            ? { ...d, enHistorial: Math.max(0, Math.min(2, Number(fichaEnHistorial) || 0)) }
+            : null;
+    }
+    const [noEncontrada, setNoEncontrada] = useState(null);
+    const abrirDesdeDireccion = (f, accion) => {
+        const a = alEmpezar.current;
+        alEmpezar.current = null;
+        if (a.enHistorial) {
+            pila.current = accion ? Math.max(a.enHistorial, 1) : 1;
+            if (accion && pila.current < 2) empujar(2, { ...f, accion });
+            setFicha(accion ? { ...f, accion } : f);
+            return;
+        }
+        escribir(clavesDe({ seccion: inicio.current.seccion, ficha: null }), { estado: { iaFicha: 0 } });
+        if (accion) abrirAccion(f.obra, accion); else abrirFicha(f);
+    };
+    const noEsta = (que) => {
+        alEmpezar.current = null;
+        setNoEncontrada(que);
+        setTickUrl((n) => n + 1);
+    };
     useEffect(() => {
         const a = alEmpezar.current;
-        if (!a?.equipo) return;
-        const eq = catalogo.datos?.equipos?.find((x) => String(x.id) === String(a.equipo));
-        if (!eq) return;
-        alEmpezar.current = null;
-        abrirFicha({ tipo: 'equipo', equipo: eq });
+        if (!a?.equipo || !catalogo.datos) return;
+        const eq = catalogo.datos.equipos?.find((x) => String(x.id) === String(a.equipo));
+        if (eq) abrirDesdeDireccion({ tipo: 'equipo', equipo: eq }); else noEsta('equipo');
     }, [catalogo.datos]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         const a = alEmpezar.current;
-        if (a?.equipo) return;
-        const o = a && obras.datos?.obras?.find((x) => x.id === a.obra);
-        if (!o) return;
-        alEmpezar.current = null;
-        if (a.accion) abrirAccion(o, { tipo: 'accion', accion: a.accion }); else abrirObra(o);
+        if (!a?.cliente || !clientes.datos) return;
+        const c = clientes.datos.find((x) => String(x.id_cliente) === String(a.cliente));
+        if (c) abrirDesdeDireccion({ tipo: 'cliente', cliente: c }); else noEsta('cliente');
+    }, [clientes.datos]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const a = alEmpezar.current;
+        if (!a?.obra || !obras.datos) return;
+        const o = obras.datos.obras?.find((x) => x.id === a.obra || x.numero_expediente === a.obra);
+        if (!o) { noEsta('obra'); return; }
+        if (!o.con_expediente) {
+            // Sin expediente se abre su oportunidad (quien nos aloja pone `?op=`).
+            alEmpezar.current = null;
+            setTickUrl((n) => n + 1);
+            onAbrirOportunidad?.(o.id);
+            return;
+        }
+        const acc = !a.accion ? null
+            : a.accion === 'factura' ? { tipo: 'accion', accion: 'factura', modo: o.factura_modo }
+                : { tipo: 'accion', accion: a.accion };
+        abrirDesdeDireccion({ tipo: 'obra', obra: o }, acc);
     }, [obras.datos]); // eslint-disable-line react-hooks/exhaustive-deps
+    // Si la lista no carga (sin red), la dirección se queda como estaba hasta que cargue.
+
+    // La dirección dice siempre lo que se ve (sin añadir entradas: eso lo hacen las
+    // fichas). Mientras se espera para abrir la del enlace, no se pisa.
+    useEffect(() => {
+        if (alEmpezar.current) return;
+        escribir(clavesDe({ seccion, ficha }), { estado: { ...(window.history.state || {}), iaFicha: pila.current } });
+    }, [seccion, ficha, tickUrl]);
+
+    // ── La app instalable y con su marca ──
+    useEffect(() => ponerCabeceraInstalador(), []);
+    const marca = useMemo(() => varsDeMarca(colorMarca), [colorMarca]);
+
+    // Sin conexión: un aviso arriba; al volver la cobertura se pide todo otra vez.
+    const enLinea = useEnLinea();
+    const estabaSinRed = useRef(!enLinea);
+    useEffect(() => {
+        if (enLinea && estabaSinRed.current) onCambio();
+        estabaSinRed.current = !enLinea;
+    }, [enLinea, onCambio]);
 
     let contenido;
     if (externo) {
@@ -251,32 +338,55 @@ export default function AppInstalador({
     } else {
         contenido = <InicioView saludo={saludo} datos={obras.datos} cargando={obras.cargando} error={obras.error}
             onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion}
-            onMiPagina={() => ir('pagina')} />;
+            onMiPagina={() => ir('pagina')} instalarComo={instalarComo} />;
     }
 
     const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : ficha?.tipo === 'equipo' ? 'catalogo' : externo ? 'obras' : seccion;
+    const QUE_NO = {
+        obra: 'Esa obra no está entre las tuyas, o ya no sigue en marcha.',
+        cliente: 'Ese cliente no está entre los tuyos.',
+        equipo: 'Ese equipo no está en tu catálogo.',
+    };
     return (
-        <div className="ia-app">
+        <div className="ia-app" style={marca || undefined}>
             <EstiloInstalador />
             <div className="ia-filete" />
             <MarcoInstalador seccion={seccionVisible} onIr={ir} onNueva={onNueva} onPerfil={perfil}
-                empresa={empresa} logo={logo} teToca={obras.datos?.resumen?.te_toca || 0}>
+                empresa={empresa} logo={logo} teToca={obras.datos?.resumen?.te_toca || 0} enLinea={enLinea}>
+                {noEncontrada && !ficha && !externo && (
+                    <div className="ia-pagina estrecha" style={{ paddingBottom: 0 }}>
+                        <div className="ia-aviso tu ia-aviso-fila" role="status">
+                            <span><b>No lo encontramos.</b> {QUE_NO[noEncontrada]}</span>
+                            <button type="button" className="ia-link" onClick={() => setNoEncontrada(null)}>Entendido</button>
+                        </div>
+                    </div>
+                )}
                 {contenido}
             </MarcoInstalador>
             {hoja && (
-                <div className="ia-velo" onPointerDown={(e) => { if (e.target === e.currentTarget) setHoja(false); }}>
-                    <div className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu cuenta">
-                        <div className="ia-hoja-asa" />
-                        <p className="ia-eyebrow" style={{ padding: '4px 4px 10px' }}>{empresa || 'Tu cuenta'}</p>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                            {onPerfil && <button type="button" className="ia-btn ia-btn-sec" onClick={() => { setHoja(false); onPerfil(); }}><Icono n="clientes" size={20} /> Mis datos de empresa</button>}
-                            <button type="button" className="ia-btn ia-btn-sec" onClick={() => { setHoja(false); ir('pagina'); }}><Icono n="web" size={20} /> Tu página web</button>
-                            {onSalir && <button type="button" className="ia-btn ia-btn-sec" onClick={onSalir}><Icono n="salir" size={20} /> Cerrar sesión</button>}
-                            <button type="button" className="ia-btn ia-btn-sec" onClick={() => setHoja(false)}>Volver</button>
-                        </div>
-                    </div>
-                </div>
+                <HojaCuenta empresa={empresa} onCerrar={() => setHoja(false)}
+                    onPerfil={onPerfil ? () => { setHoja(false); onPerfil(); } : null}
+                    onPagina={() => { setHoja(false); ir('pagina'); }} onSalir={onSalir} />
             )}
+        </div>
+    );
+}
+
+/** La hoja del avatar / «Mi perfil»: nunca se cierra la sesión de un toque. */
+function HojaCuenta({ empresa, onCerrar, onPerfil, onPagina, onSalir }) {
+    const ref = useHojaTeclado(onCerrar);
+    return (
+        <div className="ia-velo" onPointerDown={(e) => { if (e.target === e.currentTarget) onCerrar(); }}>
+            <div ref={ref} className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu cuenta">
+                <div className="ia-hoja-asa" />
+                <p className="ia-eyebrow" style={{ padding: '4px 4px 10px' }}>{empresa || 'Tu cuenta'}</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {onPerfil && <button type="button" className="ia-btn ia-btn-sec" onClick={onPerfil}><Icono n="clientes" size={20} /> Mis datos de empresa</button>}
+                    <button type="button" className="ia-btn ia-btn-sec" onClick={onPagina}><Icono n="web" size={20} /> Tu página web</button>
+                    {onSalir && <button type="button" className="ia-btn ia-btn-sec" onClick={onSalir}><Icono n="salir" size={20} /> Cerrar sesión</button>}
+                    <button type="button" className="ia-btn ia-btn-sec" onClick={onCerrar}>Volver</button>
+                </div>
+            </div>
         </div>
     );
 }

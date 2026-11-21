@@ -8,7 +8,7 @@
 // «Calcular una obra con este equipo» abre la Nueva simulación con el equipo
 // elegido y su precio como presupuesto de la aerotermia (`onCalcular`).
 import React, { useEffect, useMemo, useState } from 'react';
-import { Icono, Buscador, Esqueleto, AvisoError, sinTildes } from '../ui/piezas';
+import { Icono, Buscador, Esqueleto, AvisoError, sinTildes, useHojaTeclado } from '../ui/piezas';
 import { useEnvio, HojasPdf } from './AccionesObra';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 
@@ -237,6 +237,7 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
 
 // ── La hoja «Tu precio» ──────────────────────────────────────────────────────
 function HojaPrecio({ e, tarifa, onCerrar, onGuardar, onQuitar }) {
+    const hojaRef = useHojaTeclado(onCerrar);
     const [valor, setValor] = useState(e.tu_precio != null ? String(e.tu_precio).replace('.', ',') : '');
     const [aviso, setAviso] = useState('');
     const num = (() => {
@@ -252,7 +253,7 @@ function HojaPrecio({ e, tarifa, onCerrar, onGuardar, onQuitar }) {
     };
     return (
         <div className="ia-velo" onPointerDown={(ev) => { if (ev.target === ev.currentTarget) onCerrar(); }}>
-            <form className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu precio" onSubmit={enviar}>
+            <form ref={hojaRef} className="ia-hoja" role="dialog" aria-modal="true" aria-label="Tu precio" onSubmit={enviar}>
                 <div className="ia-hoja-asa" />
                 <p className="ia-eyebrow" style={{ padding: '4px 4px 6px' }}>Tu precio · {e.nombre}</p>
                 <label className="ia-campo">

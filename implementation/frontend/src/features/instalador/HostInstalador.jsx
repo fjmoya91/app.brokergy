@@ -13,7 +13,11 @@ import { ClienteFormModal } from '../clientes/components/ClienteFormModal';
 import { ClienteDetailModal } from '../clientes/components/ClienteDetailModal';
 import { nombrePropio } from './ui/piezas';
 
-export default function HostInstalador({ user, signOut, onNueva, onAbrirOportunidad, externo, onCerrarExterno }) {
+// Fase 5: `direccion` y `fichaEnHistorial` son la dirección y el historial con los
+// que se CARGÓ la página (App.jsx los guarda antes de que su propio efecto de la URL
+// los toque): así recargar o un enlace directo abren donde tocaba. Su color de marca
+// sale de su ficha (`landing_color_primary`, el mismo de su landing).
+export default function HostInstalador({ user, signOut, onNueva, onAbrirOportunidad, externo, onCerrarExterno, direccion, fichaEnHistorial }) {
     const api = useMemo(() => apiReal(axios), []);
     const [nonce, setNonce] = useState(0);
     const [miEmpresa, setMiEmpresa] = useState(null);
@@ -40,6 +44,9 @@ export default function HostInstalador({ user, signOut, onNueva, onAbrirOportuni
                 saludo={saludo}
                 empresa={empresa}
                 logo={user?.logo_empresa || miEmpresa?.logo_empresa || null}
+                colorMarca={miEmpresa?.landing_color_primary || null}
+                direccion={direccion}
+                fichaEnHistorial={fichaEnHistorial}
                 onNueva={onNueva}
                 onAbrirOportunidad={onAbrirOportunidad}
                 onPerfil={miEmpresa ? () => setVerPerfil(true) : null}
