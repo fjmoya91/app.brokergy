@@ -13,6 +13,8 @@ paths:
   - "implementation/backend/scripts/test_catalogo_instalador.js"
   - "implementation/backend/scripts/test_equipo_inicial_catalogo.mjs"
   - "implementation/frontend/src/features/landing/data/equipoInicial.js"
+  - "implementation/frontend/public/instalador/**"
+  - "implementation/backend/scripts/test_navegacion_instalador.mjs"
 ---
 # App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes (nivel 2)
 
@@ -31,14 +33,18 @@ paths:
 
 234. **El CATÁLOGO del instalador: BROKERGY carga la tarifa del distribuidor por Excel en DOS pasos y sin crear modelos; el instalador ve SOLO sus marcas, la tarifa vigente y SU precio** (2026-11-21, Fran: fase 4, beta RCA; escrita en la fase 5, la fase 4 la citaba sin haberla puesto aquí). Carga `adminOnly` en [routes/aerotermiaTarifas.js](implementation/backend/routes/aerotermiaTarifas.js) (montada ANTES que `/api/aerotermia`): `POST /leer` en seco devuelve el plan y su `firma`; `POST /confirmar` relee el MISMO fichero y solo escribe si el plan coincide (**409 `PLAN_CAMBIADO`**); se casa por marca + referencia normalizada (`norm` en [services/catalogoTarifas.js](implementation/backend/services/catalogoTarifas.js)), lo AMBIGUO se elige entre SUS candidatos y lo que no casa NO se carga; una fila IGUAL no se reinserta; el Excel no se guarda (nombre y sha256). Vigente = la de `vigente_desde` más reciente ya empezada. El instalador (`/api/instalador-app/catalogo…`, `enforceAuth` + beta): `marcas_autorizadas` como `routes/aerotermia.js`, **sin marcas, ningún equipo**; DTO en lista blanca (`equipoParaInstalador`), la ficha por proxy, su precio siempre con SU `prescriptor_id`; sin tarifa, «Sin tarifa todavía», nunca 0. «Calcular una obra con este equipo» abre la Nueva simulación de siempre con el modelo y su precio + 21 % IVA editable, y el SCOP de `scopsParaClima` ([equipoInicial.js](implementation/frontend/src/features/landing/data/equipoInicial.js)). El SQL ([aerotermia_tarifas_schema.sql](implementation/backend/scripts/aerotermia_tarifas_schema.sql)) va ANTES del deploy. Tras tocarlo: `node implementation/backend/scripts/test_catalogo_instalador.js`, `test_equipo_inicial_catalogo.mjs`, `test_rutas_sin_sesion.js`, `auditar_rutas_sin_guardian.js`, `npm run build` y el banco (`?seccion=catalogo`, `?equipo=101`, `?tarifa=1`). Ver "La app del INSTALADOR, fase 4".
 
+236. **La app del instalador RECUERDA dónde estás en la dirección, avisa sin red, se instala y lleva SU marca, sin cambiar nada para los demás** (2026-11-21, Fran: fase 5, beta RCA). En la dirección viajan SOLO `seccion`, `obra`, `accion`, `cliente` y `equipo`, cada uno con su forma ([ui/direccion.js](implementation/frontend/src/features/instalador/ui/direccion.js)): nunca un nombre, una dirección, un DNI ni un token; lo que no casa se ignora. Cada ficha es una entrada del historial (`iaFicha`, la `pila` de la regla 231); recargar la reabre sin empujar más y un enlace directo empuja la ficha sobre su sección («atrás» vuelve a la lista, no fuera); `App.jsx` guarda la dirección de CARGA (`direccionDeCarga`) antes de que su efecto de la URL la toque, para que valga tras iniciar sesión, y ese efecto no cambia para quien no es `app_instalador`. Sin red o con la BD caída se DICE y se deja reintentar (franja «Sin conexión», `AvisoError` con «Volver a intentarlo», recarga sola al volver la red): nunca en blanco ni a cero (38). El manifest de `public/instalador/`, el color de la barra y el `apple-touch-icon` los pone **solo** [ui/cabeceraApp.js](implementation/frontend/src/features/instalador/ui/cabeceraApp.js) al montar la app y los quita al desmontarla (`index.html` no se toca); **sin service worker**; la invitación a instalarla, solo en el móvil y descartable. Nombre e icono de la app instalada: BROKERGY para todos (uno por instalador pediría servir su manifest sin sesión). Dentro: su logo + su nombre «con BROKERGY» y su `landing_color_primary` SOLO en lo que marca «dónde estoy», y solo si pasa **4,5:1 sobre blanco, crema y `#f1efeb`** ([ui/marca.js](implementation/frontend/src/features/instalador/ui/marca.js)); si no, el de BROKERGY; la acción principal sigue naranja. Hojas con teclado (`useHojaTeclado`: foco dentro, Tab atrapado, Escape, foco devuelto) y «Ir al contenido». Publicarla y meter al siguiente: [publicar-la-app-del-instalador.md](docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md). Tras tocarlo: `node implementation/backend/scripts/test_navegacion_instalador.mjs`, `test_app_instalador.js`, `npm run build` y el banco a 360/390/1280 px (`?marca=1`, `?marca=claro`, `?instalar=iphone`, `?sinred=1`, `?obra=NOEXISTE`). Ver "La app del INSTALADOR, fase 5".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 10,8 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 11,2 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-2.md` — La app del INSTALADOR, fase 2: la obra se HACE dentro de la app, con sesión y sin enlaces (2026-11-21) · 9,1 KB
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 14,5 KB
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,1 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 14,7 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,3 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 11,6 KB
+- `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 10,7 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -59,5 +65,20 @@ ADMIN lo aprueba; aprobar una foto de obra es el MISMO camino que el botón «Pu
   - **REGLA — la carga va SIEMPRE en dos pasos, y el Excel NUNCA crea un modelo.**
   - **REGLA — el instalador ve SOLO sus marcas, la tarifa vigente y SU precio; nunca el distribuidor, el margen,
 la comisión, otro instalador ni un enlace de Drive.**
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md`
+  - **REGLA — en la dirección viajan SOLO `seccion`, `obra`, `accion`, `cliente` y `equipo`, cada uno con su
+forma; nunca un nombre, una dirección, un DNI ni un token.**
+  - **REGLA — sin red o con la BD caída, la app lo DICE y deja reintentar; nunca una pantalla en blanco ni
+una cifra a cero**
+  - **REGLA — el manifest, el color de la barra y el icono de la app del instalador se ponen SOLO al montar
+su app ([ui/cabeceraApp.js](implementation/frontend/src/features/instalador/ui/cabeceraApp.js)) y se
+quitan al desmontarla; `index.html` sigue con el de todos.**
+  - **REGLA — su color solo se usa si pasa AA (4,5:1) sobre los TRES fondos donde va (blanco, crema y el gris
+de la casilla activa); si no, se oscurece un poco y, si ni así, se queda el de BROKERGY**
+- `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md`
+  - **REGLA — los dos SQL van ANTES del deploy, y la beta se enciende DESPUÉS de comprobar que los demás
+usuarios ven lo de siempre.**
+  - **REGLA — un instalador entra en la beta con UNA línea: su `id_empresa` en `APP_INSTALADOR_BETA`; nada
+más cambia, y sale quitándolo.**
 
 <!-- generado:fin -->

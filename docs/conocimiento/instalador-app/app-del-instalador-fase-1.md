@@ -115,7 +115,8 @@ con el tema del CRM. CSS con prefijo `.ia-` inyectado por `EstiloInstalador`; ti
   enmascarado en pantalla**: esa ruta se lo da entero al partner; el IBAN ya llega enmascarado y ni se
   enseña) y sus obras. Alta y «Cambiar datos» abren `ClienteFormModal` / `ClienteDetailModal` portaleados a
   `body`. Clave de memoria `instalador-clientes`.
-- El botón **atrás** del móvil cierra la ficha abierta (una entrada de historial por ficha).
+- El botón **atrás** del móvil cierra la ficha abierta (una entrada de historial por ficha). Desde la fase 5, cada
+  entrada lleva además su DIRECCIÓN (`?obra=…`): recargar y un enlace directo abren donde tocaba (ver fase 5).
 
 ### Lo medido (21/11/2026, banco a 390×844, 1280×800 y 360 px)
 
@@ -132,4 +133,6 @@ cortado**. Dos arreglos salieron de medir: la dirección se cortaba con «…» 
 - **Fase 3 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 3»): «Tu página web», el escaparate que
   propone el instalador y revisa BROKERGY. El catálogo con tarifas (Excel del distribuidor por marca, el
   instalador ajusta su precio) y los presupuestos con partidas del instalador quedan para más adelante.
-- **Fase 4**: pulido con RCA y app instalable.
+- **Fase 4 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 4»): el catálogo de aerotermia con tarifas.
+- **Fase 5 — HECHA el 21/11/2026** («La app del INSTALADOR, fase 5»): el pulido con RCA, la dirección que
+  recuerda dónde estás, sin red, instalable y con su marca. Para publicarla: «Publicar la app del INSTALADOR».

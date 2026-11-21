@@ -128,8 +128,9 @@ necesita un «sí» de Fran al texto.
 - **Nunca**: `drive_id`, `expediente_id`, nº de obra, nada del cliente, importes por obra, margen ni nº de
   serie. La imagen se sirve por `/foto/:id`, que a su vez solo sirve las publicadas.
 
-**Pendiente fuera de este repo**: que `brokergy-web` lea esta API para pintar la página (ese repo no se ha
-tocado).
+**Fuera de este repo**: `brokergy-web` ya la lee (su rama `claude/ficha-instalador-fotos-textos-14764d`,
+`npm run red-paginas` y su `docs/FOTOS-INSTALADOR.md`). El navegador de brokergy.es recibía un **500** del
+CORS de la app; desde la fase 5 puede LEER `/api/public/marketplace/…` sin credenciales (regla 235).
 
 ### El SQL y su orden respecto al deploy
 
@@ -190,4 +191,4 @@ aplicado.
   real);
 - `navigator.share` en un móvil de verdad (en el banco cae a copiar el enlace);
 - las rutas contra la BD real con el SQL aplicado (el SQL está sin aplicar a propósito);
-- que la página pública de brokergy.es pinte esta API (repo aparte).
+- que la página pública de brokergy.es pinte esta API (repo aparte; el CORS ya lo deja desde la fase 5).

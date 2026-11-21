@@ -95,6 +95,9 @@ preseleccionado y su precio (el suyo o, si no tiene, la tarifa) como presupuesto
 
 ### Para desplegar
 
+El orden completo, con las comprobaciones de cada paso, está en «Publicar la app del INSTALADOR» (fase 5);
+esto es lo de la fase 4:
+
 1. `aerotermia_tarifas_schema.sql` (fase 4) y, si no se aplicó, `escaparate_revision_schema.sql` (fase 3):
    los dos **ANTES** del deploy. Son aditivos e idempotentes.
 2. Deploy. 3. Subir la primera tarifa desde Aerotermia → «Cargar tarifa (Excel)».
