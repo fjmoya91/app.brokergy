@@ -32,6 +32,7 @@ app.use('/api/oportunidades', require(path.join(B, 'routes/oportunidades')));
 app.use('/api/pdf', require(path.join(B, 'routes/pdf')));
 app.use('/api/whatsapp', require(path.join(B, 'routes/whatsapp')));
 app.use('/api/expedientes', require(path.join(B, 'routes/expedientes')));
+app.use('/api/instalador-app', require(path.join(B, 'routes/instaladorApp')));
 const srv = app.listen(0, async () => {
   const base = `http://127.0.0.1:${srv.address().port}`;
   const casos = [];
@@ -43,6 +44,8 @@ const srv = app.listen(0, async () => {
     ['POST', '/api/oportunidades/X/anexos'], ['DELETE', '/api/oportunidades/X/anexos/f'],
     ['POST', '/api/pdf/generate'], ['POST', '/api/pdf/save-to-drive'], ['POST', '/api/pdf/send-proposal'], ['POST', '/api/pdf/send-annex'], ['POST', '/api/pdf/send-cifo'],
     ['GET', '/api/whatsapp/status'], ['POST', '/api/whatsapp/send-text'], ['POST', '/api/whatsapp/send-media'],
+    // App del instalador (fase 1): sus obras, solo con sesión y en la beta.
+    ['GET', '/api/instalador-app/obras'], ['GET', '/api/instalador-app/obras/26RES060_OP217'],
   ];
   for (const [m, r] of RUTAS_ANON) q('anónimo', m, r, 401, {});
   for (const [m, r] of RUTAS_ANON.filter(([, r]) => /pdf\/send|whatsapp\/send/.test(r))) q('clave MAL', m, r, 401, {});

@@ -7,7 +7,7 @@
 
 | Área | Qué cubre | Regla de nivel 2 | Documentos |
 |---|---|---|---|
-| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 50,4 KB | 16 |
+| `calculo` | Cálculo y fichas — RES060/080/093, TER100/173, SCOP, C_b, D_ACS, CEE que manda, precio CAE, bloques | `.claude/rules/calculo.md` · 52,2 KB | 16 |
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
@@ -27,6 +27,7 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
+| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 3,4 KB | 1 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 18,9 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 29,4 KB | 11 |
@@ -312,6 +313,8 @@
 - **226** → `.claude/rules/lotes.md` — El ahorro verificado se GUARDA SOLO en su expediente al llegar el informe, y si sale MENOR que lo declarado …
 - **227** → `.claude/rules/lotes.md` — La CUENTA del S.O. en el REGISTRO NACIONAL DE CAE se guarda TAL CUAL la certifica el MITECO y se CRUZA en ca…
 - **228** → `.claude/rules/instalador-rite.md` — La Memoria RITE declara el ACS con `cambio_acs` VACÍO si hay un equipo de ACS declarado, y el backend y el g…
+- **229** → `.claude/rules/calculo.md` — Un BLOQUE se certifica ENTERO y su vía FM es la del edificio CENTRALIZADO, venga de donde venga el cálculo
+- **230** → `.claude/rules/instalador-app.md` — La app del INSTALADOR la decide UN interruptor y lee UNA tabla de pasos; nunca enseña dinero interno
 
 ## Documentos por área
 
@@ -611,6 +614,10 @@
 
 - `docs/conocimiento/infra/la-api-de-gemini-va-en-nivel-de-pago.md` — La API de Gemini va en NIVEL DE PAGO (2026-09-01)
 - `docs/conocimiento/infra/razonamiento-y-temperatura-segun-el-modelo.md` — El RAZONAMIENTO y la TEMPERATURA de Gemini, según el modelo (2026-10-07)
+
+### instalador-app
+
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21)
 
 ### instalador-rite
 

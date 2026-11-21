@@ -92,10 +92,16 @@ const CeePrevioGate = lazyWithReload(() => import('./features/cee/CeePrevioGate'
   beforeReload: markResumeNewSimulation,
 });
 
+// App nueva del INSTALADOR (fase 1, beta por empresa con APP_INSTALADOR_BETA): se
+// monta EN LUGAR del DashboardLayout cuando `/api/usuarios/me` trae
+// `app_instalador: true`. Chunk aparte: nadie más lo descarga.
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-1.md.
+const HostInstalador = lazyWithReload(() => import('./features/instalador/HostInstalador'), { name: 'HostInstalador' });
+
 const API_URL = '/api/catastro'; // Vercel force redeploy v3
 
 function App() {
-  const { user, loading: authLoading, profileError } = useAuth();
+  const { user, loading: authLoading, profileError, signOut } = useAuth();
   const { isAdmin: isAdminUser, isStaff: isStaffUser, isCertificador: isCertificadorUser } = getRoleFlags(user);
   const [step, setStep] = useState('ADMIN');
 
@@ -1248,6 +1254,104 @@ function App() {
   // las demás no se ha medido qué cambiaría.
   const recorteX = user && envolventeId ? 'overflow-x-clip' : 'overflow-x-hidden';
 
+  // La calculadora y sus pasos previos (SEARCH/CONFIRM/PARCELA/RESULT/CALCULATOR):
+  // la pinta el DashboardLayout y, para la app del instalador, su propia cáscara.
+  const vistaCalculadora = (
+    <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
+      {/* Main Content Areas */}
+      {(step === 'SEARCH' || step === 'CONFIRM') && (
+        <header className="max-w-6xl mx-auto text-center mb-10 animate-slide-down">
+          <div className="inline-flex items-center gap-4 mb-4">
+              <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
+                <span className="text-white">Calculadora</span>{' '}
+                <span className="text-gradient">BROKERGY</span>
+              </h1>
+          </div>
+          <p className="text-white/60 text-lg max-w-3xl mx-auto">
+            La herramienta líder en valoración de ahorros y bonos energéticos CAE.
+          </p>
+        </header>
+      )}
+
+      {step === 'SEARCH' && (
+        <div className="animate-fade-in max-w-4xl mx-auto">
+          <CatastroSearchBox
+            onSearch={handleSearch}
+            onAddressSelect={handleAddressSelect}
+            onGeolocate={handleGeolocate}
+            onManualEntry={() => handleOpenCalculator(null)}
+            permiteFotoRc={isStaffUser}
+          />
+        </div>
+      )}
+
+
+
+      {step === 'CONFIRM' && candidates.length > 0 && (
+        <div className="animate-slide-up max-w-4xl mx-auto">
+          <ConfirmationCard
+            candidate={selectedCandidate}
+            onConfirm={handleConfirmAddress}
+            onCancel={reset}
+            onPickOnMap={lastGeoCoords ? () => setShowMapPicker(true) : undefined}
+          />
+        </div>
+      )}
+
+      {step === 'PARCELA' && propertyData?.isParcela && (
+        <div className="animate-slide-up max-w-4xl mx-auto">
+          <ParcelaCard
+            parcela={propertyData}
+            permiteBloque={isStaffUser}
+            onCalcularBloque={handleCalcularBloque}
+            onSelectDwelling={(d) => d?.rc && handleSearch(d.rc)}
+            onCancel={reset}
+          />
+        </div>
+      )}
+
+      {step === 'RESULT' && propertyData && (
+        <div className="animate-slide-up">
+          <button
+            onClick={() => { 
+              if (returnToExpediente) {
+                setActiveTab('expedientes');
+                setStep('ADMIN');
+                setReturnToExpediente(null);
+                setSelectedClientId(null);
+              } else {
+                reset(); 
+                if (user) setStep('ADMIN'); 
+              }
+            }}
+            className="mb-8 flex items-center gap-3 text-amber-500/60 hover:text-amber-500 transition-colors group px-4 py-2 bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 rounded-xl"
+          >
+            <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            <span className="font-bold uppercase tracking-widest text-xs">
+              {returnToExpediente ? 'Volver al Expediente' : 'Volver al panel'}
+            </span>
+          </button>
+          <PropertySheet
+            data={propertyData}
+            onCalculateDemand={handleOpenCalculator}
+            initialSelection={persistentCalculatorInputs?.selectedConstructions}
+          />
+        </div>
+      )}
+
+      {step === 'CALCULATOR' && (
+        <CalculatorView
+          key={calculatorData?.rc || 'manual'}
+          initialData={calculatorData}
+          onBack={handleBackFromCalculator}
+          onNavigate={handleNavigate}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className={`min-h-screen bg-slate-950 ${recorteX} relative`}>
       {/* Red decorativa solo en pantallas tipo login/reset, no en flujos públicos */}
@@ -1357,8 +1461,41 @@ function App() {
           // rol, el menú se recorta y las listas salen vacías, y eso se lee como
           // datos perdidos en vez de como una incidencia pasajera.
           <ProfileUnavailable mensaje={profileError} />
+        ) : user?.app_instalador ? (
+          // App nueva del INSTALADOR (beta). Lo de siempre —la calculadora de una
+          // oportunidad, la Nueva simulación— se pinta DENTRO de su cáscara.
+          <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-white/50 text-sm">Cargando…</div>}>
+            <HostInstalador
+              user={user}
+              signOut={signOut}
+              onNueva={openNewSimulation}
+              onAbrirOportunidad={(id) => {
+                setError(null);
+                axios.get(`/api/oportunidades/${encodeURIComponent(id)}`)
+                  .then(r => { if (r.data && r.data.id_oportunidad) loadOpportunity(r.data); })
+                  .catch(e => setError(`No se ha podido abrir la obra ${id}: ${e.response?.data?.error || e.message}`));
+              }}
+              externo={step !== 'ADMIN' || error ? (
+                <>
+                  {error && (
+                    <div className="max-w-md mx-auto p-4">
+                      <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl text-sm">
+                        <p className="text-white/80">{error}</p>
+                        <button onClick={() => setError(null)} className="mt-2 text-[10px] font-black uppercase tracking-widest text-red-300">Cerrar aviso</button>
+                      </div>
+                    </div>
+                  )}
+                  {loading && step === 'RESULT' && (
+                    <p className="text-center py-10 text-white/60 text-sm">Cargando la obra…</p>
+                  )}
+                  {step !== 'ADMIN' && vistaCalculadora}
+                </>
+              ) : null}
+              onCerrarExterno={() => { setError(null); setStep('ADMIN'); }}
+            />
+          </Suspense>
         ) : (
-          <DashboardLayout 
+          <DashboardLayout
             activeTab={activeTab} 
             onTabChange={(tab) => {
               const { isAdmin, isStaff, isCertificador } = getRoleFlags(user);
@@ -1502,99 +1639,7 @@ function App() {
                 }}
               />
             ) : (
-              <div className="animate-fade-in w-full max-w-[1600px] mx-auto px-6 sm:px-10 py-10 relative z-10">
-                {/* Main Content Areas */}
-                {(step === 'SEARCH' || step === 'CONFIRM') && (
-                  <header className="max-w-6xl mx-auto text-center mb-10 animate-slide-down">
-                    <div className="inline-flex items-center gap-4 mb-4">
-                        <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-                          <span className="text-white">Calculadora</span>{' '}
-                          <span className="text-gradient">BROKERGY</span>
-                        </h1>
-                    </div>
-                    <p className="text-white/60 text-lg max-w-3xl mx-auto">
-                      La herramienta líder en valoración de ahorros y bonos energéticos CAE.
-                    </p>
-                  </header>
-                )}
-
-                {step === 'SEARCH' && (
-                  <div className="animate-fade-in max-w-4xl mx-auto">
-                    <CatastroSearchBox
-                      onSearch={handleSearch}
-                      onAddressSelect={handleAddressSelect}
-                      onGeolocate={handleGeolocate}
-                      onManualEntry={() => handleOpenCalculator(null)}
-                      permiteFotoRc={isStaffUser}
-                    />
-                  </div>
-                )}
-
-
-
-                {step === 'CONFIRM' && candidates.length > 0 && (
-                  <div className="animate-slide-up max-w-4xl mx-auto">
-                    <ConfirmationCard
-                      candidate={selectedCandidate}
-                      onConfirm={handleConfirmAddress}
-                      onCancel={reset}
-                      onPickOnMap={lastGeoCoords ? () => setShowMapPicker(true) : undefined}
-                    />
-                  </div>
-                )}
-
-                {step === 'PARCELA' && propertyData?.isParcela && (
-                  <div className="animate-slide-up max-w-4xl mx-auto">
-                    <ParcelaCard
-                      parcela={propertyData}
-                      permiteBloque={isStaffUser}
-                      onCalcularBloque={handleCalcularBloque}
-                      onSelectDwelling={(d) => d?.rc && handleSearch(d.rc)}
-                      onCancel={reset}
-                    />
-                  </div>
-                )}
-
-                {step === 'RESULT' && propertyData && (
-                  <div className="animate-slide-up">
-                    <button
-                      onClick={() => { 
-                        if (returnToExpediente) {
-                          setActiveTab('expedientes');
-                          setStep('ADMIN');
-                          setReturnToExpediente(null);
-                          setSelectedClientId(null);
-                        } else {
-                          reset(); 
-                          if (user) setStep('ADMIN'); 
-                        }
-                      }}
-                      className="mb-8 flex items-center gap-3 text-amber-500/60 hover:text-amber-500 transition-colors group px-4 py-2 bg-amber-500/5 hover:bg-amber-500/10 border border-amber-500/10 rounded-xl"
-                    >
-                      <svg className="w-5 h-5 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                      </svg>
-                      <span className="font-bold uppercase tracking-widest text-xs">
-                        {returnToExpediente ? 'Volver al Expediente' : 'Volver al panel'}
-                      </span>
-                    </button>
-                    <PropertySheet
-                      data={propertyData}
-                      onCalculateDemand={handleOpenCalculator}
-                      initialSelection={persistentCalculatorInputs?.selectedConstructions}
-                    />
-                  </div>
-                )}
-
-                {step === 'CALCULATOR' && (
-                  <CalculatorView
-                    key={calculatorData?.rc || 'manual'}
-                    initialData={calculatorData}
-                    onBack={handleBackFromCalculator}
-                    onNavigate={handleNavigate}
-                  />
-                )}
-              </div>
+              vistaCalculadora
             )}
             
             {/* Footer */}

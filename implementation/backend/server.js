@@ -141,6 +141,9 @@ app.use('/api/asistente-app', require('./routes/asistenteApp'));
 app.use('/api/certapp/alta', require('./routes/certappAlta'));
 app.use('/api/certapp', require('./routes/certapp'));
 app.use('/api/certapp-admin', require('./routes/certappAdmin'));
+// App del INSTALADOR (fase 1, solo lectura): sus obras ya resueltas, solo para quien
+// está en la beta (APP_INSTALADOR_BETA). Ver docs/conocimiento/instalador-app/.
+app.use('/api/instalador-app', require('./routes/instaladorApp'));
 
 // WhatsApp (opcional): cargar e inicializar de forma automática al arrancar
 try {

@@ -139,6 +139,7 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `documentacion-fotos` | DocsManager, alcance documental, subida en tanda, buzón, ventanas, Anexo Fotográfico |
 | `firma` | Autofirma, firma a mano con el móvil, QR, integridad de la firma |
 | `instalador-rite` | Envío conjunto al instalador, re-firma del CIFO, certificado y memoria RITE |
+| `instalador-app` | La app nueva del rol INSTALADOR (beta por empresa): obra en 5 pasos y quién tiene la pelota, Inicio, Obras, Clientes |
 | `placas-catalogos` | Lectura de placas, nº de serie, catálogo de aerotermia (EPREL, conjuntos) y ventanas |
 | `cee` | Encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA |
 | `envolvente-ce3x` | Plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del `.cex`, PVGIS |

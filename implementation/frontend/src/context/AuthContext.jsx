@@ -185,6 +185,9 @@ export const AuthProvider = ({ children }) => {
                 logo_empresa: logo,
                 avatar_url: res.data.perfilCompleto?.avatar_url || null,
                 email: sessionData.user?.email,
+                // App nueva del INSTALADOR (fase 1, beta): lo decide el backend
+                // (`enBetaInstalador`, utils/appInstalador.js) con APP_INSTALADOR_BETA.
+                app_instalador: res.data.app_instalador === true,
             };
 
             hasRichProfile.current = true;

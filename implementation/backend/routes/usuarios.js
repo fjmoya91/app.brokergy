@@ -19,8 +19,10 @@ router.get('/me', requireAuth, (req, res) => {
         return res.status(403).json({ error: 'Esta cuenta es de la app de certificadores: entra en cee.brokergy.es.',
                                       code: 'SIN_PERFIL_CRM' });
     }
-    // req.user ya viene enriquecido desde Supabase por nuestro middleware auth.js
-    res.json(req.user);
+    // req.user ya viene enriquecido desde Supabase por nuestro middleware auth.js.
+    // `app_instalador`: ¿ve la app nueva del instalador? Lo decide SOLO
+    // utils/appInstalador.js (beta por APP_INSTALADOR_BETA); el frontend no lo deduce.
+    res.json({ ...req.user, app_instalador: require('../utils/appInstalador').enBetaInstalador(req.user) });
 });
 
 // Actualizar el perfil del PROPIO usuario logueado (datos personales, dirección,
