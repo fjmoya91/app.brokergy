@@ -983,6 +983,28 @@ async function listar({ estado = null, limite = 50 } = {}) {
 }
 
 let handle = null;
+/**
+ * El LISTADO para repasar las respuestas (utils/listadoContestador.js): los turnos ya decididos de
+ * un tramo, lo más antiguo primero. De `detalle` se piden SOLO los subcampos que hacen falta
+ * (regla 22: un listado no trae un JSONB entero), de mil en mil. Lanza si la BD no contesta.
+ */
+async function listado({ desde, hasta, tope = 5000 } = {}) {
+    const campos = 'id, chat_id, tel9, nombre, estado, accion, motivo, obra, texto, acuse, modo, cerebro, ultimo_at, enviado_at, error, created_at, '
+        + 'pendientes:detalle->pendientes, fuentes:detalle->fuentes, titulo:detalle->>titulo, rol:detalle->>rol, borrador:detalle->>borrador, '
+        + 'aviso:detalle->>aviso, por:detalle->>por, enviado_sin_fran:detalle->>enviado_sin_fran, '
+        + 'borrador_enviado_at:detalle->>borrador_enviado_at, alta_at:detalle->>alta_at';
+    const out = [];
+    for (let i = 0; out.length < tope; i += 1000) {
+        const { data, error } = await supabase.from('wa_contestador').select(campos)
+            .gte('created_at', desde.toISOString()).lt('created_at', hasta.toISOString())
+            .neq('estado', 'PENDIENTE').order('id', { ascending: true }).range(i, i + 999);
+        if (error) throw new Error(error.message);
+        out.push(...(data || []));
+        if (!data || data.length < 1000) break;
+    }
+    return out.slice(0, tope);
+}
+
 function start() {
     if (handle) return;
     if (!activo()) {
@@ -1005,7 +1027,7 @@ function start() {
 }
 
 module.exports = {
-    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, activo, modo, modoGuardar, CFG,
+    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, listado, activo, modo, modoGuardar, CFG,
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,

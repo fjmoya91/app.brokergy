@@ -213,6 +213,38 @@ firmado o un justificante que manda el cliente está BIEN (eso lo sigue mirando 
 Tras tocarlo: `node implementation/backend/scripts/test_contestador_whatsapp.js` y un seco sobre chats ya
 contestados (`contestador.js seco --antes --tel …`).
 
+## El LISTADO para repasar las respuestas (2026-11-21)
+
+Fran, 21/11/2026: «quiero que luego se pueda sacar un listado de las respuestas que se dan para analizar cómo han
+sido, mejorar el asistente». Con las respuestas saliendo solas, esto es lo que las vigila después.
+
+`node implementation/backend/scripts/contestador.js listado [--dias 7 | --desde AAAA-MM-DD --hasta AAAA-MM-DD]`
+baja un **Excel** a Descargas (lleva conversaciones reales: nunca al repositorio) por
+`GET /api/whatsapp/contestador/listado` (`adminOInterno`; JSON por defecto, `formato=xlsx` el Excel; solo lee).
+Fuente única: [utils/listadoContestador.js](../../../implementation/backend/utils/listadoContestador.js) (puro) +
+`contestadorWhatsapp.listado`.
+
+- **Hoja «Respuestas», una fila por turno** (lo más antiguo primero): nº (C…), fecha y hora, quién, rol, obra,
+  **qué escribió**, **qué se hizo**, **qué se le dijo** (lo que le LLEGÓ: la respuesta o el acuse), **lo
+  redactado que no le llegó** (el borrador para Fran, lo parado por un tope, lo de modo copia), por qué se quedó en
+  Fran (`detalle.por`), el aviso a Fran, el motivo interno, cómo se decidió («directo (8 s)» / «revisando: 6 pasos,
+  16 s»), qué miró (`fuentes`), los minutos hasta contestar, si se encargó un alta, y **qué escribió DESPUÉS** (el
+  turno siguiente de ese chat: es la mejor pista de si la respuesta le valió). Y dos columnas vacías para repasarlo,
+  **«VALORACIÓN»** y **«QUÉ HABRÍA DICHO YO»**: rellenadas, son el material para corregir el prompt.
+- **Qué se hizo**, en una etiqueta (`resultadoDe`): Contestado · Contestado tras revisarlo (pasó por el
+  investigador) · Contestado con lo que antes iba a Fran (`detalle.enviado_sin_fran`) · A Fran, con acuse al cliente
+  · A Fran, sin decirle nada · No salió por un tope · Solo copia a Fran · Callado · Descartado · Error.
+- **Hoja «Resumen»**: totales contados sobre las propias filas (los que pedían respuesta son todos menos los
+  callados y los descartados) y, de lo que se quedó en Fran, por qué.
+- **El tramo son días de MADRID**, los dos incluidos; sin fechas, los últimos 7 días (tope 90).
+- De `detalle` se piden solo los subcampos que hacen falta (`detalle->pendientes`, `detalle->>borrador`…), de mil
+  en mil: un listado no trae un JSONB entero (regla 22).
+
+Medido al estrenarlo, del 18 al 21/11/2026 (antes del cambio de arriba): 280 turnos, 143 pedían respuesta y la
+tuvieron 66; 51 se quedaron en un acuse, 23 no salieron por un tope y 3 fueron a Fran sin decirle nada al cliente.
+
+Tras tocarlo: `node implementation/backend/scripts/test_contestador_whatsapp.js` y `auditar_rutas_sin_guardian.js`.
+
 ## Lo que NO es de una obra no se pregunta de qué obra es (2026-11-16)
 
 Turno 414, en real: Vicente Alhambra (instalador de Ruidera, tres obras) mandó sin texto el cartel de un curso
@@ -503,6 +535,7 @@ contestador, `GET /api/whatsapp/contestador/resumen`), nunca en un aviso aparte.
 - Lo que mira el investigador, a mano y en seco: `node implementation/backend/scripts/contestador_consultas.js
   oportunidad 26RES060_OP376` (o `expediente`, `cee`, `buscar`, `consultas`, `manual`).
 - Rutas (`adminOInterno`): `GET /api/whatsapp/contestador?estado=`, `GET /contestador/resumen`,
+  `GET /contestador/listado` (el Excel para repasar las respuestas: `contestador.js listado --dias 7`),
   `POST /contestador/probar {telefono}` (en seco: dice qué contestaría), `POST /contestador/:id/enviar`.
 - `node implementation/backend/scripts/contestador.js bandeja [--dias 7] [--horas 2]`: lo que está SIN
   CONTESTAR (el criterio de la bandeja de la app: el último mensaje es del otro), sin la cortesía, con quién
