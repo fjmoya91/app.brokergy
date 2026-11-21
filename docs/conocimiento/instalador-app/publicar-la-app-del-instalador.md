@@ -2,11 +2,38 @@
 
 ## Publicar la app del INSTALADOR: el orden exacto, lo que se comprueba y cómo se apaga (2026-11-21)
 
-La hoja para el día que Fran diga «publícala». Hasta ese día **no se ha aplicado nada**: ni los SQL, ni
-las variables, ni el deploy. Comprobado el 21/11/2026 con una consulta de solo lectura a producción:
-ninguna de las tablas o columnas de las fases 3 y 4 existe todavía, y `anon`/`authenticated` siguen con
-70 privilegios en las tablas `instalador_*` (los quita el SQL de la fase 3). Todo se hace en este orden;
-cada paso tiene su comprobación y no se pasa al siguiente sin ella.
+**PUBLICADA el 21/11/2026** (Fran: «sácalo todo a producción sin que tenga que interactuar, ya lo
+revisaré cuando hayas terminado todo»). Lo que se hizo ese día, por este orden, y lo que quedó:
+
+- **Los dos SQL, ANTES de subir el código** (no después, como dice el paso 3 de abajo): el checkout y el
+  VPS los comparten muchas sesiones y cualquiera puede lanzar un deploy por otro motivo; con el código en
+  `main` y sin el SQL, ese deploy rompería la galería del escaparate. El código viejo funciona igual con
+  el esquema nuevo. Comprobación: `3 · true · 1 · true · true · true · 0` y las 2 fotos que había,
+  `PUBLICADA`.
+- `main` = `3c157af4` (avance directo desde `b16e97c3`), `deploy.sh` sin errores, y tras él: el CRM abre,
+  las rutas sin sesión dan 401, brokergy.es lee el marketplace (200 con su `Allow-Origin`, sin
+  credenciales), un origen desconocido recibe 403, app.brokergy.es y cee.brokergy.es como siempre.
+- Variables en el VPS (copia previa en `.env.bak-20261121-app-instalador`): `APP_INSTALADOR_SECRET`
+  (generada en el servidor), `DRIVE_FOLDER_ESCAPARATE` (carpeta nueva «ESCAPARATE - FOTOS DE
+  INSTALADORES» dentro de «01. OPORTUNIDADES», al lado de la de plantillas de factura) y
+  `APP_INSTALADOR_BETA` con RCA. Comprobado dentro del contenedor: `enBetaInstalador` da `true` solo
+  para un INSTALADOR de RCA.
+- La web (repo `brokergy-web`, `main` = `fd776bd`): publicada con el refresco al abrir ENCENDIDO. La
+  ficha de Jose Vicente Ruiz enseña ya su pareja antes/después (las dos fotos que había publicado el
+  ADMIN) y 47 fichas, «A qué se dedica».
+- ⚠️ **RCA NO TIENE USUARIO en la app** (`prescriptores.representante_legal_id` vacío; solo 8 de los 106
+  instaladores tienen uno): la beta está encendida pero nadie puede entrar todavía. Hay que crearle el
+  acceso desde el CRM, con rol INSTALADOR. No se creó: una cuenta para un tercero la da de alta Fran.
+- ⚠️ RCA no tiene **marcas autorizadas** (`marca_referencia` vacío): su Catálogo sale vacío hasta que se
+  le pongan; y no hay ninguna tarifa cargada.
+- El nginx del VPS sirve `/instalador/manifest.webmanifest` como `application/octet-stream` (también el
+  de siempre): el navegador lo lee, pero avisa en la consola. No se tocó el `nginx.conf` (está editado a
+  mano y no está en git).
+- Sin hacer: el alta del partner (regla 217, commit local `254cd747` de otra sesión, pendiente del «sí»
+  de Fran). Hasta que entre, una obra sin expediente abre la calculadora de siempre.
+
+Lo de abajo es la hoja tal como se escribió antes de publicar; sirve para repetirlo en otro entorno y
+para entender cada paso.
 
 **REGLA — los dos SQL van ANTES del deploy, y la beta se enciende DESPUÉS de comprobar que los demás
 usuarios ven lo de siempre.** El código nuevo ya lee las columnas nuevas (también la galería antigua del

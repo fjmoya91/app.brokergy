@@ -44,7 +44,7 @@ paths:
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 14,7 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 11,6 KB
-- `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 10,7 KB
+- `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 12,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
