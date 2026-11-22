@@ -16,12 +16,12 @@
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 20,9 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
-| `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 4,7 KB | 1 |
+| `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,4 KB | 2 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 53,0 KB | 14 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 16,4 KB | 5 |
-| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 18,2 KB | 5 |
+| `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 19,6 KB | 6 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 5,0 KB | 2 |
 | `firma` | Firma — Autofirma, firma a mano con el móvil, QR, integridad de la firma | `.claude/rules/firma.md` · 12,3 KB | 4 |
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
@@ -484,6 +484,7 @@
 ### cuadro-mando
 
 - `docs/conocimiento/cuadro-mando/el-cuadro-de-mando-de-direccion.md` — El cuadro de mando de DIRECCIÓN: toda la empresa de un golpe (2026-11-14)
+- `docs/conocimiento/cuadro-mando/los-impuestos-en-el-cuadro-de-mando.md` — Los impuestos en el cuadro de mando: IVA, retenciones, Sociedades y lo que hay que apartar (2026-11-18)
 
 ### documentacion-fotos
 
@@ -584,6 +585,7 @@
 
 ### facturacion
 
+- `docs/conocimiento/facturacion/alta-rapida-de-gastos-desde-el-movil.md` — Alta rápida de gastos desde el móvil: foto, escaneo a PDF y a su carpeta de Drive (2026-11-22)
 - `docs/conocimiento/facturacion/cuadro-de-mando-y-trimestres-en-pantalla.md` — Cuadro de mando y trimestres en pantalla: el armazón de Facturación, «Hoy» y «Trimestres» (2026-10-24)
 - `docs/conocimiento/facturacion/economia-cae-por-el-mcp.md` — La economía de los CAE, por el MCP: `get_expediente`, `volumen_cae` y `listar_facturas` CAE (2026-10-27)
 - `docs/conocimiento/facturacion/facturas-desde-la-app.md` — Facturas desde la app: series ING y FML, rectificativas y VERI*FACTU (2026-10-24)

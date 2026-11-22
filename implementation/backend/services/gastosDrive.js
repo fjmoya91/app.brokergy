@@ -685,8 +685,28 @@ async function corregir(fileId, cambios = {}, { revisado = undefined } = {}) {
     const donde = await ubicarGasto(f);
     if (!donde) throw error('Ese fichero no está en una carpeta de GASTOS (ni de VENTAS CAE) de contabilidad', 403);
 
+    const limpio = limpiarCambios(cambios, { venta: donde.venta });
+    const props = codificar({
+        ...limpio,
+        // Un fichero que se corrige sin haberse leído queda «leído» con su md5:
+        // lo que se teclea manda y no se pisa con una lectura automática.
+        ...(decodificar(f.appProperties).leido ? {} : { v: VERSION, md5: f.md5Checksum || 'manual', at: hoy() }),
+        ...(revisado === true ? { rev: '1' } : revisado === false ? { rev: null } : {}),
+    });
+    if (!Object.keys(props).length) throw error('No hay nada que cambiar');
+    const nuevo = await escribir(fileId, props);
+    if (donde.venta) return { venta: true, ...filaVenta(nuevo, { linea: 'CAE', anio: donde.anio, mes: donde.mes }) };
+    return filaGasto(nuevo, { linea: donde.linea, anio: donde.anio, mes: donde.mes, vecino: false });
+}
+
+/**
+ * Valida y limpia lo tecleado sobre un gasto (o una venta CAE de Drive): solo
+ * las claves que se conocen, cada una con su forma. Lanza 400 si algo no se
+ * entiende. La usan `corregir` y el alta rápida (`gastoRapido.js`).
+ */
+function limpiarCambios(cambios = {}, { venta = false } = {}) {
     const limpio = {};
-    for (const k of donde.venta ? DATOS_VENTA : [...DATOS, ...AJUSTES]) {
+    for (const k of venta ? DATOS_VENTA : [...DATOS, ...AJUSTES]) {
         if (!(k in cambios)) continue;
         let v = cambios[k];
         if (v === '' || v === null) { limpio[k] = null; continue; }
@@ -705,7 +725,7 @@ async function corregir(fileId, cambios = {}, { revisado = undefined } = {}) {
             if (!ACTIVIDADES.includes(v)) throw error('La actividad es CAE, ING o COMUN');
         } else if (k === 'documento') {
             v = String(v).toUpperCase();
-            if (!(donde.venta ? DOCUMENTOS_VENTA : DOCUMENTOS).includes(v)) throw error(`Documento «${v}» desconocido`);
+            if (!(venta ? DOCUMENTOS_VENTA : DOCUMENTOS).includes(v)) throw error(`Documento «${v}» desconocido`);
         } else if (k === 'autofactura') {
             v = v === true || v === '1' || v === 'true';
         } else if (k === 'naturaleza') {
@@ -721,17 +741,114 @@ async function corregir(fileId, cambios = {}, { revisado = undefined } = {}) {
         }
         limpio[k] = v;
     }
-    const props = codificar({
-        ...limpio,
-        // Un fichero que se corrige sin haberse leído queda «leído» con su md5:
-        // lo que se teclea manda y no se pisa con una lectura automática.
-        ...(decodificar(f.appProperties).leido ? {} : { v: VERSION, md5: f.md5Checksum || 'manual', at: hoy() }),
-        ...(revisado === true ? { rev: '1' } : revisado === false ? { rev: null } : {}),
+    return limpio;
+}
+
+// ── Alta de un gasto desde la app (el «+ Gasto» del cuadro de mando) ─────────
+//
+// Hasta el 22/11/2026 los gastos solo entraban dejando el PDF a mano en su
+// carpeta de Drive. El alta rápida hace lo mismo desde el móvil: la foto se
+// ESCANEA (el navegador la pasa a blanco y negro y aquí se recorta al papel con
+// el recuadro que da el modelo), se LEE una vez —es un gesto del usuario, como
+// pulsar «Leer»— y se SUBE ya leída (con su md5) a `{raíz}/{año}/{n. MES}`.
+// La decisión de qué carpeta y qué nombre, en gastoRapido.js.
+
+const PROMPT_FOTO = `${PROMPT}
+- paginas_caja: el documento son FOTOS hechas con el móvil (una por página, en orden). Para cada página, el recuadro del PAPEL del documento, sin la mesa ni el fondo, como "ymin,xmin,ymax,xmax" en milésimas de la página (enteros de 0 a 1000, el origen arriba a la izquierda). Si el papel ocupa toda la página, "0,0,1000,1000".`;
+const SCHEMA_FOTO = { ...SCHEMA, properties: { ...SCHEMA.properties, paginas_caja: { type: 'ARRAY', items: { type: 'STRING' }, nullable: true } } };
+
+/** «120,80,940,910» → { y0, x0, y1, x1 } en fracción (0-1), o null si no es un recuadro con sentido. */
+function cajaDe(s) {
+    const n = String(s || '').split(/[,\s]+/).filter(Boolean).map(Number);
+    if (n.length !== 4 || n.some(v => !Number.isFinite(v))) return null;
+    const [y0, x0, y1, x1] = n.map(v => Math.min(1000, Math.max(0, v)) / 1000);
+    // Un recuadro minúsculo o al revés es una mala lectura: mejor la foto entera.
+    if (y1 - y0 < 0.15 || x1 - x0 < 0.15) return null;
+    return { y0, x0, y1, x1 };
+}
+
+/** Las fotos (JPEG o PNG, ya escaneadas por el navegador) → un PDF de una página por foto, a su tamaño. */
+async function pdfDeImagenes(imagenes) {
+    const { PDFDocument } = require('pdf-lib');
+    const doc = await PDFDocument.create();
+    for (const { buf, mime } of imagenes) {
+        const img = mime === 'image/png' ? await doc.embedPng(buf) : await doc.embedJpg(buf);
+        const { width, height } = img.scale(1);
+        doc.addPage([width, height]).drawImage(img, { x: 0, y: 0, width, height });
+    }
+    return Buffer.from(await doc.save());
+}
+
+/**
+ * Lee un gasto para darlo de alta: lo mismo que `leerJustificante` y, si son
+ * fotos, el recuadro del papel de cada una (`cajas`, para recortarlas).
+ */
+async function leerParaAlta({ pdf = null, imagenes = null }) {
+    if (imagenes?.length) {
+        const doc = await pdfDeImagenes(imagenes);
+        const { bruto, tokens } = await llamarGemini(doc, { prompt: PROMPT_FOTO, schema: SCHEMA_FOTO });
+        const cajas = imagenes.map((_, i) => cajaDe(bruto?.paginas_caja?.[i]));
+        return { datos: normalizarLectura(bruto), cajas, tokens };
+    }
+    if (!pdf?.length) throw error('Falta el documento', 400);
+    const { datos, tokens } = await leerJustificante(pdf, 'application/pdf');
+    return { datos, cajas: [], tokens };
+}
+
+/**
+ * La carpeta `{raíz de la línea}/{año}/{n. MES}`: { id, nombre, ruta, existe }.
+ * Con `crear`, crea la del año y la del mes si faltan («11. NOVIEMBRE», como las
+ * de siempre) y olvida la caché de carpetas.
+ */
+async function carpetaMesGastos(linea, anio, mes, { crear = false } = {}) {
+    if (!GASTOS[linea]) throw error(`Línea «${linea}» desconocida`);
+    const nombre = `${mes}. ${MESES[mes - 1]}`;
+    const ruta = `${RUTA.GASTOS[linea]} / ${anio} / ${nombre}`;
+    const ya = (await carpetasMes(GASTOS[linea], anio))[mes];
+    if (ya) return { id: ya.id, nombre: ya.nombre, ruta: `${RUTA.GASTOS[linea]} / ${anio} / ${ya.nombre}`, existe: true };
+    if (!crear) return { id: null, nombre, ruta, existe: false };
+    const idAnio = await carpeta(GASTOS[linea], String(anio), { crear: true });
+    const id = await carpeta(idAnio, nombre, { crear: true });
+    cache.delete(`${GASTOS[linea]}:${anio}`);
+    return { id, nombre, ruta, existe: true };
+}
+
+/** El mismo PDF (misma md5) ya en esa carpeta: el fichero, o null. Evita el doble toque. */
+async function mismoEn(folderId, md5) {
+    if (!folderId || !md5) return null;
+    return (await hijos(folderId)).find(f => f.md5Checksum === md5) || null;
+}
+
+/** Un nombre libre en la carpeta: «… .pdf», «… (2).pdf», «… (3).pdf». */
+async function nombreLibre(folderId, nombre) {
+    const usados = await nombresEn(folderId);
+    if (!usados.has(nombre)) return nombre;
+    const base = nombre.replace(/\.pdf$/i, '');
+    for (let i = 2; i < 50; i++) if (!usados.has(`${base} (${i}).pdf`)) return `${base} (${i}).pdf`;
+    throw error('Hay demasiados ficheros con ese nombre en la carpeta', 409);
+}
+
+/**
+ * SUBE el PDF de un gasto a su carpeta y deja lo leído en sus appProperties
+ * (con la md5 que da Drive): sale ya «LEÍDO», no se vuelve a leer. Si ese mismo
+ * PDF ya está en la carpeta, no sube nada y lo devuelve (`yaEstaba`).
+ */
+async function subirGasto({ linea, anio, mes, nombre, pdf, datos }) {
+    const md5 = require('crypto').createHash('md5').update(pdf).digest('hex');
+    const c = await carpetaMesGastos(linea, anio, mes, { crear: true });
+    const previo = await mismoEn(c.id, md5);
+    if (previo) return { ...filaGasto(previo, { linea, anio, mes, vecino: false }), ruta: c.ruta, yaEstaba: true };
+    const libre = await nombreLibre(c.id, nombre);
+    const { Readable } = require('stream');
+    const r = await drive.files.create({
+        requestBody: { name: libre, parents: [c.id] },
+        media: { mimeType: 'application/pdf', body: Readable.from(pdf) },
+        fields: CAMPOS,
     });
-    if (!Object.keys(props).length) throw error('No hay nada que cambiar');
-    const nuevo = await escribir(fileId, props);
-    if (donde.venta) return { venta: true, ...filaVenta(nuevo, { linea: 'CAE', anio: donde.anio, mes: donde.mes }) };
-    return filaGasto(nuevo, { linea: donde.linea, anio: donde.anio, mes: donde.mes, vecino: false });
+    const f = r.data;
+    const props = codificar({ v: VERSION, md5: f.md5Checksum || md5, at: hoy(), rev: null, error: null, ...Object.fromEntries(DATOS.map(k => [k, datos[k] ?? null])) });
+    const nuevo = await escribir(f.id, props);
+    return { ...filaGasto(nuevo, { linea, anio, mes, vecino: false }), ruta: c.ruta, yaEstaba: false };
 }
 
 /**
@@ -815,6 +932,8 @@ module.exports = {
     RAIZ_CONTABILIDAD, GASTOS, VENTAS, EXTRACTOS, ENTREGA_GESTORIA, RUTA, CONTRIBUYENTE, MESES,
     // listado y lectura
     listarGastos, listarVentas, aniosVentas, listarExtractos, extractosAutonomo, leerPendientes, leerJustificante, leerVentas, corregir, marcarCobroVenta, contenido,
+    // alta de un gasto desde la app (gastoRapido.js)
+    leerParaAlta, carpetaMesGastos, subirGasto, limpiarCambios, cajaDe, DATOS,
     // paquete
     carpeta, ficheroEn, nombresEn, nombresBajo, copiar, subir,
     // puros (pruebas)

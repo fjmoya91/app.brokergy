@@ -363,6 +363,28 @@ router.post('/gastos/leer', adminOnly, async (req, res) => {
     } catch (err) { falla(res, err, 'leer gastos'); }
 });
 
+// ALTA RÁPIDA de un gasto desde el móvil (botón «Gasto» del cuadro de mando).
+// 1) preparar: lee la foto escaneada o el PDF (Gemini, un gesto del usuario) y
+//    propone de quién es, su carpeta, su nombre y su criterio fiscal. No escribe.
+// 2) alta: sube el PDF final a `{raíz}/{año}/{n. MES}` ya leído. Con la clave
+//    interna, solo en seco: dar de alta un gasto lo hace un ADMIN desde la app.
+// Ver docs/conocimiento/facturacion/alta-rapida-de-gastos-desde-el-movil.md.
+const gastoRapido = require('../services/gastoRapido');
+router.post('/gastos/preparar', adminOClaveInterna, async (req, res) => {
+    try { res.json(await gastoRapido.preparar(req.body || {})); }
+    catch (err) { falla(res, err, 'preparar gasto'); }
+});
+
+router.post('/gastos/alta', adminOClaveInterna, async (req, res) => {
+    try {
+        const seco = esSeco(req);
+        if (!seco && req.internalCall) return res.status(403).json({ error: 'Dar de alta un gasto lo hace un ADMIN desde la app; con la clave interna, solo en seco (?seco=1).' });
+        const r = await gastoRapido.alta(req.body || {}, { seco });
+        if (!seco) require('../services/cuadroDireccion').olvidarFinanzas();
+        res.json(r);
+    } catch (err) { falla(res, err, 'alta de gasto'); }
+});
+
 // Corrige lo leído (o los ajustes: tipo, actividad, % deducible) y, con
 // `revisado: true`, lo da por revisado.
 router.put('/gastos/:fileId', adminOnly, async (req, res) => {

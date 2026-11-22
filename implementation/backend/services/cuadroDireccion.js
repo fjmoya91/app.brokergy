@@ -15,13 +15,15 @@
 // (dashboardAgg.buildRow, loteEco) para que el cuadro, la pestaña de Lotes y la
 // ficha del expediente digan lo mismo. Si un número cambia, cambia en un sitio.
 //
-// Nada de esto escribe: solo lee Supabase y Drive.
+// Nada de esto escribe: solo lee Supabase y Drive. (Los datos fiscales que la app
+// no sabe se guardan aparte, en impuestosEmpresa.guardarDatos, desde su ruta.)
 
 const path = require('path');
 const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
 const conta = require('./contabilidadService');
 const libroContable = require('./libroContable');
+const impuestosEmpresa = require('./impuestosEmpresa');
 
 const FRONT = path.join(__dirname, '../../frontend/src/features');
 let _mods = null;
@@ -673,30 +675,6 @@ async function calcularFinanzas(anio, { forzar }) {
     };
     if (gastos.sinLeer > 0) avisos.push({ tono: 'ambar', clave: 'gastos_sin_leer', texto: `${gastos.sinLeer} factura${gastos.sinLeer > 1 ? 's' : ''} de gasto de trimestres cerrados sin leer en Drive (y sin el libro de la gestoría): no restan en el EBITDA, que puede ser menor.`, link: '?tab=facturacion&sub=trimestres' });
 
-    // ── Caja y circulante ───────────────────────────────────────────────────
-    const cobros = cuadro.cobros || {};
-    const bonosPorPagar = neg.lotes.filter(l => ['POR_COBRAR', 'POR_PAGAR'].includes(l.etapa)).reduce((a, l) => a + l.bonosPendientes, 0);
-    const bonosPorPagarCobrados = neg.lotes.filter(l => l.etapa === 'POR_PAGAR').reduce((a, l) => a + l.bonosPendientes, 0);
-    const tri = cuadro.trimestre || {};
-    const ivaAPagar = Math.max(0, n0(tri.sl?.resultado_303));
-    const retenciones = Math.max(0, n0(tri.m111));
-    // Las ventas CAE de Drive ya van dentro de cobros.pendiente/cobrado (no se suman otra vez).
-    const circulante = n0(cobros.pendiente) - bonosPorPagar - ivaAPagar - retenciones;
-    const caja = {
-        teDeben: r2(cobros.pendiente), nTeDeben: n0(cobros.n_pendientes),
-        vencido: r2(cobros.vencido), nVencidas: n0(cobros.n_vencidas),
-        cobradoAnio: r2(cobros.cobrado),
-        diasCobro: cobros.dias_medios_cobro?.dias ?? null,
-        porLinea: cobros.por_linea || null,
-        vencidas: cobros.vencidas || [],
-        bonosPorPagar: r2(bonosPorPagar), bonosPorPagarCobrados: r2(bonosPorPagarCobrados),
-        ivaAPagar: r2(ivaAPagar), retenciones: r2(retenciones),
-        trimestre: { t: tri.t, etiqueta: tri.etiqueta, plazo: tri.plazo || null, parcial: !!tri.parcial },
-        circulante: r2(circulante),
-    };
-    if (bonosPorPagarCobrados > 0) avisos.push({ tono: 'ambar', clave: 'bonos_cobrados', texto: `Tienes ${Math.round(bonosPorPagarCobrados).toLocaleString('es-ES')} € de bonos de clientes ya cobrados al S.O. y sin transferir.`, link: '?tab=lotes' });
-    if (tri.plazo?.dias != null && tri.plazo.dias <= 20) avisos.push({ tono: 'ambar', clave: 'plazo_fiscal', texto: `Modelo ${tri.plazo.modelo} en ${tri.plazo.dias} días (${tri.plazo.fecha}).`, link: `?tab=facturacion&sub=trimestres&t=${tri.t}` });
-
     // ── Previsión ───────────────────────────────────────────────────────────
     const ratio = neg.verificacion.ratio ?? 1;
     const r = neg.expedientes.tasaRechazo || 0;
@@ -800,6 +778,62 @@ async function calcularFinanzas(anio, { forzar }) {
         mesesCubiertos: estructuraMensual ? r2(carteraMargen / estructuraMensual) : null,
     };
 
+    // ── Impuestos ───────────────────────────────────────────────────────────
+    // El 303 y el 111 de cada trimestre (libro de la gestoría → app), el Impuesto
+    // de Sociedades sobre el resultado previsto al cierre ESPERADO y lo que hay que
+    // apartar para Hacienda (services/impuestosEmpresa.js).
+    const tri = cuadro.trimestre || {};
+    let datosFiscales = null;
+    let errorDatos = null;
+    try { datosFiscales = await impuestosEmpresa.leerDatos(); }
+    catch (e) { errorDatos = e.message; }
+    const mesesRestantes = anio === anioHoy ? 12 - Number(hoy.slice(5, 7)) : 0;
+    const tramoIng = (id) => tramosIng.find(x => x.id === id) || { n: 0, base: 0 };
+    // Lo que añade al resultado lo que se factura antes del 31/12 (lo mismo que el
+    // cierre ESPERADO, en margen): CAE emitido por facturar, los lotes que entran, los
+    // presupuestos aceptados y los CEE terminados menos su técnico.
+    const margenPendiente = anio === anioHoy
+        ? tramos[0].margen + enCamino.filter(l => l.entra).reduce((a, l) => a + l.margen, 0)
+            + tramoIng('PRES_POR_FACTURAR').base + Math.max(0, tramoIng('CEE_POR_FACTURAR').base - tramoIng('CEE_POR_FACTURAR').n * costeUnitCee)
+        : 0;
+    const libroTrimestres = new Set(ts.filter(delLibro).map(t => `T${Number(t.slice(-1))}`));
+    const impuestos = {
+        ...impuestosEmpresa.calcular({
+            anio, hoy, qEnCurso, tri, datos: datosFiscales || {},
+            libroFiscal: libro && !libro.error ? libro.fiscal || {} : {}, libroTrimestres,
+            ebitda: pyg.ebitda, margenPendiente, estructuraRestante: (estructuraMensual || 0) * mesesRestantes,
+        }),
+        errorDatos,
+        fiable: pyg.fiable && !errorDatos,
+    };
+    if (errorDatos) impuestos.avisos.push({ tono: 'ambar', clave: 'datos_fiscales_error', texto: `${errorDatos}: el Impuesto de Sociedades sale sin el régimen ni los pagos a cuenta.` });
+    avisos.push(...impuestos.avisos);
+
+    // ── Caja y circulante ───────────────────────────────────────────────────
+    // Lo que se debe a Hacienda de los trimestres sin pagar: el en curso y el que
+    // aún se puede presentar, con el IVA a compensar ya descontado.
+    const cobros = cuadro.cobros || {};
+    const bonosPorPagar = neg.lotes.filter(l => ['POR_COBRAR', 'POR_PAGAR'].includes(l.etapa)).reduce((a, l) => a + l.bonosPendientes, 0);
+    const bonosPorPagarCobrados = neg.lotes.filter(l => l.etapa === 'POR_PAGAR').reduce((a, l) => a + l.bonosPendientes, 0);
+    const ivaAPagar = Math.max(0, n0(impuestos.totales.pendiente303));
+    const retenciones = Math.max(0, n0(impuestos.totales.pendiente111));
+    // Las ventas CAE de Drive ya van dentro de cobros.pendiente/cobrado (no se suman otra vez).
+    const circulante = n0(cobros.pendiente) - bonosPorPagar - ivaAPagar - retenciones;
+    const caja = {
+        teDeben: r2(cobros.pendiente), nTeDeben: n0(cobros.n_pendientes),
+        vencido: r2(cobros.vencido), nVencidas: n0(cobros.n_vencidas),
+        cobradoAnio: r2(cobros.cobrado),
+        diasCobro: cobros.dias_medios_cobro?.dias ?? null,
+        porLinea: cobros.por_linea || null,
+        vencidas: cobros.vencidas || [],
+        bonosPorPagar: r2(bonosPorPagar), bonosPorPagarCobrados: r2(bonosPorPagarCobrados),
+        ivaAPagar: r2(ivaAPagar), retenciones: r2(retenciones),
+        trimestre: { t: tri.t, etiqueta: tri.etiqueta, plazo: tri.plazo || null, parcial: !!tri.parcial, pendientes: impuestos.totales.pendientesTri },
+        proximoPago: impuestos.proximos[0] || null,
+        circulante: r2(circulante),
+    };
+    if (bonosPorPagarCobrados > 0) avisos.push({ tono: 'ambar', clave: 'bonos_cobrados', texto: `Tienes ${Math.round(bonosPorPagarCobrados).toLocaleString('es-ES')} € de bonos de clientes ya cobrados al S.O. y sin transferir.`, link: '?tab=lotes' });
+
     // ── Salud ───────────────────────────────────────────────────────────────
     const top = (cuadro.top_clientes || [])[0];
     const slBase = n0(cuadro.ventas?.por_contribuyente?.sl?.base) || ingresos;
@@ -828,7 +862,7 @@ async function calcularFinanzas(anio, { forzar }) {
         trimestre: cuadro.trimestre,
         topClientes: cuadro.top_clientes,
         avisosContabilidad: cuadro.avisos,
-        pyg, caja, prevision, salud,
+        pyg, caja, prevision, salud, impuestos,
         avisos,
     };
 }
@@ -838,4 +872,9 @@ function finanzas(anio, { forzar = false } = {}) {
     return conCache(`finanzas:${a}`, TTL_FINANZAS, forzar, () => calcularFinanzas(a, { forzar }));
 }
 
-module.exports = { negocio, finanzas, etapaLote, isoDe, ETAPAS_LOTE, BdCaida };
+/** Tras guardar los datos fiscales: la próxima lectura de las finanzas se recalcula. */
+function olvidarFinanzas() {
+    for (const k of [...cache.keys()]) if (k.startsWith('finanzas:')) cache.delete(k);
+}
+
+module.exports = { negocio, finanzas, olvidarFinanzas, etapaLote, isoDe, ETAPAS_LOTE, BdCaida };

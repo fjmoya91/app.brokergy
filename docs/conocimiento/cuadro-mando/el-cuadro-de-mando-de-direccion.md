@@ -16,6 +16,7 @@ CAE (GWh y margen por fase), calculado en el navegador sobre `GET /api/expedient
 | La pantalla | [views/DashboardView.jsx](implementation/frontend/src/features/dashboard/views/DashboardView.jsx), [components/CuadroSecciones.jsx](implementation/frontend/src/features/dashboard/components/CuadroSecciones.jsx), [components/CarteraCae.jsx](implementation/frontend/src/features/dashboard/components/CarteraCae.jsx), estilo en [cuadroEstilo.js](implementation/frontend/src/features/dashboard/cuadroEstilo.js) sobre el kit crema de Facturación |
 | Que cuadre | `node implementation/backend/scripts/check_cuadro_mando.js [año]` (solo lectura) |
 | Gastos de los trimestres cerrados | [services/libroContable.js](implementation/backend/services/libroContable.js): el libro maestro de la gestoría, solo lectura |
+| Impuestos (303, 111, Sociedades, 202) | [services/impuestosEmpresa.js](implementation/backend/services/impuestosEmpresa.js): ver «Los impuestos en el cuadro de mando» |
 
 ### Qué enseña, en este orden
 
@@ -31,15 +32,18 @@ CAE (GWh y margen por fase), calculado en el navegador sobre `GET /api/expedient
    el equilibrio salen grises: no se pinta de verde algo que puede ser mentira).
 4. **Resultados**: la cuenta de resultados de gestión (abajo), el gráfico mensual de Facturación (ING + CAE) y
    el EBITDA de cada mes.
-5. **Caja**: circulante neto y su desglose, cobrado en el año, vencido, lo que debe el CAE, el próximo plazo
-   fiscal y las facturas más antiguas sin cobrar.
-6. **Previsión**: la escalera de la cartera CAE (bruto frente a ponderado), el cierre del año y lo que viene de
+5. **Caja**: circulante neto y su desglose, cobrado en el año, vencido, lo que debe el CAE, el próximo pago a
+   Hacienda y las facturas más antiguas sin cobrar.
+6. **Impuestos** (desde el 18/11/2026): lo que hay que apartar para Hacienda y los próximos pagos, el Impuesto
+   de Sociedades estimado con sus pagos a cuenta, y el 303 y el 111 de cada trimestre con su fuente. Detalle en
+   «Los impuestos en el cuadro de mando».
+7. **Previsión**: la escalera de la cartera CAE (bruto frente a ponderado), el cierre del año y lo que viene de
    servicios.
-7. **Negocio CAE**: de la propuesta al cobro (captación → fases del expediente sin lote → etapas del lote) y la
+8. **Negocio CAE**: de la propuesta al cobro (captación → fases del expediente sin lote → etapas del lote) y la
    lista de lotes con su etapa, importe y margen; la captación por estado, altas por mes y conversión por edad.
-8. **Otros servicios**: CEE directos (facturado, ticket, margen por CEE, por facturar, por cobrar, en marcha),
+9. **Otros servicios**: CEE directos (facturado, ticket, margen por CEE, por facturar, por cobrar, en marcha),
    presupuestos de servicios (tasa de aceptación, enviados, aceptados sin facturar) e informes / CIT.
-9. **Análisis de la cartera CAE** (plegado): el cuadro antiguo — filtros, precio simulado (vacío = el precio
+10. **Análisis de la cartera CAE** (plegado): el cuadro antiguo — filtros, precio simulado (vacío = el precio
    medio de los lotes abiertos, clave `brokergy-cuadro-precio-so` del navegador), reparto, los que más margen
    dejan y exportar a Excel.
 
@@ -127,8 +131,9 @@ diferencia de importes (dejaba restos).
 
 **REGLA — caja.** *Te deben* = lo pendiente de cobro de `contabilidadService` (ya incluye las autofacturas de
 Drive sin `brk_cobro_fecha`: no se suman otra vez). *Circulante neto* = te deben − bonos por pagar de lotes
-facturados o cobrados − IVA del 303 del trimestre − retenciones del 111. No es el saldo del banco: la app no
-lo lee.
+facturados o cobrados − el 303 y el 111 de **todos los trimestres sin pagar** (el en curso y los cerrados aún
+en plazo, ya con lo compensado; desde el 18/11/2026, antes solo el del trimestre en curso). No es el saldo del
+banco: la app no lo lee.
 
 **REGLA — lo de siempre.** Rutas `adminOClaveInterna` y pestaña solo ADMIN (importes y margen). Con la BD
 caída, 503 y el aviso de `ErrorApi`, nunca un cuadro a cero (regla 38). Caché en el servidor: 5 min el

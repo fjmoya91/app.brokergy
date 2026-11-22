@@ -570,5 +570,48 @@ t('el plan del paquete y el libro Excel (sin Drive): E-, R-, O-, AE-, AG- y el R
     assert.equal(wb.getWorksheet('SL RECIBIDAS').getRow(4).values.length - 1, 17);
 });
 
+// ── El ALTA RÁPIDA de un gasto desde el móvil (gastoRapido.js): de quién es, a qué mes, qué nombre ──
+const R = require('../services/gastoRapido.js');
+const NIFS = { nifSl: 'B00000000', nifAutonomo: '00000000T' };
+
+t('alta rápida: de quién es el gasto (el NIF del destinatario manda; sin él, gasoil y coche al autónomo)', () => {
+    assert.equal(R.contribuyenteDe({ nif_destinatario: 'ES00000000T', naturaleza: 'EQUIPO' }, NIFS).contribuyente, 'AUTONOMO');
+    assert.equal(R.contribuyenteDe({ nif_destinatario: 'B-00000000', naturaleza: 'COMBUSTIBLE' }, NIFS).contribuyente, 'SL');
+    assert.equal(R.contribuyenteDe({ naturaleza: 'COMBUSTIBLE' }, NIFS).contribuyente, 'AUTONOMO');
+    assert.equal(R.contribuyenteDe({ naturaleza: 'VEHICULO' }, NIFS).contribuyente, 'AUTONOMO');
+    assert.equal(R.contribuyenteDe({ naturaleza: 'RESTAURACION' }, NIFS).contribuyente, 'SL');
+    assert.match(R.contribuyenteDe({ nif_destinatario: 'X1234567L' }, NIFS).motivo, /otro NIF/);
+});
+
+t('alta rápida: el mes de la factura salvo trimestre cerrado, sin fecha o fecha futura (entonces, el de hoy)', () => {
+    const hoy = '2026-11-22';
+    assert.deepEqual(R.mesDestino('2026-11-03', hoy), { anio: 2026, mes: 11, motivo: null });
+    assert.deepEqual(R.mesDestino('2026-10-02', hoy, () => null), { anio: 2026, mes: 10, motivo: null });
+    const cerrado = R.mesDestino('2026-09-28', hoy, () => 'pasó el plazo del 303');
+    assert.deepEqual([cerrado.anio, cerrado.mes], [2026, 11]);
+    assert.match(cerrado.motivo, /3\.º trimestre de 2026 ya está cerrado/);
+    // El trimestre de HOY nunca está cerrado, diga lo que diga el criterio.
+    assert.deepEqual(R.mesDestino('2026-10-15', hoy, () => 'su 303 ya está presentado').mes, 10);
+    assert.equal(R.mesDestino(null, hoy).mes, 11);
+    assert.match(R.mesDestino('2026-12-30', hoy).motivo, /posterior a hoy/);
+    // Un T4 que aún está en plazo (antes del 30 de enero) admite su mes.
+    assert.deepEqual(R.mesDestino('2026-12-15', '2027-01-10', () => null), { anio: 2026, mes: 12, motivo: null });
+});
+
+t('alta rápida: el nombre como los de Drive (sin tildes ni barras, concepto en minúscula)', () => {
+    const hoy = '2026-11-22';
+    assert.equal(R.nombreGasto({ fecha: '2026-11-20', proveedor: 'Ikea Ibérica, S.A.U.', numero: 'FV/2026/0123', concepto: 'Escritorio Despacho' }, hoy),
+        '2026-11-20 - IKEA IBERICA - FV-2026-0123 - escritorio despacho.pdf');
+    assert.equal(R.nombreGasto({ fecha: '2026-11-19', proveedor: 'PLENERGY S.L.', concepto: 'Gasóleo A' }, hoy), '2026-11-19 - PLENERGY - gasoleo a.pdf');
+    assert.equal(R.nombreGasto({ proveedor: 'Bar: "El Rincón"' }, hoy), '2026-11-22 - BAR EL RINCON.pdf');
+    assert.equal(R.nombreGasto({}, hoy), '2026-11-22 - PROVEEDOR.pdf');
+});
+
+t('alta rápida: lo que llega del navegador se reconoce por sus bytes, no por lo que diga', () => {
+    assert.equal(R.decodificar('data:image/png;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xe0]).toString('base64')).mime, 'image/jpeg');
+    assert.equal(R.decodificar(Buffer.from('%PDF-1.7').toString('base64')).mime, 'application/pdf');
+    assert.equal(R.decodificar(Buffer.from('<html>').toString('base64')).mime, null);
+});
+
 await Promise.all(pendientes);
 console.log(`\n${ok} pruebas OK`);

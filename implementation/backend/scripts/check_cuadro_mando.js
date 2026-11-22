@@ -48,6 +48,16 @@ function sinNaN(o, ruta = '') {
         console.log(`  cierre ${f.anio}: ${eur(ca.ytd)} → seguro ${eur(ca.seguro)} → esperado ${eur(ca.esperado)} → máximo ${eur(ca.maximo)} · del envío a la factura ${ca.diasFactura.mediana ?? '—'} días (mediana de ${ca.diasFactura.n} lotes, ${ca.diasFactura.min}–${ca.diasFactura.max})`);
         for (const l of ca.lotes) console.log(`    ${String(l.codigo).padEnd(15)} ${l.etapa.padEnd(11)} env ${l.fechaEnvio || '—'} → ${l.fechaPrevista} ${l.entra ? 'ENTRA' : 'pasa al año que viene'} · ${eur(l.base)}`);
     }
+    const im = f.impuestos;
+    if (im) {
+        const fuente = (x) => (x.importe == null ? '—' : `${eur(x.importe)} ${x.fuente === 'CONFIRMADO' ? 'conf.' : x.fuente === 'LIBRO' ? 'libro' : 'app'}`);
+        console.log(`impuestos ${im.anio}${im.datos.vacio ? ' · SIN DATOS FISCALES' : ''}${im.errorDatos ? ` · ERROR ${im.errorDatos}` : ''}`);
+        for (const q of im.trimestres) console.log(`  ${q.t} ${q.estado.padEnd(13)} 303 SL ${fuente(q.sl303)}${q.sl303.compensado ? ` (−${eur(q.sl303.compensado)} compensado)` : ''}${q.sl303.aCompensar ? ` (${eur(q.sl303.aCompensar)} a compensar)` : ''} · 111 ${fuente(q.m111)} · 303 autónomo ${fuente(q.aut303)}`);
+        const s = im.sociedades;
+        console.log(`  Sociedades: ${s.tipo.etiqueta} · base hoy ${eur(s.baseHoy)} → al cierre ${eur(s.basePrevista)} (+${eur(s.margenPendiente)} margen − ${eur(s.estructuraRestante)} estructura) · cuota ${eur(s.cuotaPrevista)}`);
+        console.log(`  202: ${s.pagos202.exento ? 'exento' : s.pagos202.filas.map(x => `${x.periodo} ${x.importe == null ? '—' : eur(x.importe)} ${x.fuente || ''}`).join(' · ')} · a ingresar ${s.aIngresar.vence}: ${eur(s.aIngresar.importe)}${s.aIngresar.aplazable ? ` (aplazable ${s.aIngresar.aplazable} meses)` : ''} · neto ${eur(s.neto.previsto)}`);
+        console.log(`  apartar para Hacienda ${eur(im.apartar)}: ${im.proximos.map(x => `${x.fecha} ${x.modelo} ${eur(x.importe)}`).join(' · ')}`);
+    }
     console.log('lotes por etapa:');
     for (const e of n.etapas) console.log(`  ${e.id.padEnd(13)} ${String(e.n).padStart(3)} lotes · ${String(e.nExp).padStart(4)} exp. · ${eur(e.base)}`);
     console.log(`expedientes vivos ${n.expedientes.vivos} · captación viva ${n.captacion.length} · CEE directos ${eur(n.cee.facturadoAnio)} en ${n.cee.nFacturasAnio} facturas`);
@@ -81,6 +91,21 @@ function sinNaN(o, ruta = '') {
     cierto(!n.filas.some(r => String(r.estado).toUpperCase() === 'RECHAZADO'), 'ningún RECHAZADO en la cartera');
     cierto(n.lotes.every(l => l.bonosPendientes >= -0.5), 'ningún lote con bonos pendientes negativos');
     cierto(f.salud.every(s => ['ok', 'ambar', 'gris'].includes(s.tono)), 'salud: tono ok|ambar|gris');
+    // Impuestos: cuatro trimestres, lo que resta el circulante es lo pendiente de ellos,
+    // apartar = la suma de los próximos pagos y la cuenta del Impuesto suma.
+    if (im) {
+        cierto(im.trimestres.length === 4, 'impuestos: cuatro trimestres');
+        const pend = im.trimestres.filter(q => ['EN_CURSO', 'POR_PRESENTAR'].includes(q.estado));
+        casi(c.ivaAPagar, pend.reduce((a, q) => a + Math.max(0, q.sl303.aPagar || 0), 0), 'caja: IVA = el 303 de los trimestres sin pagar');
+        casi(c.retenciones, pend.reduce((a, q) => a + Math.max(0, q.m111.importe || 0), 0), 'caja: retenciones = el 111 de los trimestres sin pagar');
+        casi(im.apartar, im.proximos.reduce((a, x) => a + x.importe, 0), 'impuestos: apartar = suma de los próximos pagos');
+        cierto(im.proximos.every((x, i, xs) => !i || xs[i - 1].fecha <= x.fecha), 'impuestos: próximos pagos en orden de fecha');
+        const s = im.sociedades;
+        casi(s.pagos202.total, s.pagos202.filas.reduce((a, x) => a + (x.importe || 0), 0), 'impuestos: el 202 suma sus pagos');
+        cierto(s.cuotaPrevista >= 0 && s.cuotaHoy >= 0, 'impuestos: cuota del Impuesto no negativa');
+        if (!s.presentado) casi(s.aIngresar.importe, s.cuotaPrevista - s.pagos202.total, 'impuestos: a ingresar = cuota − pagos a cuenta');
+        casi(s.neto.previsto, s.basePrevista - s.cuotaPrevista, 'impuestos: neto = base − cuota');
+    }
     sinNaN(n, 'negocio'); sinNaN(f, 'finanzas');
 
     if (fallos.length) { console.error(`\n✗ ${fallos.length} cosa(s) no cuadran:\n  - ${fallos.join('\n  - ')}`); process.exit(1); }

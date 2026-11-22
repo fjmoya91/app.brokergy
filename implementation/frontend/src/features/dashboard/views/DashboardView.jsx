@@ -25,12 +25,15 @@ import {
 } from '../components/CuadroSecciones';
 import { juntarAtencion, pct, energia, fuenteEstructura } from '../logic/cuadroFormato';
 import { CarteraCae } from '../components/CarteraCae';
+import { Impuestos } from '../components/CuadroImpuestos';
+import { GastoRapido, ICO_CAMARA } from '../components/GastoRapido';
 
 const SECCIONES = [
     { id: 'resumen', label: 'Resumen' },
     { id: 'salud', label: 'Salud' },
     { id: 'resultados', label: 'Resultados' },
     { id: 'caja', label: 'Caja' },
+    { id: 'impuestos', label: 'Impuestos' },
     { id: 'prevision', label: 'Previsión' },
     { id: 'cae', label: 'Negocio CAE' },
     { id: 'servicios', label: 'Otros servicios' },
@@ -73,6 +76,9 @@ export function DashboardView() {
     const [activa, setActiva] = useState('resumen');
     const [toast, avisar] = useToastFx();
     const nav = useRef(null);
+    // El alta rápida de un gasto: null cerrado · { ficheros } abierto (con la foto del botón flotante, o vacío).
+    const [gasto, setGasto] = useState(null);
+    const camaraFab = useRef(null);
 
     const cargarNegocio = useCallback((forzar) => leerNeg('/api/cuadro-mando/negocio', forzar ? { forzar: 1 } : {}), [leerNeg]);
     const cargarFinanzas = useCallback((a, forzar) => leerFin('/api/cuadro-mando/finanzas', { anio: a, ...(forzar ? { forzar: 1 } : {}) }), [leerFin]);
@@ -123,9 +129,14 @@ export function DashboardView() {
                 `Margen bruto: ${eur(p.margenBruto, 0)} (${pct(p.margenBrutoPct)})`,
                 `EBITDA: ${eur(p.ebitda, 0)} (${pct(p.ebitdaPct)})${p.fiable ? '' : ` · provisional, ${p.gastos.sinLeer} gastos sin leer`} · estructura ${eur(p.estructura, 0)} (${fuenteEstructura(p.gastos)})`,
                 `Te deben: ${eur(c.teDeben, 0)} con IVA · vencido ${eur(c.vencido, 0)}`,
-                `Bonos por pagar: ${eur(c.bonosPorPagar, 0)} · IVA del trimestre: ${eur(c.ivaAPagar, 0)}`,
+                `Bonos por pagar: ${eur(c.bonosPorPagar, 0)} · IVA sin pagar: ${eur(c.ivaAPagar, 0)}`,
                 `Circulante neto: ${eur(c.circulante, 0)}`,
                 `Cartera ponderada: ${eur(pr.cartera, 0)} · margen ${eur(pr.carteraMargen, 0)}`);
+            if (f.impuestos) {
+                const s = f.impuestos.sociedades;
+                L.push(`Para Hacienda: apartar ${eur(f.impuestos.apartar, 0)}${f.impuestos.proximos[0] ? ` · próximo pago ${fechaEs(f.impuestos.proximos[0].fecha)}, modelo ${f.impuestos.proximos[0].modelo}, ${eur(f.impuestos.proximos[0].importe, 0)}` : ''}`,
+                    `Impuesto de Sociedades ${f.anio}: ${eur(s.cuotaPrevista, 0)} al ${s.tipo.tramos.length > 1 ? `${s.tipo.tramos[0].pct}/${s.tipo.tramos[1].pct}` : s.tipo.pct} % · a ingresar ${eur(s.aIngresar.importe, 0)} hasta el ${fechaEs(s.aIngresar.vence)} · resultado después de impuestos ${eur(s.neto.previsto, 0)}`);
+            }
             if (pr.cierreAnio) {
                 const ca = pr.cierreAnio;
                 L.push(`Cierre ${f.anio}: esperado ${eur(ca.esperado ?? ca.posible, 0)} (seguro ${eur(ca.seguro, 0)}; hasta ${eur(ca.maximo ?? ca.posible, 0)} si sale todo lo enviado antes del 31/12)`);
@@ -167,6 +178,9 @@ export function DashboardView() {
                         </p>
                     </div>
                     <div className="cm-cab-acc">
+                        <button type="button" className="fx-btn fx-btn-pri cm-cab-gasto" onClick={() => setGasto({ ficheros: null })}>
+                            <Ico n="mas" size={18} />Gasto
+                        </button>
                         <select className="fx-select fx-select-peq" value={anio} onChange={e => setAnio(Number(e.target.value))} aria-label="Año de la cuenta de resultados">
                             {[anioHoy, anioHoy - 1, anioHoy - 2].map(a => <option key={a} value={a}>{a}</option>)}
                         </select>
@@ -212,6 +226,13 @@ export function DashboardView() {
                         {errF ? errorFinanzas : <Caja f={f} />}
                     </section>
 
+                    <section className="cm-sec" id="cm-impuestos" aria-labelledby="cm-impuestos-t">
+                        <CabSeccion eyebrow={`Impuestos · ${anio}`} titulo={<span id="cm-impuestos-t">Lo que tienes que apartar para Hacienda</span>}>
+                            El IVA y las retenciones de cada trimestre, los pagos a cuenta y el Impuesto de Sociedades del año. Lo presentado manda; si no, el libro de la gestoría; el trimestre en curso, lo que lleva la app.
+                        </CabSeccion>
+                        {errF ? errorFinanzas : <Impuestos f={f} onGuardado={() => { avisar('Datos fiscales guardados'); cargarFinanzas(anio, true); }} />}
+                    </section>
+
                     <section className="cm-sec" id="cm-prevision" aria-labelledby="cm-prevision-t">
                         <CabSeccion eyebrow="Previsión" titulo={<span id="cm-prevision-t">Lo que viene, ponderado por lo que suele salir</span>}>
                             Cada tramo lleva su probabilidad medida en la app: lo que deja el verificador, los rechazos y lo que convierte una propuesta según su edad.
@@ -242,6 +263,18 @@ export function DashboardView() {
                     Cifras de gestión calculadas por la app con los datos de hoy (sin IVA salvo donde se dice). No sustituyen a la contabilidad de la gestoría.
                 </p>
             </div>
+            {/* En el móvil, el botón flotante abre la CÁMARA a la primera; la foto abre el diálogo ya leyendo. */}
+            <input ref={camaraFab} type="file" accept="image/*" capture="environment" hidden
+                onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) setGasto({ ficheros: fs }); }} />
+            {!gasto && (
+                <button type="button" className="cm-fab" onClick={() => camaraFab.current?.click()} aria-label="Añadir un gasto con una foto">
+                    <Ico d={ICO_CAMARA} size={22} />Gasto
+                </button>
+            )}
+            {gasto && (
+                <GastoRapido inicial={gasto.ficheros} onClose={() => setGasto(null)}
+                    onGuardado={(r) => { avisar(r.ya_estaba ? 'Ese gasto ya estaba en Drive' : 'Gasto guardado en Drive'); if (!r.ya_estaba) cargarFinanzas(anio, true); }} />
+            )}
             {toast}
         </div>
     );

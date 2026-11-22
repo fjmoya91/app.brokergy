@@ -12,7 +12,7 @@ export const CSS_CUADRO = `
 .cm-cab-acc{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .cm-cab-acc .fx-btn{min-height:44px}
 @container fx (min-width:980px){.cm-cab{grid-template-columns:minmax(0,1fr) auto}.cm-cab-acc{justify-content:flex-end}}
-@container fx (max-width:639px){.cm-cab-acc{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr)}.cm-cab-acc .fx-btn{padding:0 10px}}
+@container fx (max-width:639px){.cm-cab-acc{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr)}.cm-cab-acc .fx-btn{padding:0 10px}.cm-cab-acc .cm-cab-gasto{grid-column:1/-1}}
 @container fx (max-width:479px){.cm-solo-ancho{display:none}}
 .cm-act{font-size:12.5px;color:var(--gris2);margin:6px 0 0}
 
@@ -181,6 +181,98 @@ a.fx-link{text-decoration:underline}
 .cm-rank .fx-pista{grid-column:1/-1;height:8px;margin-top:4px}
 .cm-seg-scroll{max-width:100%;overflow-x:auto;scrollbar-width:none}
 .cm-seg-scroll::-webkit-scrollbar{display:none}
+
+/* ── impuestos: un bloque por trimestre ── */
+.cm-trims{display:grid;gap:10px;grid-template-columns:minmax(0,1fr);margin-top:14px}
+@container fx (min-width:620px){.cm-trims{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@container fx (min-width:1080px){.cm-trims{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.cm-trim{display:grid;align-content:start;gap:8px;min-width:0;padding:14px 14px 12px;border-radius:18px;background:#fff;border:1px solid var(--linea)}
+.cm-trim-pasado{background:var(--crema)}
+.cm-trim-por_presentar{border-color:var(--vence-borde);box-shadow:0 0 0 3px rgba(240,177,63,.14)}
+.cm-trim-en_curso{border-color:rgba(20,17,17,.22)}
+.cm-trim-futuro{opacity:.72}
+.cm-trim-cab{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cm-trim-cab b{font-family:var(--display);font-size:24px;line-height:1}
+.cm-trim-cab span:not(.fx-chip){font-size:12.5px;color:var(--gris);flex:1 1 auto;min-width:0}
+.cm-trim dl{margin:0;display:grid;gap:4px}
+.cm-trim dl > div{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13.5px}
+.cm-trim dt{color:var(--gris);min-width:0}
+.cm-trim dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.cm-trim dl > div:first-child dd{font-family:var(--display);font-size:22px}
+.cm-trim small{display:block;font-size:11.5px;line-height:1.35;color:var(--gris2);margin:-2px 0 2px}
+.cm-trim-aut{padding-top:6px;margin-top:2px;border-top:1px dashed var(--linea2)}
+.cm-trim-aut dt,.cm-trim-aut dd{font-size:12.5px}
+.cm-trim-pie{margin:0;font-size:11.5px;color:var(--gris2);font-variant-numeric:tabular-nums}
+.cm-is .cm-fila-res dt small,.cm-is .cm-fila-ebitda dt small{font-weight:500}
+
+/* el diálogo «Datos fiscales» (va a <body>: sin consultas al contenedor) */
+.cm-df > * + *{margin-top:10px}
+.cm-df .fx-sub-tit{margin-top:20px}
+.cm-df-fila{position:relative;display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr));padding:14px 14px 12px;border-radius:16px;background:#fff;border:1px solid var(--linea)}
+.cm-df-fila .fx-input,.cm-df-fila .fx-select{min-height:44px;font-size:14.5px}
+.cm-df-todo{grid-column:1/-1}
+.cm-df-fila input[type=date]{min-width:0;padding:0 8px;font-size:14px}
+.cm-df-quita{justify-self:end;grid-column:1/-1;min-height:40px}
+.cm-df-err{margin-top:14px}
+
+/* el alta rápida de un gasto (GastoRapido.jsx; va a <body>: sin consultas al contenedor) */
+.cm-g-elegir{display:grid;gap:12px;border-radius:18px;transition:background .15s}
+.cm-g-soltar{background:var(--ambar-bg);outline:2px dashed var(--ambar-borde);outline-offset:6px}
+.cm-g-gordo{appearance:none;-webkit-tap-highlight-color:transparent;display:flex;align-items:center;gap:16px;width:100%;min-height:84px;padding:16px 18px;border-radius:18px;border:1.5px solid var(--linea2);background:#fff;color:var(--tinta);text-align:left;cursor:pointer;font:inherit}
+.cm-g-gordo:hover{border-color:rgba(20,17,17,.3)}
+.cm-g-gordo span{display:grid;gap:3px;min-width:0}
+.cm-g-gordo b{font-size:16.5px}
+.cm-g-gordo small{font-size:13px;line-height:1.35;color:var(--gris)}
+.cm-g-gordo svg{flex:none}
+.cm-g-gordo-pri{background:var(--naranja);border-color:var(--naranja);color:#08090c;box-shadow:0 10px 22px -12px rgba(255,160,0,.8)}
+.cm-g-gordo-pri small{color:rgba(8,9,12,.72)}
+.cm-g-nota{margin:2px 2px 0;font-size:12.5px;line-height:1.45;color:var(--gris2)}
+.cm-g-leyendo{display:flex;align-items:center;justify-content:center;gap:10px;min-height:56px;font-weight:600;color:var(--gris)}
+.cm-g-rev > * + *{margin-top:14px}
+.cm-g-pags{display:flex;gap:10px;overflow-x:auto;scrollbar-width:none;padding:2px 2px 4px;margin:0 -2px}
+.cm-g-pags::-webkit-scrollbar{display:none}
+.cm-g-pag{position:relative;flex:none;margin:0;width:108px;height:144px;border-radius:12px;overflow:hidden;background:#fff;border:1px solid var(--linea2);box-shadow:var(--sombra-baja)}
+.cm-g-pag img{width:100%;height:100%;object-fit:contain;background:#fff;display:block}
+.cm-g-pag figcaption{position:absolute;right:4px;bottom:4px;display:flex;gap:4px}
+.cm-g-pag .fx-ico-btn{width:32px;height:32px;min-height:32px;border-radius:10px;background:rgba(255,255,255,.92);box-shadow:0 1px 3px rgba(20,17,17,.18)}
+.cm-g-mas{appearance:none;flex:none;width:84px;height:144px;border-radius:12px;border:1.5px dashed var(--linea2);background:transparent;color:var(--gris);display:grid;place-content:center;justify-items:center;gap:4px;font:600 13px/1 var(--texto);cursor:pointer}
+.cm-g-mas:disabled{opacity:.5;cursor:default}
+.cm-g-pdf{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:10px;width:100%;padding:12px 14px;border-radius:14px;background:#fff;border:1px solid var(--linea)}
+.cm-g-pdf .fx-mono{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cm-g-pdf small{color:var(--gris2);font-size:12px}
+.cm-g-campos{display:grid;gap:10px;grid-template-columns:repeat(2,minmax(0,1fr))}
+.cm-g-ancho{grid-column:1/-1}
+.cm-g-campos input[type=date]{min-width:0;padding:0 10px}
+.cm-g-quien{display:grid;gap:6px}
+.cm-g-quien .fx-seg{width:100%;grid-auto-columns:1fr}
+.cm-g-quien small{font-size:12.5px;line-height:1.4;color:var(--gris)}
+.cm-g-plan{display:grid;gap:10px;padding:14px;border-radius:16px;background:#fff;border:1px solid var(--linea)}
+.cm-g-plan-fila{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:start}
+.cm-g-plan-fila svg{margin-top:1px;color:var(--gris)}
+.cm-g-plan-fila > div{min-width:0;display:grid;gap:3px}
+.cm-g-plan-fila b{font-size:14.5px;overflow-wrap:anywhere}
+.cm-g-plan-fila small{font-size:12.5px;line-height:1.4;color:var(--gris);overflow-wrap:anywhere}
+.cm-g-plan-fila .fx-mono{font-size:12px}
+.cm-g-plan-nota{display:block;padding-top:8px;border-top:1px dashed var(--linea2);font-size:12.5px;line-height:1.4;color:var(--ambar-txt)}
+.cm-g-avisos > * + *{margin-top:8px}
+.cm-g-mas-datos{border-radius:14px;border:1px solid var(--linea);background:#fff}
+.cm-g-mas-datos > summary{list-style:none;cursor:pointer;display:flex;align-items:center;min-height:46px;padding:0 14px;font-weight:600;font-size:14px;color:var(--gris)}
+.cm-g-mas-datos > summary::-webkit-details-marker{display:none}
+.cm-g-mas-datos > summary::after{content:'';margin-left:auto;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(45deg) translateY(-2px);transition:transform .15s}
+.cm-g-mas-datos[open] > summary::after{transform:rotate(-135deg)}
+.cm-g-mas-datos .cm-g-campos{padding:2px 14px 14px}
+.cm-g-hecho{display:grid;justify-items:center;text-align:center;gap:8px;padding:8px 0 4px}
+.cm-g-hecho h3{margin:6px 0 0;font-size:28px;line-height:1.05}
+.cm-g-hecho p{margin:0;font-size:14px;line-height:1.45;color:var(--gris)}
+.cm-g-ok{width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:rgba(177,209,62,.28);color:var(--verde-txt)}
+.cm-g-fich{font-size:12px !important;overflow-wrap:anywhere;color:var(--tinta) !important}
+
+/* el botón flotante «Gasto» (solo en el móvil): abre la cámara directamente */
+.cm-fab{display:none}
+@media (max-width:767px){
+  .cm-fab{appearance:none;-webkit-tap-highlight-color:transparent;position:fixed;z-index:40;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));display:inline-flex;align-items:center;gap:8px;min-height:56px;padding:0 20px 0 16px;border-radius:999px;border:0;background:var(--naranja);color:#08090c;font:700 15.5px/1 var(--texto);box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 14px 30px -10px rgba(20,17,17,.45);cursor:pointer}
+  .cm-fab:active{transform:scale(.97)}
+}
 
 /* esqueleto */
 .cm-sk-hero{min-height:300px}

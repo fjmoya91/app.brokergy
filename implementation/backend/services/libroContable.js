@@ -123,8 +123,18 @@ function interpretar(wb, anio) {
         }
     }
 
-    // ── El control de la gestoría: «Gastos SL — Base imponible» del RESUMEN ──
+    // ── El RESUMEN de la gestoría ──────────────────────────────────────────
+    //  · control: «Gastos SL — Base imponible» (lo que tienen que sumar las filas)
+    //  · fiscal: el 303 de la sociedad y del autónomo y el 111 de cada trimestre,
+    //    tal y como los calcula el libro (cuadro de mando → Impuestos). Cada
+    //    sección («AUTÓNOMO», «SOCIEDAD») trae su fila de cabecera con los trimestres.
     const control = {};
+    const fiscal = {};
+    const FISCAL = [
+        ['IVA A INGRESAR (303) SOCIEDAD', 'm303Sl'],
+        ['IVA A INGRESAR (303) AUTONOMO', 'm303Aut'],
+        ['RETENCIONES IRPF PRACTICADAS', 'm111'],
+    ];
     const wsR = wb.worksheets.find(w => sinTildes(w.name) === 'RESUMEN');
     if (wsR) {
         let colsT = null;
@@ -132,14 +142,18 @@ function interpretar(wb, anio) {
             const row = wsR.getRow(r);
             const celdas = Array.from({ length: Math.min(wsR.columnCount, 10) }, (_, i) => valor(row.getCell(i + 1)));
             const ts = celdas.map(v => String(v || '').match(/^\d{4}-(T[1-4])$/)?.[1] || null);
-            if (ts.filter(Boolean).length >= 2) colsT = ts;
-            if (colsT && sinTildes(celdas[0]).startsWith('GASTOS SL')) {
+            if (ts.filter(Boolean).length >= 2) { colsT = ts; continue; }
+            if (!colsT) continue;
+            const etiqueta = sinTildes(celdas[0]);
+            if (etiqueta.startsWith('GASTOS SL') && !Object.keys(control).length) {
                 colsT.forEach((t, i) => { if (t && num(celdas[i]) != null) control[t] = r2(num(celdas[i])); });
-                break;
             }
+            const campo = FISCAL.find(([p]) => etiqueta.startsWith(p))?.[1];
+            // Una celda con fórmula y sin resultado guardado (el trimestre aún vacío) no es un 0.
+            if (campo) colsT.forEach((t, i) => { if (t && num(celdas[i]) != null) (fiscal[t] ||= {})[campo] = r2(num(celdas[i])); });
         }
     }
-    return { filas, control, avisos };
+    return { filas, control, fiscal, avisos };
 }
 
 /**
@@ -213,7 +227,7 @@ async function gastosDelLibro(anio, { certNifs, forzar = false } = {}) {
 }
 function conResumen(c, certNifs) {
     if (!c.libro) return null;
-    return { archivo: c.libro.archivo, avisos: c.libro.avisos, trimestres: resumir(c.libro, { certNifs }) };
+    return { archivo: c.libro.archivo, avisos: c.libro.avisos, trimestres: resumir(c.libro, { certNifs }), fiscal: c.libro.fiscal || {} };
 }
 
 module.exports = { gastosDelLibro, nombreLibro, interpretar, resumir, clasificar, mesContable, ivaNoDeducible };

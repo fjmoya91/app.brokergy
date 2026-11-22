@@ -1823,6 +1823,8 @@ async function paquete(tStr, { seco = true, hoy = hoyMadrid() } = {}) {
 
 module.exports = {
     cuadro, trimestre, gastos, leer, conFiscalDe, paquete, planPaquete, libroPaquete, ventasCae,
+    // el alta rápida de un gasto (gastoRapido.js): los NIF propios y el criterio fiscal
+    emisores, ctxFiscal, precargarCambios,
     // ESCRIBE en Drive: el cobro de una venta CAE de Drive (ruta y scripts)
     cobroVentaDrive,
     // puros (pruebas)

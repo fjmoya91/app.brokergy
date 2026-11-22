@@ -4,7 +4,7 @@
 // tubería ya calculada por fila). El criterio de cada cifra está en
 // services/cuadroDireccion.js y docs/conocimiento/cuadro-mando/.
 import { useState } from 'react';
-import { Importe, Ico, eur, entero, AvisoFx, MESES_FX, MESES_CORTOS_FX, fechaEs } from '../../facturacion/estilo';
+import { Importe, Ico, eur, entero, AvisoFx, MESES_FX, MESES_CORTOS_FX, fechaEs, diasEntreFx, hoyMadridFx } from '../../facturacion/estilo';
 import { GraficoMensual } from '../../facturacion/components/hoy/GraficoMensual';
 import { pct, energia, enlace, fuenteEstructura, mesesTexto } from '../logic/cuadroFormato';
 
@@ -335,6 +335,9 @@ export function Caja({ f }) {
     if (!f) return <div className="cm-rej cm-rej-2"><EsqueletoTarjeta alto={360} /><EsqueletoTarjeta alto={360} /></div>;
     const c = f.caja;
     const t = c.trimestre || {};
+    const pend = (t.pendientes || []).map(x => String(x).slice(-2));
+    const pp = c.proximoPago;
+    const diasPp = pp ? diasEntreFx(hoyMadridFx(), pp.fecha) : null;
     return (
         <div className="cm-rej cm-rej-2">
             <article className="fx-card fx-pad fx-in" style={{ '--i': 1 }}>
@@ -344,8 +347,8 @@ export function Caja({ f }) {
                 <dl className="fx-filas">
                     <div className="fx-fila"><dt>Te deben<small>con IVA · {plural(c.nTeDeben, 'factura')} sin cobrar, de cualquier año</small></dt><dd>{eur(c.teDeben, 0)}</dd></div>
                     <div className="fx-fila"><dt>Bonos por pagar a clientes<small>de lotes ya facturados{c.bonosPorPagarCobrados > 0 ? `; ${eur(c.bonosPorPagarCobrados, 0)} de lotes ya COBRADOS` : ''}</small></dt><dd>{eur(-c.bonosPorPagar, 0)}</dd></div>
-                    <div className="fx-fila"><dt>IVA a ingresar · modelo 303<small>{t.etiqueta || 'trimestre en curso'}{t.parcial ? ', provisional' : ''}</small></dt><dd>{eur(-c.ivaAPagar, 0)}</dd></div>
-                    {c.retenciones > 0 && <div className="fx-fila"><dt>Retenciones · modelo 111</dt><dd>{eur(-c.retenciones, 0)}</dd></div>}
+                    <div className="fx-fila"><dt>IVA a ingresar · modelo 303<small>{pend.length ? `${pend.join(' y ')} sin pagar` : 'nada pendiente'}{t.parcial ? ', provisional' : ''} · detalle en Impuestos</small></dt><dd>{eur(-c.ivaAPagar, 0)}</dd></div>
+                    {c.retenciones > 0 && <div className="fx-fila"><dt>Retenciones · modelo 111<small>{pend.length ? `${pend.join(' y ')} sin pagar` : ''}</small></dt><dd>{eur(-c.retenciones, 0)}</dd></div>}
                     <div className="fx-fila cm-fila-res"><dt>Circulante neto</dt><dd>{eur(c.circulante, 0)}</dd></div>
                 </dl>
                 <p className="fx-graf-nota">No es el saldo del banco (la app no lo lee): es lo que quedará cuando se cobre lo pendiente y se pague lo comprometido.</p>
@@ -357,7 +360,7 @@ export function Caja({ f }) {
                     <div><span>Cobrado en {f.anio}</span><b>{eur(c.cobradoAnio, 0)}</b><small>con IVA</small></div>
                     <div><span>Vencido</span><b>{eur(c.vencido, 0)}</b><small>{c.nVencidas ? plural(c.nVencidas, 'factura') : 'nada vencido'}</small></div>
                     <div><span>Te debe el CAE</span><b>{eur(c.porLinea?.CAE?.pendiente || 0, 0)}</b><small>se cobra en Lotes</small></div>
-                    <div><span>Próximo plazo</span><b>{t.plazo?.dias != null ? `${entero(t.plazo.dias)} días` : '—'}</b><small>{t.plazo ? `modelo ${t.plazo.modelo}, ${fechaEs(t.plazo.fecha)}` : ''}</small></div>
+                    <div><span>Próximo pago a Hacienda</span><b>{pp ? eur(pp.importe, 0) : '—'}</b><small>{pp ? `modelo ${pp.modelo}, ${fechaEs(pp.fecha)}${diasPp != null ? ` (en ${entero(diasPp)} días)` : ''}` : 'nada pendiente'}</small></div>
                 </div>
                 {c.vencidas?.length > 0 && (<>
                     <div className="fx-sub-tit">Las más antiguas sin cobrar</div>
