@@ -268,6 +268,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     const out = { enviados: [], copias: [], avisos: [], encargo: null, extraccion: null };
     const prescriptorId = cfg.grupos.get(chatId);
     if (!prescriptorId) return { ...out, ignorado: 'grupo no configurado' };
+    const grupo = await nombreDelGrupo(prescriptorId, deps);
     const autor = ult9(autorTel);
     if (!autor) return { ...out, ignorado: 'autor sin teléfono' };
     if (deps.autorizado) {
@@ -293,7 +294,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
         if (cfg.modo !== 'real') {
             registro.copia = true;
             const t = [
-                `*Presupuesto por WhatsApp (modo copia) · grupo ${chatId}*`,
+                `*Presupuesto por WhatsApp (modo copia) · ${grupo}*`,
                 'Le mandaría al grupo:',
                 ...(registro.archivo ? [`[${tipo === 'documento' ? 'PDF' : 'foto'} ${registro.archivo}]`] : []),
                 ...[registro.texto, registro.despues].filter(Boolean).map(x => String(x).split('\n').map(l => `> ${l}`).join('\n')),
@@ -346,7 +347,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
         const yaAvisado = p.fallo_at && (ahora - new Date(p.fallo_at)) < 3_600_000;
         if (!yaAvisado) {
             await decir(MSG.fallo).catch(() => {});
-            await avisar(`Presupuesto por WhatsApp: no he podido atender al instalador del grupo ${chatId} (···${autor.slice(-3)}). Motivo: ${motivo}. Hay que hacérselo a mano.`);
+            await avisar(`Presupuesto por WhatsApp: no he podido atender al instalador del ${grupo} (···${autor.slice(-3)}). Motivo: ${motivo}. Hay que hacérselo a mano.`);
             if (fila) await deps.pedidos.guardar(fila.id, { pedido: { ...p, fallo_at: ahora.toISOString() } }).catch(() => {});
         }
         return { ...out, fallo: motivo, estado: fila?.estado || null };
@@ -453,7 +454,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             if (hechos >= cfg.topeDia) {
                 estado = 'HECHO'; espera = null; await guardar();
                 await decir('Hoy ya llevamos muchos presupuestos por aquí; este te lo hacemos nosotros en un rato.');
-                await avisar(`Presupuesto por WhatsApp: el grupo ${chatId} ha llegado al tope del día (${cfg.topeDia}). Hay que hacer este a mano: ${titulo(nombreDe(p.cliente))}, ${L.eur(p.importe)}${p.con_iva ? ' con IVA' : ' + IVA'}.`);
+                await avisar(`Presupuesto por WhatsApp: el ${grupo} ha llegado al tope del día (${cfg.topeDia}). Hay que hacer este a mano: ${titulo(nombreDe(p.cliente))}, ${L.eur(p.importe)}${p.con_iva ? ' con IVA' : ' + IVA'}.`);
                 return { ...out, estado, tope: true };
             }
 
@@ -570,7 +571,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
                 const ops = previas.slice(0, 3).map(o => o.id_oportunidad).filter(Boolean).join(', ');
                 estado = 'HECHO'; await guardar();
                 await decir(`Esa casa ya la tenemos calculada (${ops}). La miramos y te decimos.`);
-                await avisar(`Presupuesto por WhatsApp: el instalador del grupo ${chatId} ha pedido el bono de una vivienda que YA tiene oportunidad (${ops}, RC ${p.vivienda.rc}). Presupuesto ${p.presupuesto.numero} (id ${p.presupuesto.id}). No se ha encargado otra simulación; mira si hay que ligarlo: node scripts/presupuesto_instalador_cli.js vincular ${p.presupuesto.id} <id_oportunidad> --escribir`);
+                await avisar(`Presupuesto por WhatsApp: el instalador del ${grupo} ha pedido el bono de una vivienda que YA tiene oportunidad (${ops}, RC ${p.vivienda.rc}). Presupuesto ${p.presupuesto.numero} (id ${p.presupuesto.id}). No se ha encargado otra simulación; mira si hay que ligarlo: node scripts/presupuesto_instalador_cli.js vincular ${p.presupuesto.id} <id_oportunidad> --escribir`);
                 return { ...out, estado, duplicada: previas };
             }
         }
@@ -732,6 +733,7 @@ function depsReales(cfg = config()) {
         cerebro: require('./presupuestoPedidoCerebro'),
         presupuestos: conSimulacion(real, supabase), // en copia, `procesar` lo envuelve en el «sin guardar»
         autorizado: (pid, tel) => autorizado(pid, tel, cfg),
+        nombreGrupo: async (pid) => { await telefonosDeLaFicha(pid); return autorizadosCache.get(pid)?.nombre || ''; },
         vivienda: V,
         oportunidadesDeLaRc: (rc) => require('../utils/altaOportunidad').oportunidadesDeLaRc(supabase, rc),
         pedirTarea: (a) => require('./asistenteCanal').pedirTarea(a),
@@ -782,12 +784,29 @@ async function telefonosDeLaFicha(prescriptorId) {
     if (c && Date.now() - c.at < 10 * 60_000) return c.tels;
     const supabase = require('./supabaseClient');
     const { data, error } = await supabase.from('prescriptores')
-        .select('tlf, tlf_responsable, tlf_contacto, contactos_notificacion').eq('id_empresa', prescriptorId).maybeSingle();
+        .select('tlf, tlf_responsable, tlf_contacto, contactos_notificacion, acronimo, razon_social').eq('id_empresa', prescriptorId).maybeSingle();
     if (error) throw new Error(error.message);
     const tels = new Set([data?.tlf, data?.tlf_responsable, data?.tlf_contacto,
         ...(Array.isArray(data?.contactos_notificacion) ? data.contactos_notificacion.map(x => x?.tlf) : [])].map(ult9).filter(Boolean));
-    autorizadosCache.set(prescriptorId, { at: Date.now(), tels });
+    const nombre = limpio(data?.acronimo || data?.razon_social || '');
+    autorizadosCache.set(prescriptorId, { at: Date.now(), tels, nombre });
     return tels;
+}
+
+/**
+ * Cómo se nombra el grupo en lo que se le manda a Fran: «grupo de RCA». NUNCA su id
+ * (`1203…@g.us`): WhatsApp lo pinta como una tarjeta de enlace «g.us» y es un dato
+ * interno (Fran, 22/11/2026). Sin poder leer la ficha, «grupo del instalador».
+ * Con `deps` de prueba (sin `nombreGrupo`) no se toca la BD.
+ */
+async function nombreDelGrupo(prescriptorId, deps = null) {
+    const conNombre = (n) => (limpio(n) ? `grupo de ${limpio(n)}` : 'grupo del instalador');
+    try {
+        if (deps?.nombreGrupo) return conNombre(await deps.nombreGrupo(prescriptorId));
+        if (deps && (deps.cfg || deps.logica)) return 'grupo del instalador';
+        if (!autorizadosCache.get(prescriptorId)?.nombre) await telefonosDeLaFicha(prescriptorId);
+        return conNombre(autorizadosCache.get(prescriptorId)?.nombre);
+    } catch { return 'grupo del instalador'; }
 }
 
 async function autorizado(prescriptorId, tel9, cfg) {
@@ -895,7 +914,7 @@ async function alMensaje(msg) {
                 recordarVisto(id);
                 const t = MSG.audio;
                 if (cfg.modo === 'real') await require('./whatsappService').sendText(chatId, t).catch(e => console.warn('[presupuesto-wa] aviso de audio:', e.message));
-                else if (cfg.copiaA) await require('./whatsappService').sendText(cfg.copiaA, `*Presupuesto por WhatsApp (modo copia) · grupo ${chatId}*\nEl audio no se ha podido escuchar (${fallo.message}). Le diría:\n> ${t}`).catch(() => {});
+                else if (cfg.copiaA) await require('./whatsappService').sendText(cfg.copiaA, `*Presupuesto por WhatsApp (modo copia) · ${await nombreDelGrupo(prescriptorId)}*\nEl audio no se ha podido escuchar (${fallo.message}). Le diría:\n> ${t}`).catch(() => {});
             }
             return;
         }

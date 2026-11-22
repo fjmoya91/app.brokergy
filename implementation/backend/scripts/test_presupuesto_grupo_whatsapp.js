@@ -33,6 +33,7 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
         logica: L,
         vistos: new Set(),
         autorizado: async (pid, tel) => pid === RCA && autorizados.includes(tel),
+        nombreGrupo: async (pid) => (pid === RCA ? 'RCA' : ''),
         cerebro: {
             async extraer({ mensajes, catalogos }) {
                 llamadas.cerebro += 1;
@@ -270,6 +271,9 @@ prueba('modo copia → no envía al grupo, no guarda ni encarga; lo copia a Fran
     assert.ok(e.llamadas.pdf >= 1, 'el PDF se compone igual');
     assert.strictEqual(e.llamadas.copiar.length, 1);
     assert.ok(e.llamadas.copiar[0].includes('modo copia') && e.llamadas.copiar[0].includes('Presupuesto 40/26'));
+    // El grupo se nombra por su instalador, nunca por su id (WhatsApp pinta el «@g.us» como una tarjeta).
+    assert.ok(e.llamadas.copiar[0].includes('· grupo de RCA*'), e.llamadas.copiar[0].split('\n')[0]);
+    assert.ok(!e.llamadas.copiar.some(t => t.includes('@g.us')), 'el id del grupo no sale en la copia');
     assert.ok(r.enviados[0].copia);
     await e.decir('sí'); await e.decir('sí');
     assert.strictEqual(e.llamadas.tarea.length, 0, 'en copia no se encarga');
