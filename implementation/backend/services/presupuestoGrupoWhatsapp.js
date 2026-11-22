@@ -799,27 +799,70 @@ async function autorizado(prescriptorId, tel9, cfg) {
 const esAudio = (msg) => ['ptt', 'audio'].includes(String(msg?.type || ''));
 
 /**
+ * El id del mensaje en texto, como lo escribe WhatsApp Web: `fromMe_remote_id[_participant]`
+ * (`false_1203…@g.us_3AA9…_7115…@lid`). En un grupo con `@lid` la clave que llega al listener NO
+ * trae `_serialized` (el `serialize()` roto) y `String(msg.id)` daba «[object Object]»: con ese id
+ * `_BAJAR` no encontraba el audio y TODOS los mensajes compartían la misma marca de «visto»
+ * (22/11/2026). Sin las partes, '' — y el mensaje no se trata.
+ */
+function idDelMensaje(msg) {
+    const k = msg?.id;
+    if (!k) return '';
+    if (typeof k === 'string') return k;
+    if (typeof k._serialized === 'string' && k._serialized) return k._serialized;
+    const jid = (x) => (typeof x === 'string' ? x
+        : x?._serialized ? String(x._serialized)
+            : x?.user && x?.server ? `${x.user}@${x.server}` : '');
+    const remote = jid(k.remote) || String(msg.from || '');
+    if (!k.id || !remote) return '';
+    const participante = jid(k.participant) || (remote.endsWith('@g.us') ? String(msg.author || '') : '');
+    return [String(!!k.fromMe), remote, String(k.id), ...(participante ? [participante] : [])].join('_');
+}
+
+/**
  * Baja el audio de la sesión con `whatsappMedia._BAJAR` (WhatsApp Web DIRECTO, en la fila de las
  * demás lecturas y con plazo). NUNCA `msg.downloadMedia()` de la librería: pasa por el `serialize()`
  * que WhatsApp rompió (regla 68.b) — el 22/11/2026 el primer audio de Fran en el grupo murió ahí.
  */
-async function bajarAudio(msgId) {
+/* eslint-disable no-undef */
+/** En la página: el id en texto del mensaje de ESE chat cuyo id corto es `corto` (o null). */
+function BUSCAR_ID(corto, chat) {
+    const C = window.require('WAWebCollections');
+    const m = C.Msg.getModelsArray().find(x => x.id && x.id.id === corto && String(x.id.remote) === chat);
+    return m ? String(m.id) : null;
+}
+/* eslint-enable no-undef */
+
+async function bajarAudio(msgId, { corto = null, chat = null } = {}) {
     const wm = require('./whatsappMedia');
     const client = wm._clienteWa();
     if (!client) throw new Error('WhatsApp no conectado');
-    const r = await wm._enSerie(() => Promise.race([
-        client.pupPage.evaluate(wm._BAJAR, msgId, 16 * 1024 * 1024),
-        new Promise((_, rej) => setTimeout(() => rej(new Error('plazo al bajar el audio')), 90_000)),
-    ]));
+    const plazo = (p, que) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(`plazo al ${que}`)), 90_000))]);
+    let r = await wm._enSerie(() => plazo(client.pupPage.evaluate(wm._BAJAR, msgId, 16 * 1024 * 1024), 'bajar el audio'));
+    if (r?.error === 'no_encontrado' && corto && chat) {
+        // La clave del listener no siempre casa con la de la página: se busca por su id corto en ESE chat.
+        const otro = await wm._enSerie(() => plazo(client.pupPage.evaluate(BUSCAR_ID, corto, chat), 'buscar el audio'));
+        if (otro && otro !== msgId) r = await wm._enSerie(() => plazo(client.pupPage.evaluate(wm._BAJAR, otro, 16 * 1024 * 1024), 'bajar el audio'));
+    }
     if (!r || r.error) throw new Error(`no se pudo bajar (${r?.error || 'sin respuesta'}${r?.detalle ? `: ${r.detalle}` : ''})`);
     return { buffer: Buffer.from(r.data, 'base64'), mimetype: String(r.mimetype || '').split(';')[0].trim() };
+}
+
+/** La FORMA de la clave del mensaje, para el log (sin teléfonos ni ids). */
+function formaDeLaClave(k) {
+    if (!k || typeof k !== 'object') return typeof k;
+    return Object.keys(k).map(c => `${c}:${k[c] && typeof k[c] === 'object' ? `{${Object.keys(k[c]).join(',')}}` : typeof k[c]}`).join(' ');
 }
 
 async function textoDe(msg, id) {
     const tipo = String(msg.type || '');
     if (tipo === 'chat') return String(msg.body || '');
     if (esAudio(msg)) {
-        const { buffer, mimetype } = await bajarAudio(id);
+        const corto = typeof msg.id?.id === 'string' ? msg.id.id : null;
+        const { buffer, mimetype } = await bajarAudio(id, { corto, chat: String(msg.from || '') }).catch((e) => {
+            e.message = `${e.message} · clave ${formaDeLaClave(msg.id)}`;
+            throw e;
+        });
         return require('./whatsappConversacion').transcribirBuffer(buffer, mimetype || 'audio/ogg');
     }
     return String(msg.body || '');        // el pie de una foto o un documento, si lo lleva
@@ -839,7 +882,7 @@ async function alMensaje(msg) {
         const chatId = String(msg.from || '');
         const prescriptorId = cfg.grupos.get(chatId);
         if (!prescriptorId) return;
-        const id = msg.id?._serialized || String(msg.id || '');
+        const id = idDelMensaje(msg);
         if (!id || vistos.has(id)) return;
         const tel = await telefonoDelAutor(msg.author);
         if (!tel || !(await autorizado(prescriptorId, tel, cfg))) return;      // otros miembros: silencio
@@ -902,6 +945,6 @@ function start() {
 module.exports = {
     start, procesar, config, servicioSinGuardar, pedidosSupabase, logica,
     // Puros, para las pruebas:
-    fusionar, faltaObra, entradaDe, burbuja, textoSimulacion, hayAlgo, eleccionDe, resumenParaCerebro, PALABRAS, MSG,
+    idDelMensaje, fusionar, faltaObra, entradaDe, burbuja, textoSimulacion, hayAlgo, eleccionDe, resumenParaCerebro, PALABRAS, MSG,
     _alMensaje: alMensaje,
 };

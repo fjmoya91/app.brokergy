@@ -358,6 +358,18 @@ prueba('cambiarNumero', async () => {
     assert.strictEqual(V.cambiarNumero('Calle Real, 13700 Tomelloso', '5'), 'Calle Real 5, 13700 Tomelloso');
 });
 
+// 22/11/2026: en un grupo con @lid la clave llega sin `_serialized` y salía «[object Object]».
+prueba('idDelMensaje: el id en texto aunque la clave no traiga _serialized', async () => {
+    const g = '120363000000000000@g.us', l = '71159000000000@lid', esperado = `false_${g}_3AA9_${l}`;
+    assert.strictEqual(A.idDelMensaje({ id: { fromMe: false, remote: g, id: '3AA9', participant: l, _serialized: 'X' } }), 'X');
+    assert.strictEqual(A.idDelMensaje({ id: { fromMe: false, remote: g, id: '3AA9', participant: l } }), esperado);
+    assert.strictEqual(A.idDelMensaje({ id: { fromMe: false, remote: { server: 'g.us', user: '120363000000000000', _serialized: g }, id: '3AA9',
+        participant: { server: 'lid', user: '71159000000000', _serialized: l } } }), esperado);
+    assert.strictEqual(A.idDelMensaje({ from: g, author: l, id: { fromMe: false, remote: { server: 'g.us', user: '120363000000000000' }, id: '3AA9' } }), esperado);
+    assert.strictEqual(A.idDelMensaje({ id: {} }), '');
+    assert.strictEqual(A.idDelMensaje({}), '');
+});
+
 (async () => {
     L = await A.logica();
     for (const t of pruebas) {

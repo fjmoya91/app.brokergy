@@ -181,7 +181,11 @@ le llegan también el PDF y la foto de la fachada (solo a su chat de copias), no
 el de la librería pasa por el `serialize()` que WhatsApp rompió (regla 68.b) y el primer audio de Fran en
 el grupo murió ahí («audio sin transcribir: r», con la sesión sana). `_BAJAR` va en la fila de las
 demás lecturas y con plazo; la transcripción, la de siempre (`transcribirBuffer`, Gemini). Un audio que
-no se puede escuchar **no se calla**: se pide que lo repita o lo escriba (en copia, a Fran).
+no se puede escuchar **no se calla**: se pide que lo repita o lo escriba (en copia, a Fran). Y el id del
+mensaje lo arma `idDelMensaje` (`fromMe_remote_id_participant`, como WhatsApp Web): en un grupo con
+`@lid` la clave llega sin `_serialized` y `String(msg.id)` daba «[object Object]» — `_BAJAR` no
+encontraba el audio y todos los mensajes compartían la marca de «visto». Si aun así no casa, se busca
+el mensaje por su id corto dentro de ese chat.
 
 Encenderlo para probar (el `.env` del VPS, tras el deploy):
 
