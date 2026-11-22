@@ -4,6 +4,18 @@ set -e
 APP_DIR="/opt/brokergy"
 cd $APP_DIR
 
+# ── 0. Un deploy cada vez ──────────────────────
+# Dos sesiones desplegando a la vez (22/11/2026, 18:11) se pisaron al recrear los contenedores
+# («The container name "/brokergy-rite" is already in use») y la app se quedó PARADA, con todo en
+# «Created», hasta levantarla a mano. El segundo espera a que acabe el primero y después hace su
+# propio `git pull`, así que despliega lo último de los dos.
+exec 9>/var/lock/brokergy-deploy.lock
+if ! flock -n 9; then
+  echo "Hay otro deploy en marcha: espero a que termine (máximo 20 min)..."
+  flock -w 1200 9 || { echo "El otro deploy no ha terminado en 20 min: no sigo."; exit 1; }
+  echo "    El otro ha terminado: sigo."
+fi
+
 echo ""
 echo "╔══════════════════════════════════════════╗"
 echo "║      BROKERGY — Deploy                   ║"

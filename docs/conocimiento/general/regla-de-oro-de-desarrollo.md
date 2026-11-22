@@ -11,3 +11,10 @@
 5. Verificar en `https://app.brokergy.es`.
 
 Si el usuario dice "no veo el cambio", lo primero a comprobar es: **¿hemos hecho el deploy al VPS?** Vercel/Railway NO aplican aquí.
+
+**Un deploy cada vez (2026-11-22).** Dos sesiones desplegaron a la vez a las 18:11 y se pisaron al recrear los
+contenedores («The container name "/brokergy-rite" is already in use»): la app se quedó PARADA, con todos los
+contenedores en «Created», hasta un `docker compose up -d` a mano. `deploy.sh` toma ahora un candado
+(`flock` sobre `/var/lock/brokergy-deploy.lock`): el segundo espera a que acabe el primero (máximo 20 min) y después
+hace su propio `git pull`, así que sale lo último de los dos. Si un deploy acaba con contenedores en «Created», lo
+primero es `docker compose up -d` en `/opt/brokergy`, y después comprobar «Cliente listo» en los logs del backend.
