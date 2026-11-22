@@ -14,8 +14,12 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
     // Si no coinciden (una obra con dos cosas), se dicen las dos (fase 5).
     const nObras = obras.filter((o) => (o.tareas || []).length > 0).length;
 
+    // En el PC (fase 5, 22/11/2026): lo que te toca a la izquierda, a lo ancho; los botones,
+    // las cifras y tu página a la derecha. En el móvil los envoltorios no existen y `order`
+    // mantiene el orden de siempre: botones, lo que te toca, tus obras, tu página.
+    const O = (n) => ({ order: n });
     return (
-        <div className="ia-pagina estrecha">
+        <div className="ia-pagina pc">
             <div className="ia-hola ia-entra">
                 <h1 className="ia-display">Hola, {saludo}</h1>
                 {!cargando && !error && (
@@ -25,22 +29,10 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                 )}
             </div>
 
-            <button type="button" className="ia-btn ia-btn-pri ia-entra" onClick={onNueva}>
-                <Icono n="mas" size={22} grosor={2.4} /> Calcular la ayuda de una obra
-            </button>
-            {onPresupuesto && (
-                <button type="button" className="ia-btn ia-btn-sec ia-entra" onClick={onPresupuesto}>
-                    <Icono n="factura" size={20} /> Hacer un presupuesto
-                </button>
-            )}
-            {onVerPresupuestos && (
-                <button type="button" className="ia-link" style={{ alignSelf: 'center' }} onClick={onVerPresupuestos}>Ver los presupuestos que has hecho</button>
-            )}
-
-            {cargando ? <Esqueleto alto={140} n={2} /> : error ? <AvisoError onReintentar={onReintentar} /> : (
-                <>
-                    {n > 0 && (
-                        <section className="ia-card lista ia-entra" aria-labelledby="ia-toca-tit">
+            <div className="ia-pc-dos">
+            <div className="ia-pc-main">
+            {cargando ? <div style={O(2)}><Esqueleto alto={140} n={2} /></div> : error ? <div style={O(2)}><AvisoError onReintentar={onReintentar} /></div> : n > 0 ? (
+                        <section className="ia-card lista ia-entra" style={O(2)} aria-labelledby="ia-toca-tit">
                             <p id="ia-toca-tit" className="ia-eyebrow n" style={{ padding: '0 12px 6px' }}>Te toca a ti</p>
                             {tareas.map((t, i) => (
                                 <Destino key={`${t.obra.id}-${t.key}`} destino={t.destino} onAbrirOportunidad={onAbrirOportunidad}
@@ -55,10 +47,34 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                                 </Destino>
                             ))}
                         </section>
-                    )}
+            ) : (
+                <section className="ia-card ia-solo-pc ia-entra">
+                    <div className="ia-vacio" style={{ width: '100%' }}>
+                        <span className="ia-baldosa v"><Icono n="ok" size={22} /></span>
+                        <b>No tienes nada pendiente</b>
+                        <p>Cuando una obra necesite algo de ti, te lo ponemos aquí.</p>
+                    </div>
+                </section>
+            )}
+            </div>
 
+            <div className="ia-pc-lado">
+            <button type="button" className="ia-btn ia-btn-pri ia-entra" style={O(1)} onClick={onNueva}>
+                <Icono n="mas" size={22} grosor={2.4} /> Calcular la ayuda de una obra
+            </button>
+            {onPresupuesto && (
+                <button type="button" className="ia-btn ia-btn-sec ia-entra" style={O(1)} onClick={onPresupuesto}>
+                    <Icono n="factura" size={20} /> Hacer un presupuesto
+                </button>
+            )}
+            {onVerPresupuestos && (
+                <button type="button" className="ia-link" style={{ alignSelf: 'center', ...O(1) }} onClick={onVerPresupuestos}>Ver los presupuestos que has hecho</button>
+            )}
+
+            {!cargando && !error && (
+                <>
                     {r.total > 0 ? (
-                        <section className="ia-card ia-entra" aria-labelledby="ia-obras-tit">
+                        <section className="ia-card ia-entra" style={O(3)} aria-labelledby="ia-obras-tit">
                             <p id="ia-obras-tit" className="ia-eyebrow" style={{ marginBottom: 14 }}>Tus obras</p>
                             <div className="ia-cifras">
                                 <div><b>{r.en_marcha}</b><span>en marcha</span></div>
@@ -70,7 +86,7 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                             </button>
                         </section>
                     ) : (
-                        <section className="ia-card ia-entra">
+                        <section className="ia-card ia-entra" style={O(3)}>
                             <div className="ia-vacio">
                                 <span className="ia-baldosa"><Icono n="obras" size={22} /></span>
                                 <b>Aún no tienes obras con nosotros</b>
@@ -80,7 +96,7 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                     )}
 
                     {onMiPagina && (
-                        <button type="button" className="ia-card ia-tarjeta-web ia-entra" onClick={onMiPagina}>
+                        <button type="button" className="ia-card ia-tarjeta-web ia-entra" style={O(4)} onClick={onMiPagina}>
                             <span className="ia-baldosa v"><Icono n="web" size={22} /></span>
                             <div>
                                 <b>Tu página web</b>
@@ -92,7 +108,9 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
                 </>
             )}
 
-            <InvitacionInstalar forzar={instalarComo} />
+            <div style={O(5)}><InvitacionInstalar forzar={instalarComo} /></div>
+            </div>
+            </div>
         </div>
     );
 }

@@ -50,7 +50,7 @@ export function CatalogoView({ datos, cargando, error, onReintentar, onAbrir }) 
     const lista = useScrollLista('instalador-catalogo', false, !cargando && vistos.length > 0);
 
     return (
-        <div ref={lista.ancla} className="ia-pagina estrecha">
+        <div ref={lista.ancla} className="ia-pagina pc">
             <div className="ia-hola ia-entra">
                 <h1 className="ia-display">Catálogo</h1>
                 <p>Aerotermia de tus marcas, con su tarifa</p>
@@ -64,7 +64,7 @@ export function CatalogoView({ datos, cargando, error, onReintentar, onAbrir }) 
                 </div></div>
             ) : (
                 <>
-                    <Buscador valor={q} onCambio={setQ} placeholder="Busca por modelo o potencia" etiqueta="Buscar equipo" />
+                    <div className="ia-pc-buscar"><Buscador valor={q} onCambio={setQ} placeholder="Busca por modelo o potencia" etiqueta="Buscar equipo" /></div>
                     {marcas.length > 1 && (
                         <div className="ia-filtros" role="group" aria-label="Filtrar por marca">
                             <button type="button" className="ia-filtro" aria-pressed={!marcaVale} onClick={() => setMarca('')}>Todas</button>
@@ -76,7 +76,7 @@ export function CatalogoView({ datos, cargando, error, onReintentar, onAbrir }) 
                     {vistos.length === 0 ? (
                         <p className="ia-nada">{equipos.length ? 'No hay ningún equipo con eso. Si te falta un modelo, dínoslo y lo damos de alta.' : 'Todavía no hay equipos de tus marcas. Dínoslo y los damos de alta.'}</p>
                     ) : (
-                        <section aria-label="Equipos" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                        <section aria-label="Equipos" className="ia-eq-rejilla">
                             {vistos.map((e) => <TarjetaEquipo key={e.id} e={e} onClick={() => { lista.recordar(); onAbrir(e); }} />)}
                         </section>
                     )}
@@ -151,7 +151,11 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
     ].filter((l) => l[1]) : [];
 
     return (
-        <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
+        // En el PC (fase 5, 22/11/2026): el nombre a lo ancho y, debajo, lo que hace y sus
+        // papeles a la izquierda; la tarifa, tu precio y «Calcular» a la derecha. En el móvil
+        // los envoltorios no existen y `order` deja el orden de siempre (precio, lo que hace,
+        // papeles, calcular).
+        <div className="ia-pagina pc medio" style={{ paddingTop: 0 }}>
             <div className="ia-ficha-top" style={{ padding: '8px 0 0' }}>
                 <button type="button" className="ia-volver" onClick={onVolver}><Icono n="atras" size={22} /> Catálogo</button>
             </div>
@@ -163,7 +167,9 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
                         {e.ref && <p className="ref">{e.ref}</p>}
                     </div>
 
-                    <section className="ia-card ia-eq-precio ia-entra" aria-labelledby="ia-eq-tarifa">
+                    <div className="ia-pc-dos">
+                    <div className="ia-pc-lado" style={{ order: 2 }}>
+                    <section className="ia-card ia-eq-precio ia-entra" style={{ order: 2 }} aria-labelledby="ia-eq-tarifa">
                         <p id="ia-eq-tarifa" className="ia-eyebrow">Tarifa del distribuidor</p>
                         {t ? (
                             <>
@@ -185,9 +191,16 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
                             <button type="button" className="ia-btn ia-btn-sec ia-btn-peq" onClick={() => setHoja(true)}>Cambiar</button>
                         </div>
                     </section>
+                    {onCalcular && (
+                        <button type="button" className="ia-btn ia-btn-pri" style={{ order: 5 }} onClick={() => onCalcular(e)}>
+                            <Icono n="mas" size={22} grosor={2.4} /> Calcular una obra con este equipo
+                        </button>
+                    )}
+                    </div>
 
+                    <div className="ia-pc-main" style={{ order: 1 }}>
                     {lineas.length > 0 && (
-                        <section className="ia-card filas ia-entra" aria-labelledby="ia-eq-hace">
+                        <section className="ia-card filas ia-entra" style={{ order: 3 }} aria-labelledby="ia-eq-hace">
                             <p id="ia-eq-hace" className="ia-eyebrow">Lo que hace</p>
                             <dl className="ia-dl" style={{ marginTop: 8 }}>
                                 {lineas.map(([dt, dd, tono], i) => (
@@ -202,7 +215,7 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
                         </section>
                     )}
 
-                    <section className="ia-card filas ia-entra" aria-labelledby="ia-eq-papeles">
+                    <section className="ia-card filas ia-entra" style={{ order: 4 }} aria-labelledby="ia-eq-papeles">
                         <p id="ia-eq-papeles" className="ia-eyebrow">Sus papeles</p>
                         {(e.papeles || []).length ? (e.papeles || []).map((p, i) => (
                             <React.Fragment key={p.id}>
@@ -221,12 +234,8 @@ export function EquipoView({ id, base, api, onVolver, onCalcular, onCambio }) {
                             </React.Fragment>
                         )) : <p className="ia-nada" style={{ margin: '8px 0 4px', padding: 0, textAlign: 'left' }}>Todavía no tenemos su ficha técnica. Si la tienes, mándanosla.</p>}
                     </section>
-
-                    {onCalcular && (
-                        <button type="button" className="ia-btn ia-btn-pri" onClick={() => onCalcular(e)}>
-                            <Icono n="mas" size={22} grosor={2.4} /> Calcular una obra con este equipo
-                        </button>
-                    )}
+                    </div>
+                    </div>
                 </>
             )}
             {hoja && e && <HojaPrecio e={e} tarifa={t} onCerrar={() => setHoja(false)} onGuardar={guardar} onQuitar={e.tu_precio != null ? quitar : null} />}

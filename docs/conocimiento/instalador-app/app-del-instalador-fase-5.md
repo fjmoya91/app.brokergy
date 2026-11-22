@@ -155,3 +155,35 @@ del partner (regla 217, commit `254cd747`) NO está en `main`**, así que no se 
 chocará en `.claude/rules/calculo.md`, `.claude/rules/placas-catalogos.md`, `docs/conocimiento/INDICE.md`,
 `routes/oportunidades.js`, `scripts/test_rutas_sin_sesion.js`, `App.jsx`, `LandingFunnelView.jsx` y
 `ReformaSubFlow.jsx`. `cuentasCliente` sigue en `utils/appInstalador.js`, en un solo sitio.
+
+## El PC aprovecha la pantalla (22/11/2026)
+
+Fran, con la ficha de 26RES080_91 en una columna de ~600 px en un monitor de 1920: «en la vista PC no se
+está aprovechando toda la pantalla y se tiene que hacer demasiado scroll cuando realmente tenemos
+espacio. Ajústalo para varias resoluciones, PC de 16" incluida».
+
+- **Fichas en DOS columnas** (desde 1024 px): obra, equipo del catálogo, cliente e Inicio. A la
+  izquierda lo que se hace o se lee (por dónde va, lo que te toca, papeles; lo que hace el equipo; sus
+  obras); a la derecha, las cifras y las acciones (cuentas, equipo, tarifa y tu precio, sus datos,
+  «Calcular…», «Otra obra…»). La cabecera de la obra y la del cliente llevan Llamar / WhatsApp a su
+  derecha, no debajo.
+- **Listas en REJILLA**: los equipos del catálogo y las obras de un cliente en tarjetas de ≥ 330 px; los
+  clientes y los presupuestos, cada fila como una tarjeta de ≥ 340 px. «Nuevo presupuesto» y el buscador,
+  en una sola fila.
+- **Anchos**: `.ia-pagina.pc` llega a 1440 px (1560 desde 1500 px); `.pc.medio` (equipo y cliente, que
+  tienen menos que enseñar) a 1180 / 1240. Desde 1280 px los papeles de la obra van a dos columnas; desde
+  1500, «Por dónde va» y «Te toca» van lado a lado.
+- **En el MÓVIL no cambia nada**: los envoltorios (`.ia-pc-dos`, `.ia-pc-main`, `.ia-pc-lado`,
+  `.ia-of-arriba`, `.ia-of-filas`, `.ia-pc-barra`) son `display: contents` por debajo de 1024 px, y donde
+  el orden del PC no es el del móvil, `order` lo devuelve (en el Inicio, los botones van antes que «Te
+  toca»; en el equipo, la tarifa antes que «Lo que hace»; en el cliente, sus datos antes que sus obras).
+  En el Inicio sin nada pendiente, el PC enseña una tarjeta «No tienes nada pendiente» (`.ia-solo-pc`)
+  para que la columna izquierda no quede vacía.
+- ⚠️ En `ui/estilo.js` el CSS va dentro de una plantilla de JS: **un comentario con comillas invertidas
+  rompe la página entera** (Vite: «Unexpected identifier»). Pasó al escribir este bloque.
+
+Medido en el banco: a **1536×864 (16")** y 1920×1080 caben sin scroll el Inicio, el catálogo, la ficha de
+un equipo, los clientes, la ficha de un cliente, los presupuestos y la ficha de la obra; a 1366×768 solo
+la ficha de la obra pide scroll (300 px). A 375 px, el orden de los bloques es el de antes en las seis
+pantallas y sin scroll lateral. `npm run build`, `test_navegacion_instalador.mjs` (112/112),
+`test_app_instalador.js` (283/283) y `test_app_instalador_no_regresion.js` (26/26).

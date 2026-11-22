@@ -474,6 +474,49 @@ export const CSS = `
   .ia-pagina.ancha{max-width:1180px;margin:0}
 }
 
+/* ── Fase 5 · el PC aprovecha la pantalla (22/11/2026) ──
+   Fran: «en la vista PC no se está aprovechando toda la pantalla y se tiene que hacer demasiado
+   scroll». Las fichas van en DOS columnas (lo que se hace a la izquierda, las cifras a la derecha)
+   y las listas en REJILLA. En el móvil los envoltorios no existen (display: contents): el orden
+   y el aspecto son los de siempre. Medido a 1366, 1536 (16") y 1920. */
+.ia-pc-dos,.ia-pc-main,.ia-pc-lado,.ia-of-arriba,.ia-of-filas,.ia-pc-barra{display:contents}
+.ia-pc-cabecera-txt{display:flex;flex-direction:column;gap:6px;min-width:0}
+.ia-eq-rejilla,.ia-cl-obras{display:flex;flex-direction:column;gap:12px}
+.ia-solo-pc{display:none}
+@media (min-width:1024px){
+  .ia-pagina.pc{max-width:1440px;margin:0}
+  .ia-pagina.pc.medio{max-width:1180px}
+  .ia-pc-barra{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+  .ia-pc-barra>.ia-btn{width:auto;flex:none;padding-left:24px;padding-right:24px}
+  .ia-pc-barra>.ia-pc-buscar{flex:1 1 380px}
+  .ia-pc-cabecera{flex-direction:row;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px}
+  .ia-pc-cabecera-txt{flex:1 1 420px}
+  .ia-pc-cabecera .ia-dos{margin-top:0;flex:0 1 360px}
+  .ia-pc-cabecera .ia-btn-sec{min-height:48px}
+  .ia-pc-dos{display:grid;grid-template-columns:minmax(0,1fr) minmax(320px,400px);gap:18px;align-items:start}
+  .ia-pc-main,.ia-pc-lado,.ia-of-arriba{display:flex;flex-direction:column;gap:14px;min-width:0}
+  .ia-of-filas{display:block}
+  .ia-solo-pc{display:flex}
+  .ia-eq-rejilla{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px;align-items:start}
+  .ia-pc-buscar{max-width:620px}
+  /* Listas de filas (clientes, presupuestos): cada fila, una tarjeta en rejilla. */
+  .ia-card.lista.ia-rejilla-filas{background:none;border:0;box-shadow:none;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px}
+  .ia-rejilla-filas>.ia-fila{background:#fff;border:1px solid var(--linea);border-radius:18px;box-shadow:0 1px 2px rgba(20,17,17,.04);padding:10px 14px}
+  .ia-rejilla-filas>.ia-fila.primera{border-top-color:var(--linea)}
+  .ia-rejilla-filas>.ia-fila:hover{border-color:rgba(20,17,17,.24)}
+  .ia-eq:hover,.ia-obra:hover{border-color:rgba(20,17,17,.24)}
+}
+@media (min-width:1280px){
+  .ia-of-filas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px}
+  .ia-of-filas>:nth-child(2){border-top-color:transparent}
+}
+@media (min-width:1500px){
+  .ia-pagina.pc{max-width:1560px}
+  .ia-pagina.pc.medio{max-width:1240px}
+  .ia-pc-dos{grid-template-columns:minmax(0,1fr) 420px;gap:20px}
+  .ia-of-arriba.dos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+}
+
 @media (max-width:359px){
   .ia-pr-totales .total b{font-size:34px}
   .ia-pr-partida input.p{width:100px}

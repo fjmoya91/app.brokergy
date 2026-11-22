@@ -32,7 +32,7 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
     const lista = useScrollLista('instalador-clientes', false, !cargando && vistos.length > 0);
 
     return (
-        <div ref={lista.ancla} className="ia-pagina estrecha">
+        <div ref={lista.ancla} className="ia-pagina pc">
             <div className="ia-titulo" style={{ paddingTop: 12 }}>
                 <h1 className="ia-display">Clientes</h1>
                 {onNuevo && (
@@ -41,7 +41,7 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
                     </button>
                 )}
             </div>
-            <Buscador valor={q} onCambio={setQ} placeholder="Busca por nombre o teléfono" etiqueta="Buscar cliente" />
+            <div className="ia-pc-buscar"><Buscador valor={q} onCambio={setQ} placeholder="Busca por nombre o teléfono" etiqueta="Buscar cliente" /></div>
 
             {cargando ? <Esqueleto alto={72} n={5} /> : error ? <AvisoError onReintentar={onReintentar} /> : !(clientes || []).length ? (
                 <div className="ia-card"><div className="ia-vacio">
@@ -51,7 +51,7 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
             ) : vistos.length === 0 ? (
                 <p className="ia-nada">No encuentro a nadie con eso. Prueba con el apellido o el teléfono.</p>
             ) : (
-                <section className="ia-card lista" aria-label="Tus clientes">
+                <section className="ia-card lista ia-rejilla-filas" aria-label="Tus clientes">
                     {vistos.map((c, i) => {
                         const suyas = obrasDe(c, obras);
                         const toca = suyas.some((o) => o.quien === 'tu');
@@ -84,14 +84,18 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
     const direccion = [c.direccion, [c.codigo_postal, c.municipio && nombrePropio(c.municipio)].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
 
     return (
-        <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
+        // En el PC (fase 5, 22/11/2026): sus obras a la izquierda, en rejilla; sus datos y los
+        // botones a la derecha. En el móvil, `order` deja el orden de siempre (datos, obras, botones).
+        <div className="ia-pagina pc medio" style={{ paddingTop: 0 }}>
             <div className="ia-ficha-top" style={{ padding: '8px 0 0' }}>
                 <button type="button" className="ia-volver" onClick={onVolver}><Icono n="atras" size={22} /> Clientes</button>
                 {onCambiar && <button type="button" className="ia-link" onClick={() => onCambiar(c)}>Cambiar datos</button>}
             </div>
-            <div className="ia-ficha-cab ia-entra">
-                <h1 className="ia-display">{nombre}</h1>
-                <p>{[c.es_empresa ? 'Empresa' : 'Particular', c.municipio && nombrePropio(c.municipio)].filter(Boolean).join(' · ')}</p>
+            <div className="ia-ficha-cab ia-pc-cabecera ia-entra">
+                <div className="ia-pc-cabecera-txt">
+                    <h1 className="ia-display">{nombre}</h1>
+                    <p>{[c.es_empresa ? 'Empresa' : 'Particular', c.municipio && nombrePropio(c.municipio)].filter(Boolean).join(' · ')}</p>
+                </div>
                 {(tel || wa) && (
                     <div className="ia-dos">
                         {tel && <a className="ia-btn ia-btn-sec" href={tel}><Icono n="telefono" size={20} /> Llamar</a>}
@@ -100,7 +104,17 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
                 )}
             </div>
 
-            <section className="ia-card filas ia-entra" aria-labelledby="ia-sd-tit">
+            <div className="ia-pc-dos">
+            <div className="ia-pc-main" style={{ order: 1 }}>
+                <div className="ia-cl-obras" style={{ order: 2 }}>
+                    <h2 className="ia-eyebrow ia-sec-tit">Sus obras · {suyas.length}</h2>
+                    {suyas.length ? (
+                        <div className="ia-eq-rejilla">{suyas.map((o) => <TarjetaObra key={o.id} obra={o} onClick={() => onAbrirObra(o)} />)}</div>
+                    ) : <p className="ia-nada" style={{ margin: '4px 8px' }}>Todavía no tiene ninguna obra contigo.</p>}
+                </div>
+            </div>
+            <div className="ia-pc-lado" style={{ order: 2 }}>
+            <section className="ia-card filas ia-entra" style={{ order: 1 }} aria-labelledby="ia-sd-tit">
                 <p id="ia-sd-tit" className="ia-eyebrow">Sus datos</p>
                 <dl className="ia-dl" style={{ marginTop: 8 }}>
                     <div className="primera"><dt>Teléfono</dt><dd>{c.tlf ? telefonoBonito(c.tlf) : 'Falta'}</dd></div>
@@ -110,18 +124,16 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
                 </dl>
             </section>
 
-            <h2 className="ia-eyebrow ia-sec-tit">Sus obras · {suyas.length}</h2>
-            {suyas.length ? suyas.map((o) => <TarjetaObra key={o.id} obra={o} onClick={() => onAbrirObra(o)} />)
-                : <p className="ia-nada" style={{ margin: '4px 8px' }}>Todavía no tiene ninguna obra contigo.</p>}
-
-            <button type="button" className="ia-btn ia-btn-pri" onClick={onNueva}>
+            <button type="button" className="ia-btn ia-btn-pri" style={{ order: 3 }} onClick={onNueva}>
                 <Icono n="mas" size={22} grosor={2.4} /> Otra obra para {pila}
             </button>
             {onPresupuesto && (
-                <button type="button" className="ia-btn ia-btn-sec" onClick={() => onPresupuesto(c)}>
+                <button type="button" className="ia-btn ia-btn-sec" style={{ order: 3 }} onClick={() => onPresupuesto(c)}>
                     <Icono n="factura" size={20} /> Hacerle un presupuesto
                 </button>
             )}
+            </div>
+            </div>
         </div>
     );
 }

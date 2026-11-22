@@ -38,15 +38,17 @@ export function PresupuestosView({ datos, cargando, error, onReintentar, onAbrir
     const lista = useScrollLista('instalador-presupuestos', false, !cargando && vistos.length > 0);
 
     return (
-        <div ref={lista.ancla} className="ia-pagina estrecha">
+        <div ref={lista.ancla} className="ia-pagina pc">
             <div className="ia-titulo" style={{ paddingTop: 12 }}>
                 <h1 className="ia-display">Presupuestos</h1>
                 {todos.length > 0 && <span>{todos.length}</span>}
             </div>
-            <button type="button" className="ia-btn ia-btn-pri" onClick={onNuevo}>
-                <Icono n="mas" size={22} grosor={2.4} /> Nuevo presupuesto
-            </button>
-            {todos.length > 3 && <Buscador valor={q} onCambio={setQ} placeholder="Nº, cliente o pueblo" etiqueta="Buscar presupuesto" />}
+            <div className="ia-pc-barra">
+                <button type="button" className="ia-btn ia-btn-pri" onClick={onNuevo}>
+                    <Icono n="mas" size={22} grosor={2.4} /> Nuevo presupuesto
+                </button>
+                {todos.length > 3 && <div className="ia-pc-buscar"><Buscador valor={q} onCambio={setQ} placeholder="Nº, cliente o pueblo" etiqueta="Buscar presupuesto" /></div>}
+            </div>
 
             {cargando ? <Esqueleto alto={72} n={4} /> : error ? <AvisoError onReintentar={onReintentar} /> : !todos.length ? (
                 <div className="ia-card"><div className="ia-vacio">
@@ -56,7 +58,7 @@ export function PresupuestosView({ datos, cargando, error, onReintentar, onAbrir
             ) : vistos.length === 0 ? (
                 <p className="ia-nada">No encuentro ninguno con eso. Prueba con el número o el apellido.</p>
             ) : (
-                <section className="ia-card lista" aria-label="Tus presupuestos">
+                <section className="ia-card lista ia-rejilla-filas" aria-label="Tus presupuestos">
                     {vistos.map((p, i) => {
                         const anulado = p.estado === 'ANULADO';
                         const ligado = estaLigado(p);

@@ -141,18 +141,24 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
     const instalado = (o?.paso || 0) >= 4 && !o?.equipo?.previsto;
     const hibrida = /hibridaci/i.test(o?.tipo || '');
 
+    // En el PC (fase 5, 22/11/2026, Fran: «no se está aprovechando toda la pantalla y se tiene
+    // que hacer demasiado scroll»): dos columnas — lo que se HACE a la izquierda (por dónde va,
+    // lo que te toca y todo lo de la obra) y las CIFRAS a la derecha (cuentas, equipo). En el
+    // móvil, los envoltorios no existen (`display: contents`) y el orden es el de siempre.
     return (
-        <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
+        <div className="ia-pagina pc" style={{ paddingTop: 0 }}>
             <div className="ia-ficha-top" style={{ padding: '8px 0 0' }}>
                 <button type="button" className="ia-volver" onClick={onVolver}><Icono n="atras" size={22} /> Obras</button>
                 {o?.numero_expediente && <span className="ia-pildora">{o.numero_expediente}</span>}
             </div>
             {!o ? (error ? <AvisoError onReintentar={() => setIntento((n) => n + 1)} /> : <Esqueleto alto={160} n={3} />) : (
                 <>
-                    <div className="ia-ficha-cab ia-entra">
-                        <p className="ia-eyebrow">{o.tipo}</p>
-                        <h1 className="ia-display">{o.cliente}</h1>
-                        {(o.direccion_completa || o.direccion) && <p>{o.direccion_completa || [o.direccion, o.municipio].filter(Boolean).join(' · ')}</p>}
+                    <div className="ia-ficha-cab ia-pc-cabecera ia-entra">
+                        <div className="ia-pc-cabecera-txt">
+                            <p className="ia-eyebrow">{o.tipo}</p>
+                            <h1 className="ia-display">{o.cliente}</h1>
+                            {(o.direccion_completa || o.direccion) && <p>{o.direccion_completa || [o.direccion, o.municipio].filter(Boolean).join(' · ')}</p>}
+                        </div>
                         {(tel || wa) && (
                             <div className="ia-dos">
                                 {tel && <a className="ia-btn ia-btn-sec" href={tel}><Icono n="telefono" size={20} /> Llamar</a>}
@@ -161,6 +167,9 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                         )}
                     </div>
 
+                    <div className="ia-pc-dos">
+                    <div className="ia-pc-main">
+                    <div className={`ia-of-arriba${t1 ? ' dos' : ''}`}>
                     <section className="ia-card ia-paso ia-entra" aria-labelledby="ia-paso-tit">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                             <p className="ia-eyebrow">Por dónde va</p>
@@ -188,6 +197,7 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                             ))}
                         </section>
                     )}
+                    </div>
 
                     {papeles.length > 0 ? (
                         <section className="ia-card lista" aria-labelledby="ia-pp-tit">
@@ -195,6 +205,7 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                                 <p id="ia-pp-tit" className="ia-eyebrow">Todo lo de esta obra</p>
                                 {o.papeles_total > 0 && <span>{o.papeles_listos} de {o.papeles_total} listos</span>}
                             </div>
+                            <div className="ia-of-filas">
                             {papeles.map((p, i) => {
                                 const contenido = (
                                     <>
@@ -214,9 +225,12 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                                     <div key={p.key} className={`ia-fila${i === 0 ? ' primera' : ''}`} style={{ cursor: 'default' }}>{contenido}</div>
                                 );
                             })}
+                            </div>
                         </section>
                     ) : !det && !error ? <Esqueleto alto={220} n={1} /> : null}
+                    </div>
 
+                    <div className="ia-pc-lado">
                     <CuentasCliente cuentas={o.cuentas} cliente={o.cliente} />
 
                     {(o.equipo || o.caldera_retirada) && (
@@ -252,6 +266,8 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                         <Icono n="whatsapp" size={22} style={{ flex: 'none', color: 'var(--tinta)' }} />
                         <span><b style={{ color: 'var(--tinta)' }}>¿Dudas con esta obra?</b> Escríbenos y te contestamos.</span>
                     </a>
+                    </div>
+                    </div>
                 </>
             )}
         </div>
