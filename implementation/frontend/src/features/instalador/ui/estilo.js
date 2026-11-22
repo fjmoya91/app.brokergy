@@ -508,6 +508,11 @@ export const CSS = `
   .ia-pr-guardar{margin:0;padding:14px 0 18px}
   .ia-pagina.ancha{max-width:1180px;margin:0}
 }
+/* La factura en su plantilla va en la página ANCHA (la vista previa al lado, como la del email);
+   lo demás de la acción conserva el ancho de siempre. El «Súbela», bajo la columna del formulario. */
+.ia-fac-estrecha{width:100%;max-width:720px}
+.ia-link.ia-fac-subela{align-self:center}
+@media (min-width:1024px){.ia-pagina.ancha .ia-link.ia-fac-subela{align-self:flex-start;width:100%;max-width:460px;justify-content:center}}
 
 /* ── Fase 5 · el PC aprovecha la pantalla (22/11/2026) ──
    Fran: «en la vista PC no se está aprovechando toda la pantalla y se tiene que hacer demasiado

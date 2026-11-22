@@ -114,8 +114,11 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
             ? <TramitesAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} foco={accion.accion} />
             : <div className="ia-aviso">El certificado y el RITE los firma y sube la empresa que instala la obra.</div>;
         else cuerpo = <DocsAccion obra={o} api={api} alSubir={envio.alSubir} onMiPagina={onMiPagina} />;
+        // La factura en SU plantilla lleva la vista previa al lado, como la del email: en el
+        // PC necesita la página ANCHA (en la estrecha, 720 px, la hoja quedaba en ~230 px).
+        const ancha = g === 'factura' && o.con_expediente && o.es_instaladora && o.factura_modo === 'plantilla';
         return (
-            <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
+            <div className={`ia-pagina ${ancha ? 'ancha' : 'estrecha'}`} style={{ paddingTop: 0 }}>
                 <div className="ia-ficha-top" style={{ padding: '8px 0 0' }}>
                     <button type="button" className="ia-volver" onClick={() => onAccion?.(null)}><Icono n="atras" size={22} /> La obra</button>
                     {o.numero_expediente && <span className="ia-pildora">{o.numero_expediente}</span>}

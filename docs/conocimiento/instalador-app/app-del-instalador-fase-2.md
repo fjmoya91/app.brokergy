@@ -85,6 +85,15 @@ cubre la reforma, regla 210), `datosFactura` no tenía líneas, `cargar` daba 40
   vivienda» (y «en sustitución de caldera» solo si la hay).
 - `instaladorApp.js`: `factura_modo` = `plantilla` si su empresa tiene plantilla, sea la ficha que sea.
 
+**El visor, como en la del email** (22/11/2026, Fran con la captura del PC: «mira qué mal se ve el
+visor»): la acción iba en la página ESTRECHA (720 px) y la regla de dos columnas de `FacturaObraView`
+es de la PANTALLA (≥ 980 px), así que en el PC la hoja quedaba en una columna de ~230 px. Ahora, con
+plantilla, la acción va en la página ANCHA y, embebida, las dos columnas las decide el ANCHO DE SU CAJA
+(un `ResizeObserver` sobre su contenedor: ≥ 860 px → `.fo-dos.pc`, la hoja al lado y fija); con menos,
+se apila como en el móvil (hasta 720 px, la hoja debajo y la píldora). Un `container` de CSS no sirve:
+haría de la caja el marco de la píldora, que es `fixed`. Medido: a 1440 px, 460 + 632 px (la del email,
+460 + 564); a 1280, 460 + 472; a 1100, apilada; a 390, igual que la del email. La página pública no cambia.
+
 **Sin plantilla** sigue siendo solo subirla: la hoja GENÉRICA del presupuesto (regla 238) no se ha
 llevado a la factura, porque cambiaría también la página pública y los emails de todos los instaladores.
 - **Certificado y RITE**: lo que pinta `/instalador/:id` sale de SU ruta; las tarjetas de siempre

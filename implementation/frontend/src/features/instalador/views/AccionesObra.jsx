@@ -413,7 +413,7 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
     return (
         <>
             {facturas.length > 0 && (
-                <section className="ia-card lista" aria-labelledby="ia-facs-h">
+                <section className="ia-card lista ia-fac-estrecha" aria-labelledby="ia-facs-h">
                     <p id="ia-facs-h" className="ia-eyebrow" style={{ padding: '0 12px 6px' }}>{facturas.length === 1 ? 'Tu factura' : 'Tus facturas'}</p>
                     {facturas.map((f, i) => (
                         <div key={f.ref} style={{ borderTop: i ? '1px solid var(--linea)' : 0 }}>
@@ -437,9 +437,9 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
             )}
 
             {!puede ? (
-                <div className="ia-aviso">La factura de esta obra la hace la empresa que la instala. Aquí puedes verla cuando esté.</div>
+                <div className="ia-aviso ia-fac-estrecha">La factura de esta obra la hace la empresa que la instala. Aquí puedes verla cuando esté.</div>
             ) : !hacer ? (
-                <button type="button" className="ia-btn ia-btn-sec" onClick={() => setOtra(true)}>
+                <button type="button" className="ia-btn ia-btn-sec ia-fac-estrecha" onClick={() => setOtra(true)}>
                     <Icono n="factura" size={20} /> {conPlantilla ? 'Hacer otra que la sustituya' : 'Subir otra que la sustituya'}
                 </button>
             ) : modo === 'plantilla' ? (
@@ -447,12 +447,12 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
                     <FacturaObraView embebida {...propsFactura}
                         alEnviar={alSubir({ enviando: 'Guardando tu factura…', ok: '¡Factura hecha!', subtitulo: 'La tenemos en la obra. La revisamos nosotros y, si falta algo, te avisamos.' })}
                         onHecha={(r) => { alHacerla?.(r); setOtra(false); onCambio?.(); }} />
-                    <button type="button" className="ia-link" onClick={() => setSubirla(true)} style={{ alignSelf: 'center' }}>
+                    <button type="button" className="ia-link ia-fac-subela" onClick={() => setSubirla(true)}>
                         ¿Ya la tienes hecha en tu programa? Súbela
                     </button>
                 </section>
             ) : (
-                <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Subir la factura">
+                <section className="ia-card ia-fac-estrecha" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Subir la factura">
                     <p className="ia-eyebrow n">Subir la factura</p>
                     <p className="ia-pequeno" style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5 }}>
                         La de esta obra, a nombre de tu cliente. Vale el PDF o una foto en la que se lea bien.

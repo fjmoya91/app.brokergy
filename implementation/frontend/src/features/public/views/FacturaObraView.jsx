@@ -209,6 +209,25 @@ const CSS = `
   .fo-pad{padding:26px}
   .fo-pildora{display:none}
 }
+/* Embebida: las dos columnas dependen del ANCHO QUE TIENE (lo mide el componente: \`.fo-dos.pc\`),
+   no de la pantalla. En la app el PC pone al lado el menú, y con la regla de la pantalla la hoja
+   quedaba en una columna de ~230 px (22/11/2026). Con poco sitio se apila como en el móvil: la
+   hoja debajo y la píldora. (Un \`container\` de CSS no vale: haría de la caja el marco de la
+   píldora, que es \`fixed\`.) */
+@media (min-width:980px){
+  .fo-embebida .fo-dos{display:block}
+  .fo-embebida .fo-lado{margin-top:14px;position:static}
+  .fo-embebida .fo-lado .fo-previa{display:block}
+  .fo-embebida .fo-lado .fo-previa canvas{width:100%;max-height:none}
+  .fo-embebida .fo-pildora{display:inline-flex}
+  .fo-embebida .fo-pad{padding:22px 20px}
+}
+.fo-embebida .fo-dos:not(.pc){max-width:720px}
+.fo-embebida .fo-dos.pc{display:grid;grid-template-columns:minmax(0,460px) minmax(0,1fr);gap:24px;align-items:start}
+.fo-embebida .fo-dos.pc .fo-lado{margin-top:0;position:sticky;top:16px}
+.fo-embebida .fo-dos.pc .fo-lado .fo-previa{display:flex;justify-content:center}
+.fo-embebida .fo-dos.pc .fo-lado .fo-previa canvas{width:auto;max-width:100%;max-height:calc(100vh - 64px)}
+.fo-embebida .fo-dos.pc .fo-pad{padding:26px}
 @media (prefers-reduced-motion:reduce){.fo-in-anim,.fo-sk{animation:none}.fo-btn{transition:none}}
 `;
 
@@ -361,6 +380,20 @@ function FacturaObra({ expedienteId, token, api = null, embebida = false, onHech
     const [hecha, setHecha] = useState(null);
     const [verHoja, setVerHoja] = useState(false); // móvil: la factura en una hoja
     const cerrarHoja = React.useCallback(() => setVerHoja(false), []);
+    // Embebida: dos columnas solo si de verdad caben (el ancho de la caja, no el de la pantalla).
+    const [anchoDos, setAnchoDos] = useState(0);
+    const obsDos = useRef(null);
+    const medirDos = React.useCallback((el) => {
+        obsDos.current?.disconnect();
+        obsDos.current = null;
+        if (!el || !embebida || typeof ResizeObserver === 'undefined') return;
+        // Se mide el CONTENEDOR (apilada, la propia caja va topada a 720 px).
+        const ro = new ResizeObserver(([e]) => setAnchoDos(Math.round(e.contentRect.width)));
+        ro.observe(el.parentElement || el);
+        obsDos.current = ro;
+    }, [embebida]);
+    useEffect(() => () => obsDos.current?.disconnect(), []);
+    const dosPc = embebida && anchoDos >= 860;
 
     // La vista previa va FIJA (sticky) en el PC, y un `overflow-x: hidden` en un antepasado
     // (la envoltura de App.jsx) la convierte en un scroll propio y la anula: mientras esta
@@ -600,7 +633,7 @@ function FacturaObra({ expedienteId, token, api = null, embebida = false, onHech
 
     return (
         <Marco numero={info.numero_expediente} ancha>
-            <div className="fo-dos">
+            <div className={`fo-dos${dosPc ? ' pc' : ''}`} ref={medirDos}>
                 <div className="fo-stack">
                     <section className="fo-card fo-in-anim">
                         <div className="fo-pad">
@@ -788,7 +821,7 @@ function FacturaObra({ expedienteId, token, api = null, embebida = false, onHech
                         : <VistaPrevia pdf={previa} cargando={previaCargando} />}
                 </aside>
             </div>
-            {!demo && (
+            {!demo && !dosPc && (
                 <>
                     <button type="button" className="fo-pildora" onClick={() => setVerHoja(true)} aria-haspopup="dialog">
                         Ver la factura <b>{eur(total)}</b>
