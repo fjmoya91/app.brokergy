@@ -158,13 +158,14 @@ const nombreDe = (op, cli) => {
 /**
  * Destino de una tarea. Fase 2 (21/11/2026): TODO se hace DENTRO de la obra, con
  * sesión — ni enlaces con token ni pestañas aparte. `accion` es la pantalla de la
- * ficha que se abre; la factura va con su plantilla si su empresa la tiene en la app
- * y la obra no es un RES080 (el mismo criterio que la página del consejo), y si no,
- * se SUBE.
+ * ficha que se abre; la factura se HACE en su plantilla si su empresa la tiene en la
+ * app —también en un RES080 desde el 22/11/2026 (Fran: «todo debe estar unido»): la
+ * misma pantalla que le llega por email, con la aerotermia y su nº de serie— y si no,
+ * se SUBE. Con plantilla, subirla ya hecha sigue a un toque en la misma pantalla.
  */
-function destinoDe(tarea, { op, conPlantilla }) {
+function destinoDe(tarea, { conPlantilla }) {
     if (tarea.key === 'propuesta' || tarea.key === 'cifo' || tarea.key === 'rite') return { tipo: 'accion', accion: tarea.key };
-    if (tarea.key === 'factura') return { tipo: 'accion', accion: 'factura', modo: conPlantilla && !esRes080(op) ? 'plantilla' : 'subir' };
+    if (tarea.key === 'factura') return { tipo: 'accion', accion: 'factura', modo: conPlantilla ? 'plantilla' : 'subir' };
     return null;
 }
 
@@ -288,7 +289,7 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
             const presu = num(op.in_presu);
             obra.presupuesto = { importe: presu && presu > 0 ? Math.round(presu) : null, estimado: op.in_presu_est === true };
             obra.es_instaladora = esInstaladora;
-            obra.factura_modo = conPlantilla && !esRes080(op) ? 'plantilla' : 'subir';
+            obra.factura_modo = conPlantilla ? 'plantilla' : 'subir';
             if (exp) Object.assign(obra, detalleExpediente(exp, est, { esInstaladora }));
             // Sin expediente (o sin equipo apuntado aún en él): el del cálculo, dicho como PREVISTO.
             if (!obra.equipo && p.paso < 4) {
@@ -600,7 +601,7 @@ router.get('/obras/:id/factura/word', enforceAuth, soloBetaInstalador, obraSuya,
 router.post('/obras/:id/factura/vista-previa', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA('/vista-previa'));
 router.post('/obras/:id/factura/generar', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, facturaA('/generar'));
 
-// Sin plantilla (o en un RES080): la sube al apartado «Facturas», por el mismo
+// Sin plantilla (o si prefiere subir la que ya hizo): la sube al apartado «Facturas», por el mismo
 // camino que el enlace (crea la fila en `documentacion.facturas` y la lee el OCR).
 router.post('/obras/:id/factura/subir', enforceAuth, soloBetaInstalador, obraSuya, soloInstaladora, (req, res) => {
     const t = conToken(req, res); if (!t) return;

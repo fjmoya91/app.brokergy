@@ -197,7 +197,7 @@ const OBRAS = [
         cliente: 'Carmen Vidal Ortega', cliente_id: 'c-3', direccion: 'C/ Mayor, 52', municipio: 'Santa Olalla de Abajo', provincia: 'Toledo',
         bono: 4120, paso: 3, fase: 'Aceptada', quien: 'nos', tipo: 'Reforma con aerotermia', tareas: [],
         telefono: '600000003', cuentas: LINEAS(21500, 4120, 0, 2000), presupuesto: { importe: 21500, estimado: false },
-        factura: { n: 0, validadas: 0 }, facturas: [], es_instaladora: true, factura_modo: 'subir',
+        factura: { n: 0, validadas: 0 }, facturas: [], es_instaladora: true, factura_modo: 'plantilla',
         equipo: null, caldera_retirada: { combustible: 'GAS NATURAL', marca: '', tipo: 'Caldera' },
         papeles: [P.cifoNos, P.riteNo, P.facNo, P.ceeIniNos, P.ceeFinNos], cobrado: false,
     }),

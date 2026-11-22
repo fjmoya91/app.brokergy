@@ -54,11 +54,39 @@ llave casa sin tocar el gestor.
   nuevo va por el mismo POST de la calculadora como presupuesto de la **AEROTERMIA** (el anterior pasa a
   `_old`); del navegador solo se aceptan nombre, tipo (PDF o foto) y contenido (≤ 20 MB).
 - **Factura**: la lista de las que hay, con su estado («Revisada» / «Subida · la estamos revisando») y
-  un visor (proxy por su referencia opaca, `refFactura`). Con plantilla de su empresa y obra no RES080,
-  `FacturaObraView` **embebida** (la misma pantalla de `/factura-obra`, sin rediseñar); sin plantilla o
-  en un RES080, subirla al apartado «Facturas» por el `reforma-docs/…/DOC_FACTURAS/batch` de siempre
-  (crea la fila en `documentacion.facturas` y la lee el OCR). Con una ya subida, «Hacer / Subir otra que
-  la sustituya».
+  un visor (proxy por su referencia opaca, `refFactura`). Con plantilla de su empresa,
+  `FacturaObraView` **embebida** (la misma pantalla de `/factura-obra` que le llega por email, sin
+  rediseñar), **también en un RES080 desde el 22/11/2026** (ver abajo), y debajo «¿Ya la tienes hecha en
+  tu programa? Súbela» / «Mejor la hago aquí»; sin plantilla, solo subirla al apartado «Facturas» por el
+  `reforma-docs/…/DOC_FACTURAS/batch` de siempre (crea la fila en `documentacion.facturas` y la lee el
+  OCR). Con una ya hecha o subida, «Hacer / Subir otra que la sustituya».
+
+### La factura de un RES080 también se HACE en la app — 22/11/2026
+
+Fran, con la captura de 26RES080_91 en producción (solo salía «Subir la factura»): «si ya tenemos la
+pantalla para hacer la factura, la que le llega por email con los datos predefinidos y la plantilla…
+Unifica todo para que desde esa pantalla también pueda hacer la factura… con los conceptos, números de
+serie, etc. Todo debe estar unido».
+
+El motivo era que `construirConsejoFactura` devolvía `null` en un RES080 (el consejo de los mensajes no
+cubre la reforma, regla 210), `datosFactura` no tenía líneas, `cargar` daba 404 y la app elegía
+`modo: 'subir'`. Ahora:
+
+- `construirConsejoFactura({ …, paraFactura: true })` (solo lo pasa `datosFactura`) da en un RES080 las
+  líneas de SU parte —la aerotermia con marca, modelo, nº de serie y kW, el material y la puesta en
+  marcha— y «en sustitución de la caldera» + «Desmontaje y retirada» **solo si hay caldera declarada**
+  (`caldera_antigua_cal` con marca, modelo, combustible o rendimiento); si no, «Suministro e instalación
+  de … conectada a …». Lo demás de la reforma (ventanas, aislamientos…) lo AÑADE él como conceptos.
+- Sin `paraFactura` sigue `null`: el WhatsApp, el email y la página del consejo **no cambian**.
+- Lo añadido en una reforma va a su partida del OCR por su texto (`partidaDe(…, { reforma: true })`:
+  VENTANAS, CUBIERTA, FACHADA, SUELO, FOTOVOLTAICA; si no, OBRA_CIVIL). En un RES060 no: un «soporte en
+  fachada» no es aislar la fachada.
+- Las observaciones de la factura dicen «… dentro de la reforma de rehabilitación energética de la
+  vivienda» (y «en sustitución de caldera» solo si la hay).
+- `instaladorApp.js`: `factura_modo` = `plantilla` si su empresa tiene plantilla, sea la ficha que sea.
+
+**Sin plantilla** sigue siendo solo subirla: la hoja GENÉRICA del presupuesto (regla 238) no se ha
+llevado a la factura, porque cambiaría también la página pública y los emails de todos los instaladores.
 - **Certificado y RITE**: lo que pinta `/instalador/:id` sale de SU ruta; las tarjetas de siempre
   reciben `rutas` (`{pdf, subir}` de la app) y `alSubir` (el overlay). Firma con Autofirma, firmado a
   mano subido, RITE, declaración FM; re-firma, rechazo y bloqueo igual que en el enlace.

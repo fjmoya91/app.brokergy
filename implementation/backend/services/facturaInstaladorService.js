@@ -107,11 +107,19 @@ function fechaTexto(iso, formato = 'largo') {
 // ── Datos de la factura ──────────────────────────────────────────────────────
 
 /** La partida (enum del OCR) de cada línea del consejo: la 1.ª es siempre la bomba de calor. */
-function partidaDe(texto, i) {
+function partidaDe(texto, i, { reforma = false } = {}) {
     if (i === 0) return 'AEROTERMIA';
     const t = limpio(texto).toLowerCase();
     if (/interacumulador|producci[oó]n de acs|termo|acs\b/.test(t)) return 'ACS';
     if (/suministro.*(radiador|suelo radiante|fancoil)/.test(t)) return 'EMISORES';
+    // Lo de la envolvente que añada en una REFORMA (RES080), a su partida del OCR. Solo
+    // ahí: en una sustitución, un «soporte en fachada» no es aislar la fachada.
+    if (!reforma) return 'OBRA_CIVIL';
+    if (/ventana|carpinter[ií]a|acristalamiento|vidrio/.test(t)) return 'VENTANAS';
+    if (/cubierta|tejado|forjado bajo cubierta|desv[aá]n/.test(t)) return 'CUBIERTA';
+    if (/fachada|muros?\b|sate\b|trasdosado/.test(t)) return 'FACHADA';
+    if (/aislamiento.*suelo|solera/.test(t)) return 'SUELO';
+    if (/fotovoltaic|placas solares|paneles solares/.test(t)) return 'FOTOVOLTAICA';
     return 'OBRA_CIVIL';
 }
 
@@ -151,7 +159,9 @@ async function datosFactura(expedienteId) {
         ? await supabase.from('prescriptores').select('id_empresa, razon_social, acronimo, cif').eq('id_empresa', insId).maybeSingle()
         : { data: null };
 
-    const r = await cargarConsejoFactura(exp, { cliente, faltaFactura: true });
+    // `paraFactura`: también en un RES080 (la aerotermia del instalador; lo demás de la
+    // reforma, si lo hace él, lo añade en la pantalla). Ver construirConsejoFactura.
+    const r = await cargarConsejoFactura(exp, { cliente, faltaFactura: true, paraFactura: true });
     const consejo = r?.consejo || null;
 
     const inst = exp.instalacion || {};
@@ -173,11 +183,12 @@ async function datosFactura(expedienteId) {
             observaciones: observaciones({
                 direccionObra: consejo.direccion, titular, nif: consejo.nif,
                 combustible: combustibleCaldera(inst), hibridacion: consejo.hibridacion, conAcs,
+                reforma: consejo.reforma === true, sustituye: consejo.hayCaldera !== false,
             }),
         };
         lineas = [...consejo.lineas, ...(consejo.aparte || [])].map((l, i) => ({
             texto: l.replace(/\.$/, '').toUpperCase(),
-            partida: partidaDe(l, i),
+            partida: partidaDe(l, i, { reforma: consejo.reforma === true }),
         }));
     }
 
@@ -186,6 +197,7 @@ async function datosFactura(expedienteId) {
     const subidas = facturas.filter(f => f && !f.generada);
     return {
         exp, op, token: op.upload_token || null, consejo, instalador, plantilla, datos, lineas,
+        reforma: consejo?.reforma === true,
         fechaMinima: fechaRegistroCee(exp, 'inicial') || null,
         generada, subidas, otrasFacturas: subidas.length,
     };
@@ -218,7 +230,7 @@ const textoConcepto = (v) => limpio(v).replace(/[\u0000-\u001f\u007f]+/g, ' ').r
  * del consejo en su sitio (la 1.ª, la bomba de calor); las añadidas, la que diga su
  * texto. Una línea vaciada se quita, salvo la primera, que es obligatoria.
  */
-function lineasDe(entrada, lineas, errores) {
+function lineasDe(entrada, lineas, errores, { reforma = false } = {}) {
     if (!Array.isArray(entrada?.conceptos)) return lineas.map(l => ({ ...l, editada: false }));
     const crudos = entrada.conceptos.slice(0, MAX_LINEAS + 1);
     if (crudos.length > MAX_LINEAS) errores.push(`Como mucho ${MAX_LINEAS} líneas.`);
@@ -231,7 +243,7 @@ function lineasDe(entrada, lineas, errores) {
         out.push({
             texto: texto.slice(0, MAX_CONCEPTO),
             idx: i, // su sitio en lo tecleado: los precios van por él aunque se quite una línea vacía
-            partida: original ? original.partida : partidaDe(texto, i),
+            partida: original ? original.partida : partidaDe(texto, i, { reforma }),
             editada: !original || original.texto !== texto,
         });
     });
@@ -247,9 +259,9 @@ function lineasDe(entrada, lineas, errores) {
  *   subió de 26RES060_283 iba así).
  * @returns {{ errores: string[], calculo: { numero, fecha, fechaTxt, modo, lineas, base, ivaPct, iva, total } }}
  */
-function calcular(entrada, { lineas: lineasConsejo, cfg, fechaMinima, hoy = new Date().toISOString().slice(0, 10) }) {
+function calcular(entrada, { lineas: lineasConsejo, cfg, fechaMinima, reforma = false, hoy = new Date().toISOString().slice(0, 10) }) {
     const errores = [];
-    const lineas = lineasDe(entrada, lineasConsejo, errores);
+    const lineas = lineasDe(entrada, lineasConsejo, errores, { reforma });
     const modo = entrada?.modo === 'total' ? 'total' : 'partidas';
     const numero = limpio(entrada?.numero);
     const fecha = limpio(entrada?.fecha);

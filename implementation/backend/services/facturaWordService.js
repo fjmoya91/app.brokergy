@@ -53,11 +53,15 @@ function combustibleCaldera(inst) {
  * Las observaciones para la deducción del IRPF (DA 50.ª de la Ley 35/2006), con la
  * redacción que ya usa RCA en sus facturas (la del RDL 7/2026).
  */
-function observaciones({ direccionObra, titular, nif, combustible, hibridacion, conAcs }) {
+function observaciones({ direccionObra, titular, nif, combustible, hibridacion, conAcs, reforma = false, sustituye = true }) {
     const servicio = conAcs ? ' para calefacción y ACS' : '';
+    // En una REFORMA (RES080, factura hecha en la app) la aerotermia es parte de la
+    // rehabilitación energética de la vivienda, y la caldera solo se nombra si la había.
     const actuacion = hibridacion
         ? `Instalación de bomba de calor aerotérmica (energía renovable)${servicio}, en hibridación con la caldera existente${combustible ? ` de ${combustible}` : ''}.`
-        : `Instalación de bomba de calor aerotérmica (energía renovable)${servicio}, en sustitución de caldera de ${combustible || '[COMBUSTIBLE]'}.`;
+        : reforma
+            ? `Instalación de bomba de calor aerotérmica (energía renovable)${servicio}${sustituye ? `, en sustitución de caldera${combustible ? ` de ${combustible}` : ''}` : ''}, dentro de la reforma de rehabilitación energética de la vivienda.`
+            : `Instalación de bomba de calor aerotérmica (energía renovable)${servicio}, en sustitución de caldera de ${combustible || '[COMBUSTIBLE]'}.`;
     return `Observaciones: Obra de mejora de la eficiencia energética ejecutada en la vivienda de ${direccionObra}, `
         + `propiedad de ${titular} (DNI:${nif}). ${actuacion} `
         + 'Factura emitida a efectos, entre otros, de la deducción por obras de mejora de la eficiencia '

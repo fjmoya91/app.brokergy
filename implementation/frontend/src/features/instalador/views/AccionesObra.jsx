@@ -380,7 +380,11 @@ export function PresupuestoAccion({ obra, api, alSubir, onCambio, onHacerAqui, o
 export function FacturaAccion({ obra, api, alSubir, onCambio }) {
     const facturas = obra.facturas || [];
     const puede = !!obra.es_instaladora;
-    const modo = obra.factura_modo === 'plantilla' ? 'plantilla' : 'subir';
+    const conPlantilla = obra.factura_modo === 'plantilla';
+    // Con su plantilla, lo normal es HACERLA aquí (la misma pantalla que le llega por
+    // email); si ya la tiene hecha en su programa, subirla está a un toque.
+    const [subirla, setSubirla] = useState(false);
+    const modo = conPlantilla && !subirla ? 'plantilla' : 'subir';
     const [ver, setVer] = useState(null);
     const [otra, setOtra] = useState(false);
     const [file, setFile] = useState(null);
@@ -399,6 +403,7 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
                 () => api.subirFactura(obra.id, file));
             setFile(null);
             setOtra(false);
+            setSubirla(false);
             onCambio?.();
         } catch { /* el popup ya lo cuenta */ }
     };
@@ -435,13 +440,16 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
                 <div className="ia-aviso">La factura de esta obra la hace la empresa que la instala. Aquí puedes verla cuando esté.</div>
             ) : !hacer ? (
                 <button type="button" className="ia-btn ia-btn-sec" onClick={() => setOtra(true)}>
-                    <Icono n="factura" size={20} /> {modo === 'plantilla' ? 'Hacer otra que la sustituya' : 'Subir otra que la sustituya'}
+                    <Icono n="factura" size={20} /> {conPlantilla ? 'Hacer otra que la sustituya' : 'Subir otra que la sustituya'}
                 </button>
             ) : modo === 'plantilla' ? (
-                <section aria-label="Hacer la factura">
+                <section aria-label="Hacer la factura" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <FacturaObraView embebida {...propsFactura}
                         alEnviar={alSubir({ enviando: 'Guardando tu factura…', ok: '¡Factura hecha!', subtitulo: 'La tenemos en la obra. La revisamos nosotros y, si falta algo, te avisamos.' })}
                         onHecha={(r) => { alHacerla?.(r); setOtra(false); onCambio?.(); }} />
+                    <button type="button" className="ia-link" onClick={() => setSubirla(true)} style={{ alignSelf: 'center' }}>
+                        ¿Ya la tienes hecha en tu programa? Súbela
+                    </button>
                 </section>
             ) : (
                 <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Subir la factura">
@@ -454,7 +462,8 @@ export function FacturaAccion({ obra, api, alSubir, onCambio }) {
                     <button type="button" className="ia-btn ia-btn-pri" disabled={!file} onClick={subir} style={file ? undefined : { opacity: 0.55 }}>
                         <Icono n="subir" size={22} /> Subir la factura
                     </button>
-                    {otra && <button type="button" className="ia-link" onClick={() => setOtra(false)} style={{ alignSelf: 'center' }}>Dejarlo como está</button>}
+                    {subirla && <button type="button" className="ia-link" onClick={() => { setSubirla(false); setFile(null); setAviso(null); }} style={{ alignSelf: 'center' }}>Mejor la hago aquí</button>}
+                    {otra && !subirla && <button type="button" className="ia-link" onClick={() => setOtra(false)} style={{ alignSelf: 'center' }}>Dejarlo como está</button>}
                 </section>
             )}
         </>

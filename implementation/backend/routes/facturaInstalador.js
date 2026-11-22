@@ -120,7 +120,7 @@ router.post('/:expedienteId/vista-previa', async (req, res) => {
         const ctx = await cargar(req, res);
         if (!ctx) return;
         // La vista previa se pinta aunque falten datos: es para ver cómo va quedando.
-        const { calculo } = svc.calcular(req.body || {}, { lineas: ctx.lineas, cfg: ctx.plantilla.cfg, fechaMinima: ctx.fechaMinima });
+        const { calculo } = svc.calcular(req.body || {}, { lineas: ctx.lineas, cfg: ctx.plantilla.cfg, fechaMinima: ctx.fechaMinima, reforma: ctx.reforma });
         const { buffer, desborda, numeroLargo } = await svc.componerPdf(ctx.plantilla, ctx.datos, calculo);
         res.set({
             'Content-Type': 'application/pdf', 'Cache-Control': 'no-store', 'Content-Disposition': 'inline; filename="factura.pdf"',
@@ -137,7 +137,7 @@ router.post('/:expedienteId/generar', async (req, res) => {
         if (!ctx) return;
         // Una revisada también se puede rehacer (Fran, 18/11/2026: «puede darse el caso de
         // errores»): la nueva la sustituye y vuelve a revisión.
-        const { errores, calculo } = svc.calcular(req.body || {}, { lineas: ctx.lineas, cfg: ctx.plantilla.cfg, fechaMinima: ctx.fechaMinima });
+        const { errores, calculo } = svc.calcular(req.body || {}, { lineas: ctx.lineas, cfg: ctx.plantilla.cfg, fechaMinima: ctx.fechaMinima, reforma: ctx.reforma });
         const elegibles = (ctx.subidas || []).filter(f => f.drive_id);
         const sust = String(req.body?.sustituir || '');
         if (elegibles.length && !sust) errores.push('Dinos si esta factura sustituye a la que ya subiste o es otra distinta.');

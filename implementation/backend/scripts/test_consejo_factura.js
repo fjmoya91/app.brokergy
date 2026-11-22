@@ -101,6 +101,26 @@ prueba('RES080 → null (fuera de alcance)', () => {
     assert.strictEqual(cf.construirConsejoFactura({ exp: { ...expSustitucion(), numero_expediente: null }, op, ...base }), null);
 });
 
+prueba('RES080 PARA LA FACTURA de la app (22/11/2026): la parte de la aerotermia, con y sin caldera que se quita', () => {
+    const conCaldera = cf.construirConsejoFactura({ exp: { ...expSustitucion(), numero_expediente: '26RES080_91' }, ...base, paraFactura: true });
+    assert.ok(conCaldera, 'con paraFactura un RES080 sí tiene líneas');
+    assert.strictEqual(conCaldera.reforma, true);
+    assert.strictEqual(conCaldera.hayCaldera, true);
+    assert.match(conCaldera.lineas[0], /nº de serie AE1F58, de 16 kW, para calefacción, en sustitución de la caldera existente RIMA SF-05/);
+    assert.ok(conCaldera.lineas.includes('Desmontaje y retirada de la caldera existente.'));
+    const exp = { ...expSustitucion({ caldera_antigua_cal: {} }), numero_expediente: '26RES080_91' };
+    const sin = cf.construirConsejoFactura({ exp, ...base, paraFactura: true });
+    assert.strictEqual(sin.hayCaldera, false);
+    assert.strictEqual(sin.lineas[0], 'Suministro e instalación de bomba de calor aire-agua (aerotermia) marca HAIER, modelo MONO GT 16kW, nº de serie AE1F58, de 16 kW, para calefacción, conectada a los radiadores existentes de la vivienda.');
+    assert.ok(!sin.lineas.some(l => /sustitución|desmontaje/i.test(l)), 'sin caldera declarada, ni sustitución ni desmontaje');
+    // el consejo de los mensajes (WhatsApp, email, página) sigue sin RES080
+    assert.strictEqual(cf.construirConsejoFactura({ exp, ...base }), null);
+    // y un RES060 con paraFactura no cambia
+    const r060 = cf.construirConsejoFactura({ exp: expSustitucion(), ...base, paraFactura: true });
+    assert.strictEqual(r060.reforma, false);
+    assert.deepStrictEqual(r060.lineas, cf.construirConsejoFactura({ exp: expSustitucion(), ...base }).lineas);
+});
+
 prueba('REGLA: falta la factura → sí', () => {
     assert.deepStrictEqual(cf.decidirConsejoFactura({ faltaFactura: true }), { mandar: true, motivo: 'FALTA', graves: [] });
 });

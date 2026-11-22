@@ -56,6 +56,19 @@ const cfg = { iva_pct: 21, fecha: { formato: 'largo' } };
         assert.strictEqual(svc.partidaDe('Suministro e instalación de interacumulador de ACS', 1), 'ACS');
         assert.strictEqual(svc.partidaDe('Desmontaje y retirada de la caldera existente.', 2), 'OBRA_CIVIL');
     });
+    await t('REFORMA (RES080): lo de la envolvente que añade va a su partida; en una sustitución, no', () => {
+        const R = { reforma: true };
+        assert.strictEqual(svc.partidaDe('Sustitución de ventanas por carpintería de PVC', 3, R), 'VENTANAS');
+        assert.strictEqual(svc.partidaDe('Aislamiento de la cubierta con lana mineral', 3, R), 'CUBIERTA');
+        assert.strictEqual(svc.partidaDe('Aislamiento de fachada por el exterior (SATE)', 3, R), 'FACHADA');
+        assert.strictEqual(svc.partidaDe('Instalación fotovoltaica de 4 kWp', 3, R), 'FOTOVOLTAICA');
+        assert.strictEqual(svc.partidaDe('Soporte de la unidad exterior en fachada', 3), 'OBRA_CIVIL');
+        const { calculo, errores } = svc.calcular(
+            { numero: '7/26', fecha: '2026-11-16', conceptos: ['BOMBA', 'DESMONTAJE', 'Sustitución de ventanas de PVC'], partidas: [{ precio: 9000 }, { precio: 300 }, { precio: 4000 }] },
+            { lineas: [L[0], L[2]], cfg, hoy: '2026-11-17', reforma: true });
+        assert.deepStrictEqual(errores, []);
+        assert.deepStrictEqual(calculo.lineas.map(l => l.partida), ['AEROTERMIA', 'OBRA_CIVIL', 'VENTANAS']);
+    });
     const ctx = {
         exp: { id: 'E', numero_expediente: '26RES060_999', oportunidad_id: 'OP', instalacion: {}, documentacion: {} },
         op: { ficha: 'RES060', inputs: {} }, instalador: { razon_social: 'INSTALADOR', cif: 'B00000000' },

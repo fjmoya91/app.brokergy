@@ -92,19 +92,31 @@ function calderaTxt(inst) {
 /**
  * El consejo de factura de un expediente, o null si no aplica (RES080: la reforma
  * la facturan varios gremios y su concepto no es este).
+ *
+ * `paraFactura` (22/11/2026, Fran: «todo debe estar unido»): la FACTURA hecha en la
+ * app (`facturaInstaladorService.datosFactura`) también en un RES080. El instalador
+ * factura SU parte de la reforma —la aerotermia, con marca, modelo, nº de serie y kW—
+ * y las demás partidas que haga él las añade en la pantalla. Los MENSAJES (WhatsApp,
+ * email, página del consejo) no lo pasan: en un RES080 siguen sin consejo.
  * @param {object} p
  * @param {object} p.exp           expediente (numero_expediente, instalacion, documentacion, cee)
  * @param {object} [p.op]          oportunidad (para la ficha si el número no la dice)
  * @param {object} [p.cliente]     ficha del cliente (titular y NIF)
  * @param {string} [p.instalador]  razón social de quien la emite
  * @param {string} [p.direccionObra] dirección de la instalación ya resuelta
+ * @param {boolean} [p.paraFactura] también en RES080 (solo la factura de la app)
  */
-function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = null, direccionObra = null } = {}) {
+function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = null, direccionObra = null, paraFactura = false } = {}) {
     if (!exp) return null;
     const ficha = detectPrograma(exp, op || {});
-    if (!esSustitucionCaldera(ficha)) return null;
+    const reforma = paraFactura && /^RES080/.test(limpio(ficha)) && !esSustitucionCaldera(ficha);
+    if (!esSustitucionCaldera(ficha) && !reforma) return null;
     const inst = exp.instalacion || {};
     const hibridacion = esHibridacion(ficha) || inst.hibridacion === true;
+    // En una reforma la caldera no siempre se quita: solo se dice «en sustitución» si
+    // el expediente declara la que había.
+    const cAnt = inst.caldera_antigua_cal || {};
+    const hayCaldera = !reforma || !!(limpio(cAnt.marca) || limpio(cAnt.modelo) || limpio(cAnt.combustible) || limpio(cAnt.rendimiento_id));
 
     const unidades = getUnidades(inst.aerotermia_cal);
     const lista = unidades.length ? unidades : [{}];
@@ -120,7 +132,9 @@ function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = nu
 
     const principal = hibridacion
         ? `Suministro e instalación de ${equipos}, ${servicio}, en HIBRIDACIÓN con la caldera existente ${caldera}, que se mantiene como apoyo, ${conectada}.`
-        : `Suministro e instalación de ${equipos}, ${servicio}, en sustitución de la caldera existente ${caldera}, ${conectada}.`;
+        : hayCaldera
+            ? `Suministro e instalación de ${equipos}, ${servicio}, en sustitución de la caldera existente ${caldera}, ${conectada}.`
+            : `Suministro e instalación de ${equipos}, ${servicio}, ${conectada}.`;
 
     const lineas = [principal];
     // El ACS con OTRA máquina (no un conjunto): su propia línea, con su placa.
@@ -143,7 +157,7 @@ function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = nu
         lineas.push('Regulación y control para el funcionamiento conjunto de la bomba de calor y la caldera.');
         lineas.push('Material auxiliar, conexionado hidráulico y eléctrico a la instalación existente, puesta en marcha y pruebas.');
     } else {
-        lineas.push('Desmontaje y retirada de la caldera existente.');
+        if (hayCaldera) lineas.push('Desmontaje y retirada de la caldera existente.');
         lineas.push('Material auxiliar, conexionado hidráulico y eléctrico, puesta en marcha y pruebas.');
     }
 
@@ -181,6 +195,8 @@ function construirConsejoFactura({ exp, op = {}, cliente = null, instalador = nu
         numero_expediente: exp.numero_expediente || null,
         ficha,
         hibridacion,
+        reforma,
+        hayCaldera,
         titular,
         nif,
         direccion: limpio(direccionObra) || '[DIRECCIÓN DE LA OBRA]',
@@ -429,7 +445,7 @@ function instaladorIdDe(exp, op) {
  * salvo `crearToken: true` (las rutas que ya lo crean al pedir la factura).
  * `faltaFactura` se puede pasar si quien llama ya lo sabe (el checklist).
  */
-async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaFactura = null, crearToken = false, conFactura = false } = {}) {
+async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaFactura = null, crearToken = false, conFactura = false, paraFactura = false } = {}) {
     const supabase = require('../services/supabaseClient');
     let exp = expOrId;
     if (!exp || typeof exp !== 'object') {
@@ -478,7 +494,7 @@ async function cargarConsejoFactura(expOrId, { op = null, cliente = null, faltaF
         }
     } catch (e) { console.warn('[consejoFactura] dirección:', e.message); }
 
-    const consejo = construirConsejoFactura({ exp, op: opp, cliente: cli, instalador, direccionObra });
+    const consejo = construirConsejoFactura({ exp, op: opp, cliente: cli, instalador, direccionObra, paraFactura });
     if (!consejo) return { consejo: null, decision: { mandar: false, motivo: null, graves: [] }, url: null, token: opp?.datos_calculo?.upload_token || null, copiar: '', whatsapp: [] };
 
     const doc = exp.documentacion || {};

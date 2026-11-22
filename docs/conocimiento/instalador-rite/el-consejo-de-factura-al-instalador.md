@@ -32,7 +32,12 @@ emisores nuevos» del consejo pasa a «Si se cambian o añaden emisores, en lín
   más las de `DOC_FACTURAS`, sin repetir). Es la misma cuenta que el checklist de
   `solicitud-info`.
 - **RES080 no lleva consejo** (`construirConsejoFactura` devuelve `null`): es una reforma, el
-  concepto depende de lo que se haga y no hay texto único.
+  concepto depende de lo que se haga y no hay texto único. **Excepción, solo para HACER la factura**
+  (22/11/2026): con `paraFactura: true` —lo pasa únicamente `datosFactura` de
+  `facturaInstaladorService.js`— devuelve las líneas de la aerotermia (`reforma: true`, y `hayCaldera`
+  dice si se pone «en sustitución» y el desmontaje); el resto de la reforma lo añade el instalador. Los
+  mensajes, la página `/consejo-factura` y su 404 siguen igual. Ver «La factura de un RES080 también se
+  HACE en la app» en `docs/conocimiento/instalador-app/app-del-instalador-fase-2.md`.
 
 ### El texto (`construirConsejoFactura`)
 
