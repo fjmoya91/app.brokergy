@@ -100,12 +100,22 @@ function resumenParaCerebro(fila) {
     };
 }
 
+/** Lo IMPRESO del presupuesto que se puede corregir (para saber si lo que dice lo cambia). Pura. */
+function impresoDe(f) {
+    const c = f?.cliente || {};
+    return {
+        cliente: Object.fromEntries(['direccion', 'codigo_postal', 'municipio', 'provincia', 'tlf'].map(k => [k, c[k] || null])),
+        obra: { direccion: f?.obra?.direccion || null, municipio: f?.obra?.municipio || null },
+    };
+}
+
 /** La burbuja para el instalador tras el PDF. Pura. */
-function burbuja(fila, { eur, actualizado = false, conSimulacion = false }) {
+function burbuja(fila, { eur, actualizado = false, conSimulacion = false, cambios = null }) {
     const quien = titulo(nombreDe(fila.cliente)) || 'tu cliente';
     const cifras = `${eur(fila.base)} + IVA = ${eur(fila.total)}`;
     return [
         `Presupuesto ${fila.numero} ${actualizado ? 'actualizado ' : ''}para ${quien}: ${cifras}.`,
+        actualizado && cambios?.length ? `He cambiado ${cambios.join(' · ')}.` : null,
         'Reenvíaselo tal cual.',
         'Si quieres cambiar algo, dímelo aquí («ponle 9.500», «añade depósito de inercia») o cámbialo en la app.',
         conSimulacion ? 'Ahora miro la vivienda para calcular el bono CAE.' : (actualizado ? null : '¿Te calculo también el bono CAE de esta obra?'),
@@ -335,27 +345,40 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             const op = await opciones();
             const { filaP, entrada } = await M.crearDelPedido(S, { prescriptorId, usuarioId: null, origen: 'whatsapp', p, op, ahora });
             const { buffer } = await S.pdfDe(prescriptorId, filaP);
-            p.presupuesto = { id: filaP.id, numero: filaP.numero, fecha: filaP.fecha, at: ahora.toISOString(), base: filaP.base, total: filaP.total };
+            p.presupuesto = { id: filaP.id, numero: filaP.numero, fecha: filaP.fecha, at: ahora.toISOString(), base: filaP.base, total: filaP.total, impreso: impresoDe(filaP) };
             p.entrada = entrada;
+            // Los cambios van sobre ESTE cliente (buscarlo otra vez por el nombre podría dar otro).
+            if (filaP.cliente_id) p.cliente_id = filaP.cliente_id;
             presupuestoId = filaP.id;
             p.pregunta = p.quiere_sim ? null : 'bono';
             espera = null;
             await guardar();
             await enviarPdf(filaP, buffer, { conSimulacion: !!p.quiere_sim });
             if (!p.quiere_sim) return { ...out, estado, presupuesto: filaP };
-        } else if (ext.quiere === 'cambiar' || (!espera && !p.simulacion_pedida && cambiaElPresupuesto(ext))) {
+        } else if (ext.quiere === 'cambiar' || (!espera && !p.simulacion_pedida && cambiaElPresupuesto(ext, p.presupuesto.impreso || fila.pedido))) {
             // ── 5. CAMBIAR el presupuesto reciente (mismo nº) ──────────────────
             if (ahora - new Date(p.presupuesto.at) > CADUCA_H * 3_600_000) {
                 return preguntar('Ese presupuesto ya tiene más de un día: cámbialo en la app, o pídeme uno nuevo.', null);
             }
             const op = await opciones();
-            const { filaP, entrada } = await M.cambiarDelPedido(S, { prescriptorId, p, op, ahora });
-            const { buffer } = await S.pdfDe(prescriptorId, filaP);
-            p.presupuesto = { ...p.presupuesto, base: filaP.base, total: filaP.total, at: ahora.toISOString() };
+            const { filaP, entrada, cambios } = await M.cambiarDelPedido(S, { prescriptorId, p, op, ahora, eur: L.eur });
             p.entrada = entrada;
+            if (Array.isArray(cambios) && !cambios.length) {
+                // El PDF saldría IGUAL: no se le manda otra vez diciendo «actualizado».
+                await guardar();
+                const quien = ['nombre', 'apellidos', 'dni'].some(k => ext.cliente?.[k]);
+                await decir([
+                    `Con eso el presupuesto ${filaP.numero} sale igual que el que te he mandado.`,
+                    quien ? 'El nombre y el DNI del cliente se cambian en la app, en Clientes.' : null,
+                    'Dime qué quieres cambiar (el precio, lo que incluye, la dirección o la localidad del cliente), o cámbialo en la app.',
+                ].filter(Boolean).join(' '));
+                return { ...out, estado, sinCambios: true };
+            }
+            const { buffer } = await S.pdfDe(prescriptorId, filaP);
+            p.presupuesto = { ...p.presupuesto, base: filaP.base, total: filaP.total, at: ahora.toISOString(), impreso: impresoDe(filaP) };
             await guardar();
-            await enviarPdf(filaP, buffer, { actualizado: true });
-            return { ...out, estado, presupuesto: filaP, actualizado: true };
+            await enviarPdf(filaP, buffer, { actualizado: true, cambios });
+            return { ...out, estado, presupuesto: filaP, actualizado: true, cambios };
         }
 
         // ── 2. La SIMULACIÓN ────────────────────────────────────────────────
@@ -376,12 +399,12 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     }
 
     // ── helpers con el contexto del turno ───────────────────────────────────
-    async function enviarPdf(filaP, buffer, { actualizado = false, conSimulacion = false } = {}) {
+    async function enviarPdf(filaP, buffer, { actualizado = false, conSimulacion = false, cambios = null } = {}) {
         const op = await opciones();
         const caption = L.mensajeParaCliente({ cliente: filaP.cliente, obra: filaP.obra, total: filaP.total, emisor: op.emisor || deps.prescriptor?.nombre || '' });
         const nombreFich = `Presupuesto ${String(filaP.numero).replace(/\//g, '-')} - ${titulo(nombreDe(filaP.cliente)) || 'Cliente'}.pdf`.replace(/[\\:*?"<>|]/g, '');
         await enviar('documento', { buffer, filename: nombreFich, mimetype: 'application/pdf' }, {
-            caption, textoDespues: burbuja(filaP, { eur: L.eur, actualizado, conSimulacion }),
+            caption, textoDespues: burbuja(filaP, { eur: L.eur, actualizado, conSimulacion, cambios }),
         });
     }
 

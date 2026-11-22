@@ -486,8 +486,18 @@ async function crear({ prescriptorId, usuarioId = null, origen = 'app', entrada 
     return { ...creada, cliente_creado: rc.creado };
 }
 
-/** Lo cambia (mismo nº o uno libre). Uno ANULADO ya no se toca. */
-async function actualizar({ prescriptorId, usuarioId = null, id, entrada }) {
+// Lo que el instalador puede CORREGIR de su cliente al cambiar un presupuesto («la localidad es
+// Argamasilla de Alba»). Nombre y DNI no: eso cambia QUIÉN es, y se hace en la app, en Clientes.
+const CLIENTE_CORREGIBLE = ['direccion', 'codigo_postal', 'municipio', 'provincia', 'tlf'];
+
+/**
+ * Lo cambia (mismo nº o uno libre). Uno ANULADO ya no se toca.
+ * `corregirCliente`: los datos del cliente que el instalador ha CORREGIDO a propósito (solo
+ * `CLIENTE_CORREGIBLE`). Esos SÍ se escriben en su ficha, aunque ya tuviera otro valor: si no,
+ * `resolverCliente` solo rellena huecos y el PDF sale con el dato viejo (22/11/2026, 40/26 de RCA:
+ * el audio dijo «La Macía de Alba», el instalador lo corrigió tres veces y el PDF no cambió).
+ */
+async function actualizar({ prescriptorId, usuarioId = null, id, entrada, corregirCliente = null }) {
     const antes = await obtener(prescriptorId, id);
     if (antes.estado === 'ANULADO') throw fallo('Este presupuesto está anulado.', 409, { code: 'ANULADO' });
     const { errores, fila } = await calcularEntrada(entrada);
@@ -497,6 +507,16 @@ async function actualizar({ prescriptorId, usuarioId = null, id, entrada }) {
     }
     const rc = await resolverCliente({ prescriptorId, usuarioId, clienteId: entrada?.cliente_id || (entrada?.cliente ? null : antes.cliente_id), cliente: entrada?.cliente });
     if (!rc.cliente) throw fallo('Hay varios clientes que se parecen: elige cuál es.', 409, { code: 'CLIENTE_AMBIGUO', candidatos: rc.candidatos || [] });
+    const t = clienteDeEntrada(corregirCliente || {});
+    const corregidos = {};
+    for (const k of CLIENTE_CORREGIBLE) if (t[k] && sinTildes(t[k]) !== sinTildes(rc.cliente[k] || '')) corregidos[k] = t[k];
+    if (Object.keys(corregidos).length && rc.cliente.id_cliente) {
+        const { normalizeCliente } = require('../utils/normalization');
+        // Solo SU cliente (resolverCliente ya lo ha comprobado) y solo esos campos.
+        const r = await supabase.from('clientes').update(normalizeCliente(corregidos))
+            .eq('id_cliente', rc.cliente.id_cliente).eq('prescriptor_id', prescriptorId).select(SEL_CLI).maybeSingle();
+        rc.cliente = ok(r) || { ...rc.cliente, ...corregidos };
+    }
     // Lo que no es de la entrada (el vínculo con la oportunidad y su fichero) se conserva.
     const obra = { ...fila.obra, ...(antes.obra?.vinculo ? { vinculo: antes.obra.vinculo } : {}) };
     const r = await supabase.from(TABLA).update({

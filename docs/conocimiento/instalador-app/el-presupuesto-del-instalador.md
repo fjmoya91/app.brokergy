@@ -152,7 +152,24 @@ La conversación (tabla `instalador_wa_pedidos`, una ABIERTA por grupo y autor, 
    numerados; ninguno → se da de alta.
 2. Falta la obra o el importe → se pide lo que falte, de una vez.
 3. Con todo → presupuesto + PDF al grupo. «Ponle 9.500», «añade depósito de inercia» → se cambia el
-   MISMO número y se reenvía.
+   MISMO número y se reenvía. También **«la localidad es Argamasilla de Alba»**: un dato del cliente
+   (dirección, localidad, CP, provincia, teléfono) distinto del que salió impreso es un cambio.
+
+**REGLA — al cambiar un presupuesto, lo que el instalador CORRIGE de su cliente se escribe en SU ficha y
+sale en el PDF; y si el PDF saldría igual, no se reenvía ni se dice «actualizado».** Medido el 22/11/2026
+con el 40/26 de RCA: el audio entendió «La Macía de Alba», el agente dio de alta a la clienta con esa
+localidad y Fran la corrigió tres veces («Es Argamasilla de Alba», «Está mal la localidad!!», «Pero lo
+tienes que cambiar en el cliente»). Las tres veces volvió el MISMO PDF con «actualizado»: el PDF imprime
+la FICHA del cliente y `resolverCliente` solo rellena huecos (nunca pisa un dato, y eso sigue valiendo al
+CREAR). Ahora `cambiarDelPedido` ([presupuestoMotor.js](implementation/backend/services/presupuestoMotor.js))
+cambia sobre el MISMO cliente de la fila (no lo busca otra vez por el nombre), compara lo que el pedido
+sabe con lo IMPRESO y pasa la diferencia a `actualizar({ corregirCliente })`
+([presupuestoInstaladorService.js](implementation/backend/services/presupuestoInstaladorService.js)), que
+la escribe en la ficha **solo si es SUYA** (`prescriptor_id`) y **solo esos cinco campos**: nombre y DNI
+cambian QUIÉN es y van por la app, en Clientes. `queCambia` dice qué ha cambiado en lo impreso: la
+burbuja lo cuenta («He cambiado localidad: Argamasilla De Alba») y, vacío, el agente contesta «Con eso el
+presupuesto 40/26 sale igual…» sin mandar el PDF. Pruebas en `test_presupuesto_grupo_whatsapp.js` y
+`test_presupuesto_instalador.js`.
 4. **Simulación → se confirma la VIVIENDA**: dirección → Google → Catastro, EN SERIE (reglas 15-17,
    [viviendaCandidata.js](implementation/backend/services/viviendaCandidata.js)) → al grupo, la FOTO de la
    fachada del Catastro con «Según el Catastro es CL MURCIA 2(A), Tomelloso · vivienda de 133 m², año

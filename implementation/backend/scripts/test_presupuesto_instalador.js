@@ -287,6 +287,16 @@ async function hacerPlantilla() {
     assert.deepStrictEqual([f.numero, f.base, f.total], ['40/26', 9500, 11495]);
     assert.strictEqual(f.cliente_creado, false);
   });
+  await prueba('actualizar con corregirCliente: la LOCALIDAD dicha se escribe en SU ficha y sale impresa; nombre y DNI no', async () => {
+    const c = DB.clientes.find(x => x.id_cliente === creado.cliente_id);
+    const [nombre, dni] = [c.nombre_razon_social, c.dni];
+    const f = await PI.actualizar({ prescriptorId: 'p-1', id: creado.id, entrada: ENTRADA({ total: '9500', cliente_id: creado.cliente_id, cliente: undefined }),
+      corregirCliente: { municipio: 'Argamasilla de Alba', nombre: 'OTRA PERSONA', dni: '00000000T' } });
+    assert.strictEqual(DB.clientes.find(x => x.id_cliente === creado.cliente_id).municipio, 'ARGAMASILLA DE ALBA');
+    assert.strictEqual(f.cliente.municipio, 'ARGAMASILLA DE ALBA');
+    const c2 = DB.clientes.find(x => x.id_cliente === creado.cliente_id);
+    assert.deepStrictEqual([c2.nombre_razon_social, c2.dni], [nombre, dni], 'nombre y DNI no se corrigen por aquí');
+  });
   await prueba('entradaDesdeFila → al recalcular da lo mismo (sin IVA y «con IVA» de un total redondo)', async () => {
     const fila = await PI.obtener('p-1', creado.id);
     const e = PI.entradaDesdeFila(fila);

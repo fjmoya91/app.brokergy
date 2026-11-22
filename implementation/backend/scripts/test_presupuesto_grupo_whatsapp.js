@@ -25,6 +25,7 @@ const prueba = (nombre, fn) => pruebas.push({ nombre, fn });
 function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas = [], topeHoy = 0, cerebroFalla = false, autorizados = [AUTOR] } = {}) {
     const llamadas = { cerebro: 0, crear: [], actualizar: [], resolver: [], pdf: 0, candidatos: [], porRc: [], tarea: [], texto: [], documento: [], imagen: [], copiar: [], avisos: [] };
     const filas = new Map();
+    const ficha = { direccion: null, municipio: null };      // la ficha del cliente cli-1 (lo que sale IMPRESO)
     let nPed = 0;
     let nPre = 39;
     const cfg = { ...A.config({ PRESUPUESTO_WA_ENABLED: 'true', PRESUPUESTO_WA_GRUPOS: `${GRUPO}=${RCA}`, PRESUPUESTO_WA_MODO: modo }) };
@@ -50,23 +51,29 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
                 llamadas.resolver.push(a);
                 if (a.clienteId) return { cliente: { id_cliente: a.clienteId, nombre_razon_social: 'ANTONIO', apellidos: 'GONZÁLEZ RUIZ', tlf: '611222333' }, creado: false };
                 if (candidatosCliente) return { cliente: null, creado: false, candidatos: candidatosCliente };
-                return { cliente: { id_cliente: 'cli-1', nombre_razon_social: String(a.cliente.nombre).toUpperCase(), apellidos: String(a.cliente.apellidos || '').toUpperCase(), tlf: a.cliente.tlf }, creado: true };
+                ficha.municipio = a.cliente.municipio ? String(a.cliente.municipio).toUpperCase() : null;
+                ficha.direccion = a.cliente.direccion ? String(a.cliente.direccion).toUpperCase() : null;
+                return { cliente: { id_cliente: 'cli-1', nombre_razon_social: String(a.cliente.nombre).toUpperCase(), apellidos: String(a.cliente.apellidos || '').toUpperCase(), tlf: a.cliente.tlf, municipio: ficha.municipio }, creado: true };
             },
             async crear(a) {
                 llamadas.crear.push(a);
                 const c = L.calcularPresupuesto({ conceptos: L.conceptosDe(a.entrada.obra), modo: 'total', total: a.entrada.total, iva_pct: 21, con_iva: a.entrada.con_iva });
                 nPre += 1;
-                const f = { id: `pre-${nPre}`, numero: a.entrada.numero, fecha: a.entrada.fecha, cliente: { nombre: 'ANTONIO GONZÁLEZ RUIZ' }, obra: a.entrada.obra, lineas: c.lineas, base: c.base, iva: c.iva, total: c.total };
+                const f = { id: `pre-${nPre}`, numero: a.entrada.numero, fecha: a.entrada.fecha, cliente: { nombre: 'ANTONIO GONZÁLEZ RUIZ', direccion: ficha.direccion, municipio: ficha.municipio }, cliente_id: a.entrada.cliente_id || null, obra: a.entrada.obra, lineas: c.lineas, base: c.base, iva: c.iva, total: c.total };
                 filas.set(f.id, f);
                 return f;
             },
             async actualizar(a) {
                 llamadas.actualizar.push(a);
                 const c = L.calcularPresupuesto({ conceptos: L.conceptosDe(a.entrada.obra), modo: 'total', total: a.entrada.total, iva_pct: 21, con_iva: a.entrada.con_iva });
-                const f = { ...filas.get(a.id), numero: a.entrada.numero, obra: a.entrada.obra, base: c.base, iva: c.iva, total: c.total, simulacion: a.entrada.simulacion || null };
+                // Como el servicio: lo CORREGIDO del cliente se escribe en su ficha y sale impreso.
+                if (a.corregirCliente?.municipio) ficha.municipio = String(a.corregirCliente.municipio).toUpperCase();
+                const antes = filas.get(a.id);
+                const f = { ...antes, cliente: { ...antes.cliente, municipio: ficha.municipio }, numero: a.entrada.numero, obra: a.entrada.obra, lineas: c.lineas, base: c.base, iva: c.iva, total: c.total, simulacion: a.entrada.simulacion || null };
                 filas.set(a.id, f);
                 return f;
             },
+            async obtener(pid, id) { return filas.has(id) ? JSON.parse(JSON.stringify(filas.get(id))) : null; },
             async pdfDe() { llamadas.pdf += 1; return { buffer: Buffer.from('%PDF-1.4 prueba') }; },
         },
         vivienda: {
@@ -105,6 +112,7 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
 
 // El guion del cerebro.
 const COMPLETO = 'Hazme un presupuesto para Antonio González, 611222333, CL Murcia 2 Tomelloso. Aerotermia Panasonic WH-WXG09ME5 de 9 kW cambiando caldera de gasóleo, 9200 más IVA';
+const GREGORIA = 'presupuesto para Gregoria González, Calle Alhambra 15, La Macía de Alba, Panasonic 12 kW cambiando caldera de gasóleo, 9200 más IVA';
 const G = {
     [COMPLETO]: {
         quiere: 'presupuesto',
@@ -119,6 +127,13 @@ const G = {
     'Antonio González, 611222333, CL Murcia 2 Tomelloso': { quiere: 'nada', cliente: { nombre: 'Antonio', apellidos: 'González', tlf: '611222333', direccion: 'CL Murcia 2', municipio: 'Tomelloso' } },
     '2': { quiere: 'confirmar' },
     'déjalo': { quiere: 'cancelar' },
+    // 40/26 de RCA (22/11/2026): el audio entendió «La Macía de Alba» y el instalador lo corrige.
+    [GREGORIA]: {
+        quiere: 'presupuesto', cliente: { nombre: 'Gregoria', apellidos: 'González', direccion: 'Calle Alhambra 15', municipio: 'La Macía de Alba' },
+        obra: { tipo: 'aerotermia', equipo: { marca: 'Panasonic', potencia_kw: 12 }, caldera: { combustible: 'gasoleo' } }, importe: 9200, con_iva: false,
+    },
+    'Es Argamasilla de Alba': { quiere: 'nada', cliente: { municipio: 'Argamasilla de Alba' } },
+    'Está mal la localidad !!': { quiere: 'cambiar' },
 };
 
 // ── Las pruebas ──────────────────────────────────────────────────────────────
@@ -208,6 +223,32 @@ prueba('«ponle 9.500» → actualiza el MISMO nº y lo reenvía', async () => {
     assert.strictEqual(e.llamadas.documento.length, 2);
     assert.ok(/Presupuesto 40\/26 actualizado para .*9\.500,00 € \+ IVA = 11\.495,00 €/.test(e.llamadas.documento[1].o.textoDespues), e.llamadas.documento[1].o.textoDespues);
     assert.ok(r.actualizado);
+});
+
+prueba('corrige la LOCALIDAD del cliente → se escribe en SU ficha, sale en el PDF y se dice qué ha cambiado', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(GREGORIA);
+    assert.strictEqual(e.llamadas.documento.length, 1);
+    // Sin decir «cambia»: un dato del cliente DISTINTO del impreso basta.
+    const r = await e.decir('Es Argamasilla de Alba');
+    assert.strictEqual(e.llamadas.actualizar.length, 1, JSON.stringify(r));
+    const a = e.llamadas.actualizar[0];
+    assert.strictEqual(a.entrada.cliente_id, 'cli-1', 'sobre el MISMO cliente, no buscándolo otra vez por el nombre');
+    assert.deepStrictEqual(a.corregirCliente, { municipio: 'Argamasilla de Alba' });
+    assert.strictEqual(e.llamadas.documento.length, 2);
+    const t = e.llamadas.documento[1].o.textoDespues;
+    assert.ok(/Presupuesto 40\/26 actualizado/.test(t) && /He cambiado localidad: Argamasilla De Alba\./.test(t), t);
+    assert.ok(r.actualizado);
+});
+
+prueba('«está mal» sin decir qué → el PDF saldría igual: no se reenvía ni se dice «actualizado»', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(GREGORIA);
+    const r = await e.decir('Está mal la localidad !!');
+    assert.ok(r.sinCambios, JSON.stringify(r));
+    assert.strictEqual(e.llamadas.documento.length, 1, 'no se manda el mismo PDF otra vez');
+    const t = e.llamadas.texto.at(-1).t;
+    assert.ok(/sale igual/.test(t) && /localidad/.test(t) && !/actualizado/.test(t), t);
 });
 
 prueba('simulación → foto + pregunta; «sí» → encargo con la RC y texto del CÓDIGO', async () => {

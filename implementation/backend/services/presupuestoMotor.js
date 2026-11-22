@@ -132,11 +132,55 @@ function entradaDe(p, opciones, ahora) {
     };
 }
 
-/** ¿Lo que ha dicho cambia el presupuesto ya hecho? (importe, extras, equipo). Pura. */
-function cambiaElPresupuesto(ext) {
+// Lo del cliente que se CORRIGE al cambiar un presupuesto (en su ficha también). Nombre y DNI no:
+// cambian QUIÉN es y van por la app (presupuestoInstaladorService · CLIENTE_CORREGIBLE).
+const CLIENTE_CORREGIBLE = ['direccion', 'codigo_postal', 'municipio', 'provincia', 'tlf'];
+const igual = (a, b) => limpio(a).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
+    === limpio(b).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
+
+/**
+ * Los datos del cliente que ha dicho y son DISTINTOS de lo que ya tiene el pedido (`p`): eso es una
+ * corrección («la localidad es Argamasilla de Alba»), no una repetición. Pura.
+ */
+function correccionCliente(ext, p = null) {
+    const c = ext?.cliente || {};
+    const ya = p?.cliente || {};
+    return Object.fromEntries(CLIENTE_CORREGIBLE.filter(k => limpio(c[k]) && !igual(c[k], ya[k])).map(k => [k, limpio(c[k])]));
+}
+
+/**
+ * ¿Lo que ha dicho cambia el presupuesto ya hecho? (importe, extras, equipo y, con el pedido `p`,
+ * un dato del cliente o de la obra distinto del que tiene). Pura.
+ */
+function cambiaElPresupuesto(ext, p = null) {
     const o = ext.obra || {};
-    return ext.importe !== null || (o.extras || []).length > 0 || (o.extras_quitar || []).length > 0
-        || !!o.equipo?.marca || !!o.equipo?.modelo || o.equipo?.potencia_kw !== null && o.equipo?.potencia_kw !== undefined;
+    if (ext.importe !== null || (o.extras || []).length > 0 || (o.extras_quitar || []).length > 0
+        || !!o.equipo?.marca || !!o.equipo?.modelo || o.equipo?.potencia_kw !== null && o.equipo?.potencia_kw !== undefined) return true;
+    if (!p) return false;
+    return Object.keys(correccionCliente(ext, p)).length > 0
+        || ['direccion', 'municipio'].some(k => limpio(o[k]) && !igual(o[k], p.obra?.[k]));
+}
+
+/**
+ * Lo que ha cambiado en lo IMPRESO entre dos filas del presupuesto, en palabras del instalador.
+ * Vacío = el PDF sale igual (y no se le manda otra vez diciendo «actualizado»). Pura.
+ */
+function queCambia(antes, despues, eur = (n) => `${n} €`) {
+    if (!antes || !despues) return null;
+    const out = [];
+    const nombres = { direccion: 'dirección', codigo_postal: 'código postal', municipio: 'localidad', provincia: 'provincia', tlf: 'teléfono' };
+    for (const [k, txt] of Object.entries(nombres)) {
+        const a = antes.cliente?.[k] || ''; const d = despues.cliente?.[k] || '';
+        if (!igual(a, d)) out.push(`${txt}: ${d ? titulo(d) : '(vacío)'}`);
+    }
+    for (const k of ['direccion', 'municipio']) {
+        const a = antes.obra?.[k] || ''; const d = despues.obra?.[k] || '';
+        if (!igual(a, d) && !out.some(x => x.startsWith(nombres[k]))) out.push(`${nombres[k]} de la obra: ${d ? titulo(d) : '(vacía)'}`);
+    }
+    if (Number(antes.base) !== Number(despues.base) || Number(antes.total) !== Number(despues.total)) out.push(`precio: ${eur(despues.base)} + IVA`);
+    const lineas = (f) => (Array.isArray(f.lineas) ? f.lineas : []).map(l => limpio(l.texto)).join('\n');
+    if (lineas(antes) !== lineas(despues)) out.push('lo que incluye');
+    return out;
 }
 
 /** De la ficha del cliente, solo los datos que se imprimen / encargan (nada de ids internos ni JSONB). */
@@ -239,16 +283,27 @@ async function crearDelPedido(S, { prescriptorId, usuarioId = null, origen, p, o
     return { filaP, entrada };
 }
 
-/** Se CAMBIA el presupuesto ya hecho, con el MISMO nº y fecha. */
-async function cambiarDelPedido(S, { prescriptorId, usuarioId = null, p, op, ahora }) {
-    const entrada = { ...entradaDe(p, op, ahora), numero: p.presupuesto.numero, fecha: p.presupuesto.fecha };
-    const filaP = await S.actualizar({ prescriptorId, usuarioId, id: p.presupuesto.id, entrada });
-    return { filaP, entrada };
+/**
+ * Se CAMBIA el presupuesto ya hecho, con el MISMO nº y fecha, sobre el MISMO cliente (el de la
+ * fila: buscarlo otra vez por el nombre podría dar otro) y corrigiendo en su ficha lo que el
+ * pedido dice distinto de lo que salió IMPRESO (dirección, localidad, CP, provincia, teléfono).
+ * Devuelve también `cambios` (de `queCambia`; `null` si no se pudo leer cómo estaba).
+ */
+async function cambiarDelPedido(S, { prescriptorId, usuarioId = null, p, op, ahora, eur }) {
+    const antes = S.obtener ? await S.obtener(prescriptorId, p.presupuesto.id).catch(() => null) : null;
+    const clienteId = p.cliente_id || antes?.cliente_id || null;
+    const base = entradaDe(clienteId ? { ...p, cliente_id: clienteId } : p, op, ahora);
+    const entrada = { ...base, numero: p.presupuesto.numero, fecha: p.presupuesto.fecha };
+    const corregir = antes ? correccionCliente({ cliente: p.cliente }, { cliente: antes.cliente }) : {};
+    const corregirCliente = Object.keys(corregir).length ? corregir : null;
+    const filaP = await S.actualizar({ prescriptorId, usuarioId, id: p.presupuesto.id, entrada, corregirCliente });
+    if (filaP?.cliente_id) p.cliente_id = filaP.cliente_id;
+    return { filaP, entrada, cambios: queCambia(antes, filaP, eur) };
 }
 
 module.exports = {
     logica, catalogosDe,
-    fusionar, hayAlgo, faltaObra, conTipoPorDefecto, entradaDe, cambiaElPresupuesto, soloDatos, pedidoDesdeFila,
+    fusionar, hayAlgo, faltaObra, conTipoPorDefecto, entradaDe, cambiaElPresupuesto, correccionCliente, queCambia, soloDatos, pedidoDesdeFila,
     opcionesDe, clienteDelPedido, prepararObra, crearDelPedido, cambiarDelPedido,
     // utilidades que comparten los dos canales
     limpio, idDe, nombreDe, titulo, mascara, hoy, eleccionDe,
