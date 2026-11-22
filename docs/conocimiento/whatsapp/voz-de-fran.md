@@ -3,9 +3,10 @@
 Este es el sitio que el diseño del agente reservó para la voz de Fran
 ([el-agente-de-whatsapp-y-el-director-comercial.md](el-agente-de-whatsapp-y-el-director-comercial.md)).
 No va en la BD: son respuestas suyas reales, elegidas de los chats, con el caso y el porqué. Cada vez que
-se revisa un chat y se contesta (o Fran corrige un borrador), se añade aquí el caso. **Todavía no lo lee
-el prompt** (`CONOCIMIENTO` de `services/botPrompt.js`): cuando se cablee, entra como ejemplos y las
-lecciones de abajo pasan a sus reglas.
+se revisa un chat y se contesta (o Fran corrige un borrador), se añade aquí el caso. **Desde el 22/11/2026 el
+prompt del contestador las lleva** (`construirPrompt` de `services/contestadorCerebro.js`, «ASÍ CONTESTA FRAN»
+y «LO QUE FRAN YA HA CORREGIDO»): la respuesta de Benito como ejemplo, y las lecciones 1.1–1.3, 2.2, 2.4 y 3.2
+como reglas (las de los casos 2.1 y 4, ya estaban). Un caso nuevo aquí se pasa también al prompt, en una línea.
 
 Cada caso: lo que preguntó · lo que contestó el contestador (si contestó) · lo que contesta Fran · la
 lección para el agente.

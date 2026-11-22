@@ -187,8 +187,30 @@ function transcripcion(ms, numeros, envios) {
     return L.join('\n');
 }
 
+/**
+ * Un PDF que no cabe entero: sus PRIMERAS páginas, que es donde un CIFO, una factura o un RITE dicen
+ * de qué obra son y qué son. Antes se daba por no leído y el contestador no sabía qué le habían
+ * mandado (C803, 22/11/2026: el CIFO firmado de 26RES060_273). Solo para que lo LEA el modelo:
+ * lo que se guarda en el expediente es siempre el fichero entero. null si no se puede.
+ */
+async function primerasPaginas(buffer, { paginas = 3, maxBytes } = {}) {
+    try {
+        const { PDFDocument } = require('pdf-lib');
+        const src = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
+        const total = src.getPageCount();
+        for (let k = Math.min(paginas, total); k >= 1; k--) {
+            const out = await PDFDocument.create();
+            const copiadas = await out.copyPages(src, [...Array(k).keys()]);
+            copiadas.forEach(p => out.addPage(p));
+            const bytes = Buffer.from(await out.save());
+            if (!maxBytes || bytes.length <= maxBytes) return { buffer: bytes, paginas: k, total };
+        }
+    } catch { /* un PDF roto o cifrado: se queda sin leer, como antes */ }
+    return null;
+}
+
 /** Los adjuntos que ve el modelo, numerados y dentro del presupuesto de bytes. */
-function prepararPartes(adjuntos, { presupuestoBytes = 14 * 1024 * 1024, maxPdfBytes = 6 * 1024 * 1024 } = {}) {
+async function prepararPartes(adjuntos, { presupuestoBytes = 14 * 1024 * 1024, maxPdfBytes = 6 * 1024 * 1024 } = {}) {
     const partes = [];
     const numeros = new Map();
     let bytes = 0;
@@ -199,14 +221,22 @@ function prepararPartes(adjuntos, { presupuestoBytes = 14 * 1024 * 1024, maxPdfB
         const esPdf = /pdf$/.test(f.mimetype);
         const esImg = /^image\//.test(f.mimetype);
         if (!esPdf && !esImg) { m._error = `tipo ${f.mimetype} no se lee`; continue; }
-        if (esPdf && f.buffer.length > maxPdfBytes) { m._error = 'PDF demasiado grande para leerlo aquí'; continue; }
-        if (bytes + f.buffer.length > presupuestoBytes) { m._error = 'no cabía en la llamada'; continue; }
+        let buffer = f.buffer;
+        let recorte = '';
+        if (esPdf && buffer.length > maxPdfBytes) {
+            const p = await primerasPaginas(buffer, { maxBytes: Math.min(maxPdfBytes, presupuestoBytes - bytes) });
+            if (!p) { m._error = 'PDF demasiado grande para leerlo aquí'; continue; }
+            buffer = p.buffer;
+            recorte = p.paginas < p.total ? `, solo sus ${p.paginas} primeras páginas de ${p.total}` : '';
+            m._recortado = recorte ? { paginas: p.paginas, total: p.total } : null;
+        }
+        if (bytes + buffer.length > presupuestoBytes) { m._error = 'no cabía en la llamada'; continue; }
         n++;
         numeros.set(m.id, n);
         m._n = n;
-        bytes += f.buffer.length;
-        partes.push({ texto: `ADJUNTO #${n} (${esImg ? 'foto' : 'documento'}, ${fecha(m.t)}${m.texto ? `, con el texto «${corta(m.texto, 120)}»` : ''}):` });
-        partes.push({ buffer: f.buffer, mimeType: f.mimetype });
+        bytes += buffer.length;
+        partes.push({ texto: `ADJUNTO #${n} (${esImg ? 'foto' : 'documento'}${recorte}, ${fecha(m.t)}${m.texto ? `, con el texto «${corta(m.texto, 120)}»` : ''}):` });
+        partes.push({ buffer, mimeType: f.mimetype });
     }
     return { partes, numeros };
 }

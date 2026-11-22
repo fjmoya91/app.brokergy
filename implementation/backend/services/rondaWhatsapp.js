@@ -327,7 +327,7 @@ async function procesarChat(c, a, ctx) {
     const adjuntos = await bajarAdjuntos(ms, desdeSeg, cont, ctx.fuente || waConversacion);
     // Primero se decide qué adjuntos ve el modelo y con qué número, y con ESOS
     // números se escribe la conversación que lee.
-    const { partes, numeros } = IA.prepararPartes(adjuntos);
+    const { partes, numeros } = await IA.prepararPartes(adjuntos);
     const ch = { obras: c.obras, rol: c.rol, personas: a.personas, texto: IA.transcripcion(ms, numeros, envios), dias: CONFIG.diasContexto };
     const an = await IA.analizar(ch, partes, cuenta, { modelo });
     c.analisis = an;

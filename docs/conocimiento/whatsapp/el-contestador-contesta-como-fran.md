@@ -254,6 +254,17 @@ una foto que la app ya había guardado salía en la conversación como «[ADJUNT
 SIN su texto, y lo de «no tiene depósito» iba escrito justo ahí. Ahora va detrás, como en los demás adjuntos
 (también en los vídeos). Vale para la ronda y para el contestador.
 
+**Y un PDF grande se lee por sus primeras páginas** (`prepararPartes`, rondaWhatsappIA.js): pasados los 6 MB se
+daba por no leído —el CIFO firmado de C803—, y el contestador no sabía qué le habían mandado. Ahora el modelo ve
+sus 3 primeras páginas (o 2, o 1: las que quepan), que es donde un CIFO, una factura o un RITE dicen qué son y de
+qué obra, y se le dice que es un recorte. **Lo que se GUARDA en el expediente es siempre el fichero entero.** Si
+ni la primera página cabe, o el PDF está roto, se queda sin leer como antes (y entonces «no falta nada» no sale).
+
+**La voz de Fran entra en el prompt** ([voz-de-fran.md](voz-de-fran.md)): la respuesta de la vía FM («todavía no
+sabemos seguro… esperamos a los auditores… para el certificado inicial no hace falta») como ejemplo, y como reglas
+«LO QUE FRAN YA HA CORREGIDO»: la FM sin afirmar ni cifras, el CEE inicial es la casa como está, «ya podéis
+empezar» solo con el inicial registrado y quitar la caldera en una hibridación lo decide Fran.
+
 En el prompt, además: lo que CUENTA se contesta («ya está colocada la máquina y el depósito» → pídele ya esas
 fotos, nunca «cuando estén colocadas»: 26RES080_67); pedir de una vez TODAS las fotos que faltan de esa fase; lo que ya se miró no se pone en duda;
 acusar lo que mandó antes y nadie le acusó; sin coletillas (lo de los anexos, solo si viene a cuento).

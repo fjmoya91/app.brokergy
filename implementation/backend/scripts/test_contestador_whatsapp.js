@@ -717,6 +717,9 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         ok(conS.includes('YA LE HEMOS ESCRITO HACE UN RATO') && !sinS.includes('YA LE HEMOS ESCRITO HACE UN RATO'), 'el prompt lo dice solo cuando ya le hemos escrito');
         ok(sinS.includes('«Por tu parte no falta nada» SOLO si es verdad') && sinS.includes('pídelas TODAS en el mismo mensaje') && sinS.includes('Sin coletillas') && sinS.includes('por si no está entre las que has mandado'),
             'el prompt: «no falta nada» solo si es verdad, las fotos de una vez, sin coletillas y sin pedir «por si no está»');
+        ok(sinS.includes('LO QUE FRAN YA HA CORREGIDO') && sinS.includes('esperando a que los auditores') && sinS.includes('la casa COMO ESTÁ')
+            && sinS.includes('SOLO si el dossier dice que el certificado inicial está REGISTRADO'),
+            'el prompt lleva la voz de Fran: la FM sin afirmar, el CEE inicial es la casa de antes, «ya podéis empezar» solo registrado');
         // Lo que dice que NO LLEVA no se le vuelve a pedir (26RES093_15: «no tiene deposito abajo por ser planta baja»).
         const chatJ = '[20/11 10:00] NOSOTROS: Nos faltan las fotos del depósito.\n[22/11 11:43] ELLOS: [ADJUNTO #1 · foto] Buenos dias mi instalación no tiene deposito abajo por ser planta baja me dijeron que no la necesito';
         ok(cerebro.loQueNoLleva(chatJ).join() === 'depósito', '«no tiene deposito»: no lleva depósito');
@@ -738,6 +741,20 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         ok(tr.includes('FOTO_UNIDAD_INTERIOR] mi instalación no tiene deposito abajo') && tr.includes('[VÍDEO] así va la obra')
             && cerebro.loQueNoLleva(tr).join() === 'depósito',
             'el pie de una foto ya colocada o de un vídeo llega a la conversación (antes se perdía)');
+        // Un PDF grande se lee por sus primeras páginas (C803: el CIFO firmado no se leía); lo guardado, entero.
+        const { PDFDocument } = require('pdf-lib');
+        const doc = await PDFDocument.create();
+        for (let i = 0; i < 6; i++) doc.addPage([595, 842]).drawText(`pagina ${i + 1} ${'x'.repeat(2000)}`, { size: 4, x: 10, y: 400 });
+        const grande = Buffer.from(await doc.save());
+        const una = Buffer.from(await (async () => { const d = await PDFDocument.create(); d.addPage([595, 842]).drawText(`pagina 1 ${'x'.repeat(2000)}`, { size: 4, x: 10, y: 400 }); return d.save(); })());
+        const adjP = [{ id: 'p1', t: 1_800_000_000, _fichero: { buffer: grande, mimetype: 'application/pdf' } }];
+        const { partes: pp } = await IAr.prepararPartes(adjP, { maxPdfBytes: Math.floor(grande.length * 0.7) });
+        const pdfVisto = await PDFDocument.load(pp[1].buffer);
+        ok(pp.length === 2 && pdfVisto.getPageCount() === 3 && /solo sus 3 primeras páginas de 6/.test(pp[0].texto) && adjP[0]._fichero.buffer === grande && !adjP[0]._error,
+            'un PDF grande: el modelo ve sus 3 primeras páginas y lo dice; el fichero que se guarda sigue entero');
+        const adjQ = [{ id: 'p2', t: 1_800_000_000, _fichero: { buffer: grande, mimetype: 'application/pdf' } }];
+        await IAr.prepararPartes(adjQ, { maxPdfBytes: Math.floor(una.length * 0.5) });
+        ok(/demasiado grande/.test(adjQ[0]._error || ''), 'si ni la primera página cabe, se queda sin leer como antes');
     }
     // ── El LISTADO para repasar las respuestas (21/11/2026) ──
     {
