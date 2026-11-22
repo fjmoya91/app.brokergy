@@ -15,6 +15,8 @@ import { ModalProvider } from './context/ModalContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { FacturacionView } from './features/facturacion/views/FacturacionView';
 import { DashboardView } from './features/dashboard/views/DashboardView';
+import { DashboardLayout } from './components/layout/DashboardLayout';
+import AsistenteFlotante from './features/asistente/AsistenteFlotante';
 
 const CLAVE = import.meta.env.VITE_FX_DEMO_KEY || '';
 const PERMITIDOS = [/[?&]seco=1/, /\/preview/i, /\/vista-previa/i, /\/preparar/i];
@@ -67,6 +69,28 @@ function Armazon() {
     );
 }
 
+// ?barra=1: el armazón DE VERDAD (DashboardLayout, con la barra de abajo del móvil y
+// la mascota del asistente) para ver cómo encajan. Las pestañas que no son el cuadro
+// ni Facturación salen como una página larga de relleno.
+function ArmazonReal() {
+    const [tab, setTab] = React.useState(rol === 'ADMIN' ? 'dashboard' : 'seguimiento');
+    return (
+        <AuthContext.Provider value={{ user, session: null, loading: false, profileError: null }}>
+            <DashboardLayout activeTab={tab} onTabChange={setTab} onNueva={() => console.info('[fx-demo] Nueva simulación')}>
+                {rol === 'ADMIN' && <AsistenteFlotante onAbrir={() => {}} pantalla={{ tab }} />}
+                {tab === 'dashboard' ? <DashboardView /> : tab === 'facturacion' ? <FacturacionView onNavigate={() => {}} /> : (
+                    <div className="p-6 text-white/70 space-y-3">
+                        <h1 className="text-xl font-black uppercase">{tab}</h1>
+                        {Array.from({ length: 30 }, (_, i) => <p key={i} className="rounded-xl border border-white/10 p-3">Fila {i + 1}</p>)}
+                        <p className="font-bold text-brand">Última fila: tiene que verse entera encima de la barra.</p>
+                    </div>
+                )}
+            </DashboardLayout>
+        </AuthContext.Provider>
+    );
+}
+
+const conBarra = new URLSearchParams(window.location.search).get('barra') === '1';
 ReactDOM.createRoot(document.getElementById('root')).render(
-    <ThemeProvider><ModalProvider><Armazon /></ModalProvider></ThemeProvider>
+    <ThemeProvider><ModalProvider>{conBarra ? <ArmazonReal /> : <Armazon />}</ModalProvider></ThemeProvider>
 );

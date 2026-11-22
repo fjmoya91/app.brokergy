@@ -8,8 +8,14 @@ import { SidebarNetworkBackground } from '../SidebarNetworkBackground';
 import { ThemeToggle } from '../ThemeToggle';
 import { UserMenu } from './UserMenu';
 import { getRoleFlags } from '../../utils/roleFlags';
+import { BarraMovil, ICONOS_NAV } from './BarraMovil';
 
-export function DashboardLayout({ children, activeTab, onTabChange }) {
+/**
+ * @param onNueva     abre «Nueva simulación» (el ＋ de la barra de abajo del móvil)
+ * @param barraMovil  false mientras está abierta la calculadora, que lleva su propia
+ *                    barra fija abajo: dos barras apiladas se comían la pantalla
+ */
+export function DashboardLayout({ children, activeTab, onTabChange, onNueva = null, barraMovil = true }) {
     const { user, signOut } = useAuth();
 
     // Cache de roles para lógica más limpia e infalible
@@ -100,6 +106,11 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
         scrollMainTop();
         setMobileMenuOpen(false);
     };
+
+    // La barra de abajo del móvil: del equipo interno (ADMIN y TRABAJADOR). El
+    // certificador y los partners siguen con el menú lateral (tienen dos o tres
+    // pestañas). Fuera mientras la calculadora está abierta (`barraMovil`).
+    const conBarra = isStaff && barraMovil;
 
     // Navegación que ABRE OTRA PESTAÑA del navegador (misma sesión: el token vive
     // en localStorage del mismo origen). Se usa en Aerotermia porque el catálogo se
@@ -248,17 +259,17 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                         const ENTRADAS = [
                             { id: 'dashboard', grupo: 'hoy', label: 'Cuadro de mando', ver: isAdmin,
                               title: 'Cómo va el negocio: volumen, facturación y margen',
-                              d: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' },
+                              d: ICONOS_NAV.dashboard },
 
                             { id: 'seguimiento', grupo: 'hoy', label: 'Seguimiento', ver: isStaff,
                               title: 'Todo lo que lleva parado más de la cuenta, y a quién hay que escribir',
-                              d: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+                              d: ICONOS_NAV.seguimiento },
 
                             { id: 'oportunidades', grupo: 'cartera', label: 'Oportunidades', ver: !isCertificador,
-                              d: 'M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4' },
+                              d: ICONOS_NAV.oportunidades },
 
                             { id: 'expedientes', grupo: 'cartera', label: 'Expedientes', ver: isStaff || isCertificador,
-                              d: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
+                              d: ICONOS_NAV.expedientes },
 
                             { id: 'cee-directos', grupo: 'cartera', label: 'CEE directos', ver: isStaff || isCertificador,
                               title: 'Certificados de eficiencia energética contratados sueltos',
@@ -544,7 +555,15 @@ export function DashboardLayout({ children, activeTab, onTabChange }) {
                 {/* Subtle Background Accent */}
                 <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-brand/[0.03] rounded-full blur-[120px] pointer-events-none"></div>
                 {children}
+                {/* Lo último de la página no queda debajo de la barra de abajo. */}
+                {conBarra && <div className="md:hidden" style={{ height: 'var(--barra-movil)' }} aria-hidden="true" />}
             </main>
+
+            {/* ====== BARRA DE ABAJO (móvil, equipo interno) ====== */}
+            {conBarra && (
+                <BarraMovil activeTab={activeTab} onIr={go} onMas={() => setMobileMenuOpen(true)}
+                    onNueva={onNueva} esAdmin={isAdmin} avisoMas={escPend} />
+            )}
 
             {/* ====== MENÚ DE LA CUENTA ====== */}
             <UserMenu

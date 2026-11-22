@@ -26,7 +26,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/facturacion/alta-rapida-de-gastos-desde-el-movil.md` — Alta rápida de gastos desde el móvil: foto, escaneo a PDF y a su carpeta de Drive (2026-11-22) · 6,2 KB
+- `docs/conocimiento/facturacion/alta-rapida-de-gastos-desde-el-movil.md` — Alta rápida de gastos desde el móvil: foto, escaneo a PDF y a su carpeta de Drive (2026-11-22) · 6,5 KB
 - `docs/conocimiento/facturacion/cuadro-de-mando-y-trimestres-en-pantalla.md` — Cuadro de mando y trimestres en pantalla: el armazón de Facturación, «Hoy» y «Trimestres» (2026-10-24) · 10,7 KB
 - `docs/conocimiento/facturacion/economia-cae-por-el-mcp.md` — La economía de los CAE, por el MCP: `get_expediente`, `volumen_cae` y `listar_facturas` CAE (2026-10-27) · 3,4 KB
 - `docs/conocimiento/facturacion/facturas-desde-la-app.md` — Facturas desde la app: series ING y FML, rectificativas y VERI*FACTU (2026-10-24) · 19,7 KB

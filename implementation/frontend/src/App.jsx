@@ -1532,7 +1532,10 @@ function App() {
           </Suspense>
         ) : (
           <DashboardLayout
-            activeTab={activeTab} 
+            activeTab={activeTab}
+            onNueva={openNewSimulation}
+            // La calculadora (step ≠ ADMIN) lleva su propia barra fija abajo en el móvil.
+            barraMovil={step === 'ADMIN'}
             onTabChange={(tab) => {
               const { isAdmin, isStaff, isCertificador } = getRoleFlags(user);
               const uRole = (user?.rol || '').toUpperCase();

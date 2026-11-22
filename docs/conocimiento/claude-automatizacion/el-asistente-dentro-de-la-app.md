@@ -4,7 +4,9 @@
 
 Fran quería preguntarle a la app como a un compañero («¿cómo está el 208?», «¿qué tengo hoy?»), que
 le llevara al expediente y que, si falta algo pesado («hazme el CEE inicial»), se lo pudiera pedir
-ahí mismo. Es un botón flotante abajo a la derecha que abre un chat.
+ahí mismo. Es un botón flotante abajo a la derecha que abre un chat. En el móvil va encima de la
+barra de abajo (`--barra-movil`) y se esconde mientras hay un diálogo o una hoja abierta abajo
+(22/11/2026, ver [la barra de abajo del móvil](docs/conocimiento/transversal-frontend/la-barra-de-abajo-del-movil.md)).
 
 Su cara es la **mascota de la gota** («energía», la primera de las tres de marketing; 2026-10-21): el
 botón es la gota misma, y la misma gota va en la cabecera del chat. El

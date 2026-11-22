@@ -16,7 +16,7 @@
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 20,9 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
-| `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,4 KB | 2 |
+| `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,5 KB | 2 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 53,0 KB | 14 |
 | `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
@@ -35,7 +35,7 @@
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 12,8 KB | 3 |
-| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 14,7 KB | 6 |
+| `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 16,8 KB | 7 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 42,0 KB | 19 |
 
 ## Reglas numeradas → dónde están
@@ -323,6 +323,7 @@
 - **236** → `.claude/rules/instalador-app.md` — La app del instalador RECUERDA dónde estás en la dirección, avisa sin red, se instala y lleva SU marca, sin …
 - **237** → `.claude/rules/instalador-app.md` — TODA obra se abre en SU ficha, tenga o no expediente, con «Todo lo de esta obra» en UNA lista; la propuesta …
 - **238** → `.claude/rules/instalador-app.md` — El PRESUPUESTO del instalador lo hace la app en SU plantilla (la de su factura, con otro fondo), el emisor e…
+- **239** → `.claude/rules/transversal-frontend.md` — En el móvil, el equipo navega con la BARRA DE ABAJO y todo lo fijo abajo se sube con `--barra-movil`
 
 ## Documentos por área
 
@@ -735,6 +736,7 @@
 - `docs/conocimiento/transversal-frontend/el-menu-lateral.md` — El menú lateral (2026-08-24)
 - `docs/conocimiento/transversal-frontend/el-visor-de-fotos-y-el-editor-de-imagen.md` — El VISOR de fotos y el EDITOR de imagen (2026-10-29)
 - `docs/conocimiento/transversal-frontend/estilo-carta-de-pago-lo-que-ve-el-cliente.md` — El ESTILO «carta de pago»: así se diseña lo que ve el CLIENTE (2026-10-24)
+- `docs/conocimiento/transversal-frontend/la-barra-de-abajo-del-movil.md` — La barra de abajo del móvil del equipo (2026-11-22)
 - `docs/conocimiento/transversal-frontend/y-con-el-plano-por-fin-traido-la-ventana-se-caia-entera-react-31.md` — Y con el plano por fin traído, la ventana se caía entera (React #310)
 - `docs/conocimiento/transversal-frontend/y-el-desplegable-se-leia-blanco-sobre-blanco.md` — Y el desplegable se leía BLANCO SOBRE BLANCO
 

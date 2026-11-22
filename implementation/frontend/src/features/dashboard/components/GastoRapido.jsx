@@ -3,8 +3,8 @@
 // del cuadro de mando, 22/11/2026).
 //
 // Foto (o PDF) → se LEE y se propone todo → un toque en «Guardar en Drive».
-//   elegir   : «Hacer foto» o «Subir PDF o foto» (en el móvil el botón flotante
-//              abre la cámara directamente y se salta este paso)
+//   elegir   : «Hacer foto» o «Subir PDF o foto» (en el móvil el ＋ de la barra de
+//              abajo abre la cámara directamente y se salta este paso)
 //   leyendo  : POST /api/facturacion/gastos/preparar (Gemini, ~10 s)
 //   revisar  : las páginas ya escaneadas, proveedor, fecha, total, de quién es
 //              (Sociedad / Autónomo), a qué carpeta va, con qué nombre y su IVA
@@ -37,7 +37,7 @@ const corta = (ruta) => { const p = String(ruta || '').split(' / '); return p.le
 let idPagina = 0;
 
 /**
- * @param inicial   ficheros con los que se abre (la cámara del botón flotante), o null
+ * @param inicial   ficheros con los que se abre (la cámara o el PDF del ＋ de la barra del móvil), o null
  * @param onClose   cerrar
  * @param onGuardado(r) tras subir uno: r = { nombre, carpeta, link, ya_estaba, … }
  */
@@ -122,7 +122,7 @@ export function GastoRapido({ inicial = null, onClose, onGuardado }) {
         }
     }, [leer, paginas, pdf]);
 
-    // Abierto desde el botón flotante: la foto ya viene hecha.
+    // Abierto desde el ＋ de la barra del móvil: la foto (o el PDF) ya viene elegida.
     useEffect(() => {
         if (arrancado.current || !inicial?.length) return;
         arrancado.current = true;

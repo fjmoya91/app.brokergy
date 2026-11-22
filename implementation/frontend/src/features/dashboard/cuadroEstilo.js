@@ -267,13 +267,6 @@ a.fx-link{text-decoration:underline}
 .cm-g-ok{width:60px;height:60px;border-radius:50%;display:grid;place-items:center;background:rgba(177,209,62,.28);color:var(--verde-txt)}
 .cm-g-fich{font-size:12px !important;overflow-wrap:anywhere;color:var(--tinta) !important}
 
-/* el botón flotante «Gasto» (solo en el móvil): abre la cámara directamente */
-.cm-fab{display:none}
-@media (max-width:767px){
-  .cm-fab{appearance:none;-webkit-tap-highlight-color:transparent;position:fixed;z-index:40;right:16px;bottom:calc(18px + env(safe-area-inset-bottom));display:inline-flex;align-items:center;gap:8px;min-height:56px;padding:0 20px 0 16px;border-radius:999px;border:0;background:var(--naranja);color:#08090c;font:700 15.5px/1 var(--texto);box-shadow:0 1px 0 rgba(255,255,255,.35) inset,0 14px 30px -10px rgba(20,17,17,.45);cursor:pointer}
-  .cm-fab:active{transform:scale(.97)}
-}
-
 /* esqueleto */
 .cm-sk-hero{min-height:300px}
 @container fx (max-width:479px){.cm-mini b{font-size:21px}.cm-mini > div{padding:11px 12px}}

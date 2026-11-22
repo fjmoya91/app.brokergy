@@ -116,6 +116,20 @@ body {
   }
 }
 
+/* La BARRA DE ABAJO del móvil del equipo (DashboardLayout, 22/11/2026): lo que mide,
+   con la zona del indicador de inicio dentro. La pone `html.con-barra-movil` mientras
+   se ve. TODO lo que va fijo abajo (el asistente, la barra de selección de lotes,
+   los avisos) se sube con esta variable; en escritorio vale 0. Ver regla 239. */
+:root { --barra-movil: 0px; }
+@media (max-width: 767px) {
+  html.con-barra-movil { --barra-movil: calc(62px + env(safe-area-inset-bottom)); }
+  /* El «Gasto» de la cabecera del cuadro sobra: está en el ＋ de la barra. */
+  html.con-barra-movil .cm-cab-gasto { display: none; }
+  /* La mascota del asistente (z 9300) quedaba ENCIMA de los diálogos (.fx-capa, z 9000)
+     y de las hojas de abajo, tapando su botón principal: con uno abierto, fuera. */
+  html:has(.fx-capa, [data-tapa-asistente]) .asistente-boton { display: none; }
+}
+
 /* ===================================
    ANIMATIONS
    =================================== */

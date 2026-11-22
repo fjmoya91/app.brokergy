@@ -460,7 +460,7 @@ export const CSS = `
 .fx-pop-info{display:flex;gap:8px;padding:8px 10px;font-size:12.5px;line-height:1.4;color:var(--gris)}
 .fx-pop hr{border:0;border-top:1px solid var(--linea);margin:6px 4px}
 @media (pointer:coarse){.fx-pop-item{min-height:48px}}
-.fx-toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:9200;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);padding:12px 16px;border-radius:14px;background:var(--tinta);color:#fff;font:600 14px/1.35 var(--texto);box-shadow:0 12px 30px -10px rgba(20,17,17,.5);animation:fx-toast .25s cubic-bezier(.2,.8,.2,1) both}
+.fx-toast{position:fixed;left:50%;bottom:calc(20px + max(var(--barra-movil, 0px), env(safe-area-inset-bottom)));transform:translateX(-50%);z-index:9200;display:flex;align-items:center;gap:10px;max-width:calc(100vw - 32px);padding:12px 16px;border-radius:14px;background:var(--tinta);color:#fff;font:600 14px/1.35 var(--texto);box-shadow:0 12px 30px -10px rgba(20,17,17,.5);animation:fx-toast .25s cubic-bezier(.2,.8,.2,1) both}
 .fx-toast svg{flex:none;color:var(--lima)}
 .fx-toast-aviso svg{color:#ffc65c}
 

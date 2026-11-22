@@ -521,7 +521,10 @@ export default function AsistenteFlotante({ onAbrir, pantalla }) {
     const boton = (
         <button type="button" onClick={() => setAbierto(v => !v)}
             title={abierto ? 'Cerrar el asistente' : 'Asistente'} aria-label="Asistente"
-            className={`fixed z-[9300] right-5 bottom-[calc(1.25rem+env(safe-area-inset-bottom))] group w-16 h-[72px] flex items-center justify-center active:scale-95 transition ${abierto ? 'max-md:hidden' : 'hover:scale-105'}`}>
+            // En el móvil va ENCIMA de la barra de abajo (`--barra-movil`, regla 239) y se
+            // esconde con un diálogo o un menú abierto abajo (`asistente-boton`, index.css).
+            style={{ bottom: 'calc(1.25rem + max(var(--barra-movil, 0px), env(safe-area-inset-bottom)))' }}
+            className={`asistente-boton fixed z-[9300] right-5 group w-16 h-[72px] flex items-center justify-center active:scale-95 transition ${abierto ? 'max-md:hidden' : 'hover:scale-105'}`}>
             {abierto
                 ? (
                     <span className="w-14 h-14 rounded-full bg-brand text-bkg-deep shadow-xl shadow-brand/20 flex items-center justify-center hover:bg-brand-400">

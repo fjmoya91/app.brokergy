@@ -11,7 +11,7 @@ Trimestres.
 
 | Qué | Dónde |
 |---|---|
-| El botón | Cuadro de mando: «+ Gasto» en la cabecera (elige foto o PDF) y, en el móvil, el botón flotante «Gasto», que abre la CÁMARA a la primera ([DashboardView.jsx](implementation/frontend/src/features/dashboard/views/DashboardView.jsx)) |
+| El botón | Cuadro de mando: «+ Gasto» en la cabecera (elige foto o PDF; [DashboardView.jsx](implementation/frontend/src/features/dashboard/views/DashboardView.jsx)). En el móvil, desde CUALQUIER pestaña, el ＋ de la barra de abajo: «Gasto con una foto» abre la CÁMARA a la primera y «Gasto en PDF» el selector ([BarraMovil.jsx](implementation/frontend/src/components/layout/BarraMovil.jsx), regla 239). Hasta el 22/11/2026 era un botón flotante abajo a la derecha, y tapaba la mascota del asistente |
 | La pantalla | [GastoRapido.jsx](implementation/frontend/src/features/dashboard/components/GastoRapido.jsx): elegir → leyendo → revisar → hecho |
 | El escaneo | [escaneoGasto.js](implementation/frontend/src/features/dashboard/logic/escaneoGasto.js), en el navegador |
 | Qué carpeta, qué mes, qué nombre | [gastoRapido.js](implementation/backend/services/gastoRapido.js) |

@@ -78,6 +78,8 @@ export function UserMenu({ open, onClose, anchorRef, canOpenProfile = false, onP
                 ref={panelRef}
                 role="menu"
                 aria-label="Menú de usuario"
+                // En el móvil es una hoja abajo: la mascota del asistente no va encima (index.css).
+                data-tapa-asistente={isMobile ? '' : undefined}
                 className={panelCls}
                 style={isMobile ? undefined : { width: ANCHO, left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}
             >

@@ -2436,9 +2436,10 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
             />
         )}
 
-        {/* ─── Barra flotante de selección para crear lote ─── */}
+        {/* ─── Barra flotante de selección para crear lote ───
+            En el móvil, encima de la barra de abajo (`--barra-movil`, regla 239). */}
         {selectMode && (
-            <div className="fixed bottom-4 inset-x-0 z-[120] flex justify-center px-4 pointer-events-none">
+            <div className="fixed inset-x-0 z-[120] flex justify-center px-4 pointer-events-none" style={{ bottom: 'calc(1rem + var(--barra-movil, 0px))' }}>
                 <div className="pointer-events-auto flex items-center gap-3 sm:gap-4 max-w-3xl w-full sm:w-auto bg-bkg-deep/95 backdrop-blur-md border border-white/[0.1] rounded-2xl shadow-2xl px-4 sm:px-5 py-3">
                     <div className="flex items-center gap-2 shrink-0">
                         <span className="inline-flex items-center justify-center min-w-[28px] h-7 px-2 rounded-lg bg-brand/15 text-brand text-sm font-black">{selectedCount}</span>

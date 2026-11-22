@@ -26,7 +26,8 @@ import {
 import { juntarAtencion, pct, energia, fuenteEstructura } from '../logic/cuadroFormato';
 import { CarteraCae } from '../components/CarteraCae';
 import { Impuestos } from '../components/CuadroImpuestos';
-import { GastoRapido, ICO_CAMARA } from '../components/GastoRapido';
+import { GastoRapido } from '../components/GastoRapido';
+import { EVENTO_GASTO_GUARDADO } from '../../../components/layout/BarraMovil';
 
 const SECCIONES = [
     { id: 'resumen', label: 'Resumen' },
@@ -76,14 +77,19 @@ export function DashboardView() {
     const [activa, setActiva] = useState('resumen');
     const [toast, avisar] = useToastFx();
     const nav = useRef(null);
-    // El alta rápida de un gasto: null cerrado · { ficheros } abierto (con la foto del botón flotante, o vacío).
+    // El alta rápida de un gasto desde la cabecera: null cerrado · { ficheros } abierto.
     const [gasto, setGasto] = useState(null);
-    const camaraFab = useRef(null);
 
     const cargarNegocio = useCallback((forzar) => leerNeg('/api/cuadro-mando/negocio', forzar ? { forzar: 1 } : {}), [leerNeg]);
     const cargarFinanzas = useCallback((a, forzar) => leerFin('/api/cuadro-mando/finanzas', { anio: a, ...(forzar ? { forzar: 1 } : {}) }), [leerFin]);
     useEffect(() => { cargarNegocio(false); }, [cargarNegocio]);
     useEffect(() => { cargarFinanzas(anio, false); }, [anio, cargarFinanzas]);
+    // Un gasto dado de alta desde el ＋ de la barra del móvil (BarraMovil) también rehace la cuenta.
+    useEffect(() => {
+        const h = (e) => { if (!e.detail?.ya_estaba) cargarFinanzas(anio, true); };
+        window.addEventListener(EVENTO_GASTO_GUARDADO, h);
+        return () => window.removeEventListener(EVENTO_GASTO_GUARDADO, h);
+    }, [anio, cargarFinanzas]);
 
     const n = neg.datos;
     const f = fin.datos && fin.datos.anio === anio ? fin.datos : null;
@@ -263,14 +269,8 @@ export function DashboardView() {
                     Cifras de gestión calculadas por la app con los datos de hoy (sin IVA salvo donde se dice). No sustituyen a la contabilidad de la gestoría.
                 </p>
             </div>
-            {/* En el móvil, el botón flotante abre la CÁMARA a la primera; la foto abre el diálogo ya leyendo. */}
-            <input ref={camaraFab} type="file" accept="image/*" capture="environment" hidden
-                onChange={e => { const fs = Array.from(e.target.files || []); e.target.value = ''; if (fs.length) setGasto({ ficheros: fs }); }} />
-            {!gasto && (
-                <button type="button" className="cm-fab" onClick={() => camaraFab.current?.click()} aria-label="Añadir un gasto con una foto">
-                    <Ico d={ICO_CAMARA} size={22} />Gasto
-                </button>
-            )}
+            {/* En el móvil el gasto se añade desde el ＋ de la barra de abajo (BarraMovil),
+                que abre la cámara a la primera; el botón de la cabecera se oculta allí. */}
             {gasto && (
                 <GastoRapido inicial={gasto.ficheros} onClose={() => setGasto(null)}
                     onGuardado={(r) => { avisar(r.ya_estaba ? 'Ese gasto ya estaba en Drive' : 'Gasto guardado en Drive'); if (!r.ya_estaba) cargarFinanzas(anio, true); }} />
