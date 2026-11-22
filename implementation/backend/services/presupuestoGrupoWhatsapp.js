@@ -39,8 +39,6 @@
 // cerebro real: scripts/probar_presupuesto_wa.js).
 // =============================================================================
 
-const path = require('path');
-const { pathToFileURL } = require('url');
 const horario = require('../utils/horarioWhatsapp');
 
 // ─── Configuración (se lee cada vez: las pruebas la cambian) ────────────────
@@ -82,80 +80,10 @@ const MSG = {
     confirmada: 'Vivienda confirmada. Ya lo tenemos en BROKERGY para calcular el bono; en cuanto esté te pasamos la propuesta para tu cliente.',
 };
 
-// ─── La lógica pura del presupuesto (ESM, la misma que la app) ───────────────
-let _logica = null;
-function logica() {
-    if (!_logica) _logica = import(pathToFileURL(path.join(__dirname, '../../frontend/src/features/instalador/logic/presupuesto.js')).href);
-    return _logica;
-}
-
-const limpio = (v) => (v === null || v === undefined ? '' : String(v).replace(/[\u0000-\u001f\u007f`]+/g, ' ').replace(/\s+/g, ' ').trim());
-const idDe = (c) => c?.id_cliente ?? c?.id ?? null;
-const nombreDe = (c) => limpio([c?.nombre || c?.nombre_razon_social, c?.apellidos].filter(Boolean).join(' '));
-const titulo = (s) => limpio(s).toLowerCase().replace(/(^|[\s-])([a-záéíóúñü])/g, (m, a, b) => a + b.toUpperCase());
-const mascara = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length >= 3 ? `···${d.slice(-3)}` : ''; };
-const hoy = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
-const eleccionDe = (txt) => { const m = /^\s*(?:el|la|opci[oó]n|n[uú]mero|n[ºo°])?\s*(\d{1,2})\s*[.)ºª]?\s*$/i.exec(String(txt || '')); return m ? Number(m[1]) : null; };
-
-// ─── El estado del pedido (puro) ─────────────────────────────────────────────
-
-/** Mezcla lo extraído en lo que ya se sabía: lo dicho ahora MANDA; lo no dicho no borra. Pura. */
-function fusionar(p, ext) {
-    const n = JSON.parse(JSON.stringify(p || {}));
-    n.cliente = n.cliente || {};
-    for (const [k, v] of Object.entries(ext.cliente || {})) if (v) n.cliente[k] = v;
-    n.obra = n.obra || {};
-    const o = ext.obra || {};
-    if (o.tipo === 'aerotermia_acs') { n.obra.tipo = 'aerotermia'; n.obra.acs = true; } else if (o.tipo) n.obra.tipo = o.tipo;
-    const eq = o.equipo || {};
-    n.obra.equipo = { ...(n.obra.equipo || {}) };
-    for (const k of ['marca', 'modelo', 'potencia_kw']) if (eq[k] !== null && eq[k] !== undefined) n.obra.equipo[k] = eq[k];
-    if (o.caldera?.combustible) n.obra.caldera = { combustible: o.caldera.combustible };
-    if (o.acs === true || o.acs === false) n.obra.acs = o.acs;
-    if (o.emisor) n.obra.emisor = o.emisor;
-    for (const k of ['direccion', 'municipio', 'descripcion']) if (o[k]) n.obra[k] = o[k];
-    if ((o.extras || []).length || (o.extras_quitar || []).length) {
-        const lista = Array.isArray(n.obra.extras) ? n.obra.extras.filter(Boolean) : [];
-        for (const e of o.extras || []) {
-            const i = lista.findIndex(x => x.clave === e.clave);
-            if (i >= 0) lista[i] = { ...lista[i], ...e }; else lista.push(e);
-        }
-        n.obra.extras = lista.filter(x => !(o.extras_quitar || []).some(q => q.clave === x.clave));
-        n.quitados = [...new Set([...(n.quitados || []), ...(o.extras_quitar || []).map(q => q.clave)])]
-            .filter(k => !(o.extras || []).some(e => e.clave === k));
-    }
-    if (ext.importe !== null && ext.importe !== undefined) { n.importe = ext.importe; n.con_iva = !!ext.con_iva; }
-    if (['simulacion', 'ambos'].includes(ext.quiere)) n.quiere_sim = true;
-    return n;
-}
-
-/** ¿Ha dicho algo que sirva? Pura. */
-function hayAlgo(ext) {
-    if (!ext) return false;
-    if (ext.quiere !== 'nada') return true;
-    const o = ext.obra || {};
-    return Object.values(ext.cliente || {}).some(Boolean) || !!o.tipo || Object.values(o.equipo || {}).some(v => v !== null)
-        || !!o.caldera?.combustible || o.acs !== null || !!o.emisor || (o.extras || []).length > 0 || (o.extras_quitar || []).length > 0
-        || !!o.direccion || !!o.descripcion || ext.importe !== null || !!ext.respuesta_vivienda || !!ext.eleccion
-        || !!ext.numero_otro || !!ext.referencia_catastral;
-}
-
-/** Lo que falta de la OBRA para hacer el presupuesto, en una frase. Pura. */
-function faltaObra(p) {
-    const o = p.obra || {};
-    const falta = [];
-    if (!o.tipo) falta.push('qué obra es (cambio de caldera por aerotermia, solo agua caliente, aire acondicionado u otra)');
-    else if (o.tipo === 'otro' && !o.descripcion) falta.push('qué incluye la obra');
-    if (!(p.importe > 0)) falta.push('el precio (y si es con el IVA incluido o más IVA)');
-    return falta.length ? `Para hacerlo me falta ${falta.join(' y ')}.` : null;
-}
-
-/** Si no dice el tipo pero sí un equipo o la caldera que se quita, es una aerotermia (lo decide la casa). Pura. */
-function conTipoPorDefecto(p) {
-    const o = p.obra || {};
-    if (!o.tipo && (o.equipo?.marca || o.equipo?.modelo || o.caldera?.combustible)) return { ...p, obra: { ...o, tipo: 'aerotermia' } };
-    return p;
-}
+// ─── La lógica pura y el MOTOR común con el asistente de la app (fase 6) ──────
+const M = require('./presupuestoMotor');
+const { logica, limpio, nombreDe, titulo, hoy, eleccionDe,
+    fusionar, hayAlgo, faltaObra, entradaDe, cambiaElPresupuesto } = M;
 
 /** Lo que se le pasa al cerebro como «pedido en curso»: lo que sabemos y qué le preguntamos. Pura. */
 function resumenParaCerebro(fila) {
@@ -169,37 +97,6 @@ function resumenParaCerebro(fila) {
         presupuesto_hecho: p.presupuesto ? p.presupuesto.numero : null,
         le_hemos_preguntado: fila.espera ? `${fila.espera}${p.pregunta ? ` (${p.pregunta})` : ''}` : (p.pregunta || null),
         lista_numerada: p.lista ? p.lista.map((x, i) => `${i + 1}) ${x}`) : null,
-    };
-}
-
-/** La entrada del servicio de presupuestos. Pura. */
-function entradaDe(p, opciones, ahora) {
-    const o = p.obra || {};
-    const obra = {
-        tipo: o.tipo,
-        direccion: o.direccion || p.cliente?.direccion || '',
-        codigo_postal: o.codigo_postal || p.cliente?.codigo_postal || '',
-        municipio: o.municipio || p.cliente?.municipio || '',
-        provincia: o.provincia || p.cliente?.provincia || '',
-        equipo: { aerotermia_id: null, marca: o.equipo?.marca || '', modelo: o.equipo?.modelo || '', potencia_kw: o.equipo?.potencia_kw ?? null },
-        caldera: { combustible: o.caldera?.combustible || null },
-        acs: o.acs === true,
-        emisor: o.emisor || 'radiadores',
-        extras: o.extras || [],
-        descripcion: o.descripcion || '',
-        ...(p.vivienda?.rc ? { ref_catastral: p.vivienda.rc } : {}),
-    };
-    return {
-        numero: p.presupuesto?.numero || opciones?.numero,
-        fecha: p.presupuesto?.fecha || opciones?.fecha || hoy(ahora),
-        ...(p.cliente_id ? { cliente_id: p.cliente_id } : { cliente: { ...p.cliente } }),
-        obra,
-        modo: 'total',
-        total: String(p.importe),
-        con_iva: !!p.con_iva,
-        iva_pct: opciones?.iva_pct ?? 21,
-        notas: opciones?.notas ?? '',
-        validez_dias: opciones?.validez_dias ?? 30,
     };
 }
 
@@ -354,7 +251,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     }
 
     // EL CEREBRO: solo extrae.
-    const catalogos = { TIPOS_OBRA: L.TIPOS_OBRA, COMBUSTIBLES: L.COMBUSTIBLES, EMISORES: L.EMISORES, EXTRAS: L.EXTRAS.map(e => ({ clave: e.clave, etiqueta: e.etiqueta, litros: e.litros || null })) };
+    const catalogos = M.catalogosDe(L);
     const r = await deps.cerebro.extraer({ mensajes: nuevos, pedido: resumenParaCerebro(fila), catalogos });
     if (!r?.ok) return fallo(`el cerebro ha fallado (${r?.error || 'sin respuesta'})`);
     const ext = r.datos;
@@ -400,9 +297,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     // compone igual, para que Fran vea lo que habría salido.
     const S = cfg.modo === 'real' || deps.presupuestos?.sinGuardar ? deps.presupuestos : servicioSinGuardar(deps.presupuestos, L);
     if (!S) return fallo('el servicio de presupuestos no está en este servidor');
-    const opciones = async () => (p.opciones ||= await S.opcionesNuevo({ prescriptorId }).then(o => ({
-        numero: o.numero, fecha: o.fecha, iva_pct: o.iva_pct, notas: o.notas, validez_dias: o.validez_dias, emisor: o.emisor?.nombre || null,
-    })));
+    const opciones = async () => (p.opciones ||= await M.opcionesDe(S, prescriptorId));
 
     try {
         if (ext.quiere === 'cancelar') {
@@ -413,41 +308,19 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
 
         // ── 1. El PRESUPUESTO ────────────────────────────────────────────────
         if (!p.presupuesto) {
-            // 1a. El CLIENTE, antes de nada.
-            if (!p.cliente_id && !p.cliente_listo) {
-                if (espera === 'cliente' && p.candidatos?.length && ext.eleccion) {
-                    const c = p.candidatos[ext.eleccion - 1];
-                    if (!c) return preguntar(`Dime un número del 1 al ${p.candidatos.length}, o su DNI o teléfono si es otro.`, 'cliente');
-                    const rc = await S.resolverCliente({ prescriptorId, clienteId: c.id });
-                    p.cliente_id = idDe(rc.cliente) || c.id; p.cliente = { ...p.cliente, ...soloDatos(rc.cliente) };
-                    delete p.candidatos; delete p.lista;
-                } else {
-                    const c = p.cliente || {};
-                    if (!c.nombre) return preguntar(MSG.cliente, 'cliente');
-                    if (!c.tlf && !c.direccion && !c.dni) return preguntar(`Me falta el teléfono o la dirección de ${titulo(nombreDe(c))} para darlo de alta.`, 'cliente');
-                    const rc = await S.resolverCliente({ prescriptorId, cliente: c });
-                    if (rc.candidatos?.length > 1) {
-                        p.candidatos = rc.candidatos.slice(0, 9).map(x => ({ id: idDe(x), nombre: nombreDe(x), municipio: x.municipio || null, tlf: mascara(x.tlf) }));
-                        p.lista = p.candidatos.map(x => `${titulo(x.nombre)}${x.municipio ? ` (${titulo(x.municipio)}${x.tlf ? `, ${x.tlf}` : ''})` : x.tlf ? ` (${x.tlf})` : ''}`);
-                        return preguntar(`Tengo varios clientes con ese nombre:\n${p.lista.map((x, i) => `${i + 1}) ${x}`).join('\n')}\n¿Cuál es? Contesta con el número, o dime su DNI o teléfono si es otro.`, 'cliente');
-                    }
-                    p.cliente_id = idDe(rc.cliente);
-                    p.cliente = { ...c, ...soloDatos(rc.cliente) };
-                    p.cliente_creado = !!rc.creado;
-                    if (!p.cliente_id) p.cliente_listo = true;      // sin guardar (modo copia / banco): con los datos tal cual
-                }
-                espera = null;
-            }
+            // 1a. El CLIENTE, antes de nada (el motor común; los textos, los de este canal).
+            const yaHabiaCliente = !!(p.cliente_id || p.cliente_listo);
+            const rc = await M.clienteDelPedido(S, { prescriptorId, p, eleccion: espera === 'cliente' ? ext.eleccion : null });
+            if (rc.pregunta === 'eleccion') return preguntar(`Dime un número del 1 al ${rc.n}, o su DNI o teléfono si es otro.`, 'cliente');
+            if (rc.pregunta === 'cliente') return preguntar(MSG.cliente, 'cliente');
+            if (rc.pregunta === 'contacto') return preguntar(`Me falta el teléfono o la dirección de ${rc.nombre} para darlo de alta.`, 'cliente');
+            if (rc.pregunta === 'candidatos') return preguntar(`Tengo varios clientes con ese nombre:\n${rc.lista.map((x, i) => `${i + 1}) ${x}`).join('\n')}\n¿Cuál es? Contesta con el número, o dime su DNI o teléfono si es otro.`, 'cliente');
+            if (!yaHabiaCliente) espera = null;
 
-            // 1b. La OBRA y el IMPORTE, de una vez.
-            p = conTipoPorDefecto(p);
-            const falta = faltaObra(p);
-            if (falta) return preguntar(falta, !p.obra?.tipo ? 'obra' : 'importe');
-            // Lo que va marcado por defecto (retirar la caldera en una sustitución) + lo que ha dicho,
-            // salvo lo que haya pedido quitar.
-            const dichos = p.obra.extras || [];
-            p.obra.extras = [...dichos, ...L.extrasPorDefecto(p.obra)
-                .filter(d => !dichos.some(x => x.clave === d.clave) && !(p.quitados || []).includes(d.clave))];
+            // 1b. La OBRA y el IMPORTE, de una vez (con lo que va por defecto).
+            const lista = M.prepararObra(p, L);
+            p = lista.p;
+            if (lista.falta) return preguntar(lista.falta, lista.espera);
 
             // 1c. Tope diario.
             const hechos = await deps.pedidos.presupuestosHoy(chatId);
@@ -460,16 +333,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
 
             // 1d. Se CREA, se compone el PDF y va al grupo.
             const op = await opciones();
-            let entrada = entradaDe(p, op, ahora);
-            let filaP;
-            try {
-                filaP = await S.crear({ prescriptorId, usuarioId: null, origen: 'whatsapp', entrada });
-            } catch (e) {
-                if (e.status === 409 && e.code === 'NUMERO_REPETIDO' && e.sugerido) {
-                    entrada = { ...entrada, numero: e.sugerido };
-                    filaP = await S.crear({ prescriptorId, usuarioId: null, origen: 'whatsapp', entrada });
-                } else throw e;
-            }
+            const { filaP, entrada } = await M.crearDelPedido(S, { prescriptorId, usuarioId: null, origen: 'whatsapp', p, op, ahora });
             const { buffer } = await S.pdfDe(prescriptorId, filaP);
             p.presupuesto = { id: filaP.id, numero: filaP.numero, fecha: filaP.fecha, at: ahora.toISOString(), base: filaP.base, total: filaP.total };
             p.entrada = entrada;
@@ -485,8 +349,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
                 return preguntar('Ese presupuesto ya tiene más de un día: cámbialo en la app, o pídeme uno nuevo.', null);
             }
             const op = await opciones();
-            const entrada = { ...entradaDe(p, op, ahora), numero: p.presupuesto.numero, fecha: p.presupuesto.fecha };
-            const filaP = await S.actualizar({ prescriptorId, id: p.presupuesto.id, entrada });
+            const { filaP, entrada } = await M.cambiarDelPedido(S, { prescriptorId, p, op, ahora });
             const { buffer } = await S.pdfDe(prescriptorId, filaP);
             p.presupuesto = { ...p.presupuesto, base: filaP.base, total: filaP.total, at: ahora.toISOString() };
             p.entrada = entrada;
@@ -608,21 +471,6 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
         return { ...out, estado };
     }
     function V_desc(v) { return [limpio(v.direccion), v.municipio].filter(Boolean).join(', '); }
-}
-
-/** ¿Lo que ha dicho cambia el presupuesto ya hecho? (importe, extras, equipo). Pura. */
-function cambiaElPresupuesto(ext) {
-    const o = ext.obra || {};
-    return ext.importe !== null || (o.extras || []).length > 0 || (o.extras_quitar || []).length > 0
-        || !!o.equipo?.marca || !!o.equipo?.modelo || o.equipo?.potencia_kw !== null && o.equipo?.potencia_kw !== undefined;
-}
-
-/** De la ficha del cliente, solo los datos que se imprimen / encargan (nada de ids internos ni JSONB). */
-function soloDatos(c) {
-    if (!c) return {};
-    const nombre = c.nombre || c.nombre_razon_social || null;
-    const r = { nombre, apellidos: c.apellidos || null, dni: c.dni || c.nif || null, tlf: c.tlf || c.telefono || null, direccion: c.direccion || null, codigo_postal: c.codigo_postal || null, municipio: c.municipio || null, provincia: c.provincia || null };
-    return Object.fromEntries(Object.entries(r).filter(([, v]) => v));
 }
 
 // ─── El servicio «sin guardar» (modo copia y banco) ─────────────────────────

@@ -10,13 +10,14 @@
 //   /?seccion=clientes&cliente=<id_cliente>
 //   /?seccion=catalogo&equipo=101
 //   /?seccion=pagina
+//   /?seccion=asistente   (fase 6: la charla NO viaja; recargar la empieza de cero)
 //   /?seccion=presupuestos&presupuesto=<uuid>   (o `presupuesto=nuevo`: el formulario vacío)
 //
 // El resto de la dirección (lo de quien nos aloja: `op`, o lo del banco de pruebas)
 // no se toca: se leen y escriben solo estas claves.
 
 export const CLAVES = ['seccion', 'obra', 'accion', 'cliente', 'equipo', 'presupuesto'];
-export const SECCIONES = ['inicio', 'obras', 'clientes', 'catalogo', 'pagina', 'presupuestos'];
+export const SECCIONES = ['inicio', 'obras', 'clientes', 'catalogo', 'pagina', 'presupuestos', 'asistente'];
 export const ACCIONES = ['propuesta', 'presupuesto', 'factura', 'cifo', 'rite', 'fm_decl', 'docs'];
 
 const forma = {

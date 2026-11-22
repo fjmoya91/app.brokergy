@@ -557,6 +557,121 @@ export const CSS = `
   .ia-of-arriba.dos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
 }
 
+/* ── Fase 6: «Tu asistente» (prefijo .ia-asi-) ──
+   En el móvil ocupa la pantalla: la cabecera y la barra de la app se esconden y lleva
+   la suya con atrás; el compositor va pegado abajo. Desde 1024 px: el chat en el centro
+   y lo preparado a la derecha. */
+.ia-visual-oculto{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:1023px){
+  .ia-app.con-asistente .ia-cab,.ia-app.con-asistente .ia-barra{display:none}
+  .ia-app.con-gota .ia-main::after{content:'';display:block;height:72px}
+}
+.ia-asi{display:flex;flex-direction:column;min-height:100%;width:100%}
+.ia-asi-cab{position:sticky;top:0;z-index:5;background:var(--crema);display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 14px 10px 6px;border-bottom:1px solid var(--linea)}
+.ia-asi-atras{flex:none;width:44px;height:44px;border-radius:14px;display:flex;align-items:center;justify-content:center;background:none;border:0;color:var(--tinta);cursor:pointer}
+.ia-asi-cara{flex:none;width:34px;height:34px;object-fit:contain}
+.ia-asi-cara.g{width:44px;height:44px}
+.ia-asi-cab-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+.ia-asi-cab-txt h1{margin:0;font-size:24px;line-height:1.05}
+.ia-asi-cab-txt span{font-size:13px;color:var(--gris);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ia-asi-cero{margin-left:auto;font-size:13.5px;flex:none}
+.ia-asi-dos{flex:1 1 auto;padding:14px 16px 6px}
+.ia-asi-chat{display:flex;flex-direction:column;gap:12px;max-width:760px;margin:0 auto;width:100%}
+.ia-asi-solo-movil{display:flex;flex-direction:column;gap:12px}
+.ia-asi-lado{display:none}
+.ia-asi-yo-no{display:flex;gap:8px;align-items:flex-end}
+.ia-asi-burbuja{max-width:88%;padding:12px 14px;border-radius:20px;font-size:15.5px;line-height:1.5;overflow-wrap:anywhere}
+.ia-asi-burbuja p{margin:0}
+.ia-asi-burbuja p+p,.ia-asi-burbuja p+.ia-aviso{margin-top:8px}
+.ia-asi-burbuja.el{background:#fff;border:1px solid var(--linea);border-bottom-left-radius:6px;box-shadow:var(--sombra);color:var(--tinta)}
+.ia-asi-burbuja.yo{align-self:flex-end;background:var(--tinta);color:#fff;border-bottom-right-radius:6px;white-space:pre-wrap}
+.ia-asi-saludo{font-size:24px;line-height:1.1;margin-bottom:6px !important}
+.ia-asi-paso{color:var(--gris);font-size:14px}
+.ia-asi-pensando{color:var(--gris)}
+.ia-asi-pensando span{animation:ia-asi-punto 1.2s infinite}
+.ia-asi-pensando span:nth-child(2){animation-delay:.2s}.ia-asi-pensando span:nth-child(3){animation-delay:.4s}
+@keyframes ia-asi-punto{0%,80%,100%{opacity:.2}40%{opacity:1}}
+.ia-asi-turno{display:flex;flex-direction:column;gap:10px}
+.ia-asi-chips{display:flex;flex-wrap:wrap;gap:8px}
+.ia-asi-chip{min-height:44px;padding:0 16px;border-radius:999px;background:#fff;border:1.5px solid rgba(20,17,17,.14);font:inherit;font-size:14.5px;font-weight:700;color:var(--tinta);cursor:pointer;text-align:left}
+.ia-asi-chip:active{transform:scale(.98)}
+.ia-asi-chip:disabled{opacity:.5;cursor:default}
+.ia-asi-otra{margin:4px 0 0;font-size:13px;font-weight:700;color:var(--gris)}
+@media (min-width:480px){
+  .ia-asi-turno>.ia-card,.ia-asi-chips,.ia-asi-otra,.ia-asi-solo-movil{margin-left:42px}
+}
+/* Lo preparado */
+.ia-asi-prep{padding:16px 8px 8px}
+.ia-asi-cosa{display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px 12px;align-items:center;padding:12px;border-top:1px solid var(--linea)}
+.ia-asi-cosa.primera{border-top:0}
+.ia-asi-cosa .ia-btn{grid-column:2;justify-self:start}
+@media (min-width:560px){
+  .ia-asi-cosa{grid-template-columns:44px minmax(0,1fr) auto}
+  .ia-asi-cosa .ia-btn{grid-column:auto}
+}
+.ia-asi-lado .ia-asi-cosa{grid-template-columns:44px minmax(0,1fr)}
+.ia-asi-lado .ia-asi-cosa .ia-btn{grid-column:2}
+/* Las tarjetas (un presupuesto, una obra) */
+.ia-asi-tarjeta{display:flex;flex-direction:column;gap:12px}
+.ia-asi-tarjeta-cab{display:flex;gap:12px;align-items:flex-start}
+.ia-asi-tarjeta-cab>div{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ia-asi-tarjeta-cab b{font-size:16.5px;line-height:1.3}
+.ia-asi-tarjeta-cab span{font-size:13.5px;color:var(--gris);line-height:1.35}
+.ia-asi-resumen{margin:0;font-size:14.5px;line-height:1.45;color:var(--gris)}
+.ia-asi-total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;border-top:1.5px solid var(--tinta);padding-top:12px}
+.ia-asi-total span{font-size:14px;color:var(--gris)}
+.ia-asi-total b{font-size:36px;line-height:1}
+.ia-asi-base{margin:-6px 0 0;text-align:right;font-size:13px;color:var(--gris)}
+.ia-asi-bts{display:flex;flex-direction:column;gap:8px}
+@media (min-width:600px){.ia-asi-bts{flex-direction:row;flex-wrap:wrap}.ia-asi-bts .ia-btn{flex:1 1 auto;min-height:52px;font-size:15px;padding:0 16px;white-space:nowrap}}
+.ia-asi-filas{display:flex;flex-direction:column}
+.ia-asi-fila{display:grid;grid-template-columns:112px minmax(0,1fr);gap:12px;padding:10px 0;border-top:1px solid var(--linea);font-size:14.5px;line-height:1.4}
+.ia-asi-fila span{color:var(--gris)}
+.ia-asi-fila b{font-weight:600}
+.ia-asi-fila.tu b{color:var(--naranja-txt);font-weight:700}
+.ia-asi-fila.ok b{color:var(--verde-txt)}
+.ia-asi-ayuda ul{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--gris);line-height:1.4}
+.ia-asi-ayuda b{color:var(--tinta);font-weight:600}
+/* El compositor */
+.ia-asi-pie{position:sticky;bottom:0;z-index:5;display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px calc(12px + env(safe-area-inset-bottom));background:linear-gradient(rgba(250,249,247,0),var(--crema) 14px);max-width:792px;margin:0 auto;width:100%}
+.ia-asi-aviso{flex-basis:100%;padding:12px 14px;font-size:14px}
+.ia-asi-campo{flex:1 1 auto;min-width:0}
+.ia-asi-campo input{width:100%;min-height:52px;border-radius:999px;border:1.5px solid rgba(20,17,17,.14);background:#fff;padding:0 18px;font:inherit;font-size:16px;color:var(--tinta);box-shadow:var(--sombra)}
+.ia-asi-campo input::placeholder{color:var(--gris2)}
+.ia-asi-boton{flex:none;width:52px;height:52px;border-radius:999px;border:0;background:var(--naranja);color:#08090c;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 10px 22px -10px rgba(255,160,0,.75)}
+.ia-asi-boton.sec{background:#fff;border:1.5px solid rgba(20,17,17,.14);box-shadow:none;color:var(--tinta)}
+.ia-asi-boton.grabando{background:var(--tinta);color:#fff;animation:ia-asi-latido 1.4s ease-in-out infinite}
+.ia-asi-boton:disabled{opacity:.5;cursor:default}
+.ia-asi-grabando{flex:1 1 auto;min-width:0;min-height:52px;border-radius:999px;background:var(--ambar-bg);border:1px solid var(--ambar-borde);display:flex;align-items:center;gap:10px;padding:0 18px;color:var(--ambar-txt);font-size:15px}
+.ia-asi-grabando>span:last-child{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ia-asi-punto{flex:none;width:10px;height:10px;border-radius:50%;background:var(--naranja);animation:ia-asi-punto 1.2s infinite}
+@keyframes ia-asi-latido{0%,100%{box-shadow:0 0 0 0 rgba(20,17,17,.28)}50%{box-shadow:0 0 0 9px rgba(20,17,17,0)}}
+/* La gota flotante de las listas (solo móvil) */
+.ia-asi-gota{position:fixed;right:16px;bottom:calc(96px + env(safe-area-inset-bottom));z-index:60;width:60px;height:60px;border-radius:999px;background:#fff;border:1px solid var(--linea);box-shadow:0 10px 24px -8px rgba(20,17,17,.30);padding:6px;cursor:pointer}
+.ia-asi-gota img{width:100%;height:100%;object-fit:contain;display:block}
+/* La tarjeta de Inicio */
+.ia-asi-entrada{display:flex;flex-direction:column;gap:14px}
+.ia-asi-entrada-cab{display:flex;gap:12px;align-items:center}
+.ia-asi-entrada-cab img{flex:none;width:52px;height:52px;object-fit:contain}
+.ia-asi-entrada-cab div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.ia-asi-entrada-cab b{font-size:16px;line-height:1.3}
+.ia-asi-entrada-cab span{font-size:13.5px;color:var(--gris);line-height:1.4}
+.ia-asi-entrada-bts{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.ia-asi-entrada-bts .ia-btn{min-height:48px;font-size:15px;padding:0 14px}
+@media (min-width:1024px){
+  .ia-asi-gota{display:none}
+  .ia-asi{display:grid;grid-template-columns:minmax(0,1fr) 360px;grid-template-rows:auto 1fr auto;column-gap:24px;padding:0 28px;max-width:1280px}
+  .ia-asi-cab{grid-column:1/-1;padding:22px 0 12px;border-bottom:0}
+  .ia-asi-atras{display:none}
+  .ia-asi-dos{display:contents}
+  .ia-asi-chat{grid-column:1;grid-row:2;max-width:none;padding-top:4px;align-self:start}
+  .ia-asi-solo-movil{display:none}
+  .ia-asi-lado{display:flex;flex-direction:column;gap:14px;grid-column:2;grid-row:2 / span 2;align-self:start;position:sticky;top:92px;max-height:calc(100vh - 104px);overflow-y:auto;padding:2px 2px 20px;scrollbar-width:thin}
+  .ia-asi-pie{grid-column:1;grid-row:3;padding:12px 0 20px;max-width:none}
+}
+@media (min-width:1500px){.ia-asi{grid-template-columns:minmax(0,1fr) 420px;max-width:1440px}}
+@media (prefers-reduced-motion:reduce){.ia-asi-pensando span,.ia-asi-punto,.ia-asi-boton.grabando{animation:none}}
+
 @media (max-width:359px){
   .ia-pr-totales .total b{font-size:34px}
   .ia-pr-partida input.p{width:100px}

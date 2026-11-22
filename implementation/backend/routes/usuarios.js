@@ -22,7 +22,9 @@ router.get('/me', requireAuth, (req, res) => {
     // req.user ya viene enriquecido desde Supabase por nuestro middleware auth.js.
     // `app_instalador`: ¿ve la app nueva del instalador? Lo decide SOLO
     // utils/appInstalador.js (beta por APP_INSTALADOR_BETA); el frontend no lo deduce.
-    res.json({ ...req.user, app_instalador: require('../utils/appInstalador').enBetaInstalador(req.user) });
+    // `asistente_instalador` (fase 6): si además tiene el chat del asistente.
+    const AIN = require('../utils/appInstalador');
+    res.json({ ...req.user, app_instalador: AIN.enBetaInstalador(req.user), asistente_instalador: AIN.asistenteEncendido(req.user) });
 });
 
 // Actualizar el perfil del PROPIO usuario logueado (datos personales, dirección,

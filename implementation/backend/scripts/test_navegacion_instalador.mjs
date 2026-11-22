@@ -13,6 +13,8 @@
  * donde va; si no, se queda el de BROKERGY (null).
  * Y `ui/cabeceraApp.js` + `index.html`: el manifest del instalador NO está en la página de todos;
  * se pone solo al montar su app.
+ * Y (fase 6) lo puro del ASISTENTE: la sección en la dirección, la memoria, el historial, el
+ * lector NDJSON y el WAV de la nota de voz.
  * Sin red ni BD.
  */
 import fs from 'fs';
@@ -179,6 +181,40 @@ t('manifest: iconos existen', man.icons.every((i) => fs.existsSync(path.join(rai
 t('manifest: con icono maskable', man.icons.some((i) => /maskable/.test(i.purpose || '')));
 t('manifest: start_url sin datos personales', !/obra=|cliente=|token|@/.test(man.start_url));
 t('sin service worker', !fs.existsSync(path.join(raizFront, 'public/instalador/sw.js')) && !/serviceWorker\.register/.test(cab));
+
+// ── Fase 6: el ASISTENTE ─────────────────────────────────────────────────────
+t('asistente: sección válida', L('?seccion=asistente').seccion === 'asistente');
+t('asistente: se escribe solo la sección (la charla no viaja)', igual(dir.clavesDe({ seccion: 'asistente', ficha: null }), { seccion: 'asistente' }));
+const asi = await import(front('features/instalador/logic/asistente.js'));
+t('memoria: se funde y un null borra', igual(asi.fundirMemoria({ obra: { id: 'X' }, candidatos: [{ id: 1 }] }, { presupuesto: { id: 'p' }, candidatos: null }), { obra: { id: 'X' }, presupuesto: { id: 'p' } }));
+t('memoria: sin nada, vacía', igual(asi.fundirMemoria(null, null), {}));
+t('historial: solo texto y sin turnos vacíos', igual(asi.historialPara([
+    { role: 'user', texto: 'hola' }, { role: 'assistant', texto: '', tarjetas: [{}] }, { role: 'assistant', texto: 'dime', tarjetas: [] },
+]), [{ role: 'user', content: 'hola' }, { role: 'assistant', content: 'dime' }]));
+{
+    // NDJSON a trozos: una línea partida entre dos lecturas, una línea rota y la última sin salto.
+    const trozos = ['{"t":"texto","d":"Ho', 'la"}\n{roto\n', '{"t":"fin"}'];
+    const enc = new TextEncoder();
+    let i = 0;
+    const r = { ok: true, body: { getReader: () => ({ read: async () => (i < trozos.length ? { value: enc.encode(trozos[i++]), done: false } : { done: true }) }) } };
+    const ev = [];
+    await asi.leerNdjson(Promise.resolve(r), (e) => ev.push(e));
+    t('ndjson: une lo partido, salta lo roto y lee la última', igual(ev, [{ t: 'texto', d: 'Hola' }, { t: 'fin' }]), JSON.stringify(ev));
+    let err = null;
+    try { await asi.leerNdjson(Promise.resolve({ ok: false, status: 403, json: async () => ({ error: 'No', code: 'ASISTENTE_OFF' }) })); } catch (e) { err = e; }
+    t('ndjson: un HTTP de error lanza con su status y code', err?.status === 403 && err?.code === 'ASISTENTE_OFF');
+}
+const wav = await import(front('features/instalador/logic/audioWav.js'));
+{
+    const b = wav.wavDe(new Float32Array([0, 1, -1, 0.5]), 16000);
+    const v = new DataView(await b.arrayBuffer());
+    const txt = (o, n) => String.fromCharCode(...Array.from({ length: n }, (_, k) => v.getUint8(o + k)));
+    t('wav: cabecera RIFF/WAVE PCM mono 16 kHz', txt(0, 4) === 'RIFF' && txt(8, 4) === 'WAVE' && v.getUint16(20, true) === 1 && v.getUint16(22, true) === 1 && v.getUint32(24, true) === 16000);
+    t('wav: tamaño y muestras', b.size === 44 + 8 && b.type === 'audio/wav' && v.getInt16(46, true) === 32767 && v.getInt16(48, true) === -32768);
+}
+const vistaAsi = fs.readFileSync(path.join(raizFront, 'src/features/instalador/views/AsistenteView.jsx'), 'utf8');
+t('asistente: la charla NO va al navegador (ni localStorage ni sessionStorage)', !/localStorage|sessionStorage/.test(vistaAsi));
+t('asistente: «Envíamelo por WhatsApp» es la MISMA llamada de la ficha', /api\.presupuestoWhatsapp\(p\.id\)/.test(vistaAsi));
 
 console.log(`\n${mal ? '✗' : '✓'} test_navegacion_instalador: ${ok}/${ok + mal}`);
 process.exit(mal ? 1 : 0);

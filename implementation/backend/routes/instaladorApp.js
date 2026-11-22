@@ -1149,10 +1149,10 @@ async function fichaEquipo(req) {
     return { fila: e, dto: ver(e), proveedores };
 }
 
-router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
-    try {
+/** Su catálogo entero, tal como lo ve ÉL (lo usan la pantalla y el asistente, fase 6). */
+async function catalogoDe(req) {
         const marcas = await marcasDe(req);
-        if (!marcas.length) return res.json({ sin_marcas: true, marcas: [], proveedores: [], equipos: [] });
+        if (!marcas.length) return { sin_marcas: true, marcas: [], proveedores: [], equipos: [] };
         const equipos = [];
         for (let desde = 0; ; desde += 1000) {
             const { data, error } = await supabase.from('aerotermia').select(SEL_EQUIPO).in('marca', marcas)
@@ -1172,7 +1172,12 @@ router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
         for (const e of lista) cuantos.set(e.marca, (cuantos.get(e.marca) || 0) + 1);
         const tarjetas = marcas.map((m) => ({ nombre: m, logo: logo.get(m) || null, equipos: cuantos.get(m) || 0 }))
             .sort((a, b) => (b.equipos > 0) - (a.equipos > 0) || a.nombre.localeCompare(b.nombre, 'es'));
-        res.json(sanear({ sin_marcas: false, marcas: tarjetas, proveedores, equipos: lista }));
+        return { sin_marcas: false, marcas: tarjetas, proveedores, equipos: lista };
+}
+
+router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        res.json(sanear(await catalogoDe(req)));
     } catch (e) {
         console.warn('[instalador-app] catálogo:', e.message);
         res.status(e instanceof BdCaida ? 503 : 500).json(CAT_NO_DISPONIBLE);
@@ -1415,6 +1420,99 @@ router.post('/presupuestos/:id/vincular', enforceAuth, soloBetaInstalador, async
         res.json(sanear({ presupuesto: await PI().paraApp(empresa, fila) }));
     } catch (e) { errorPresupuesto(res, e, 'vincular'); }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FASE 6 — el ASISTENTE del instalador (22/11/2026)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// El mismo motor del presupuesto que el grupo de WhatsApp (`presupuestoMotor.js`),
+// herramientas que solo ven lo SUYO (las mismas consultas de estas pantallas) y nada
+// sale a terceros: lo que se envía va por los botones de siempre de la app.
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-6.md.
+
+const AI = require('../services/asistenteInstalador');
+const nombreDePila = (u) => String(u?.perfilCompleto?.nombre || '').trim().split(/\s+/)[0] || '';
+
+const soloConAsistente = (req, res, next) => {
+    // El MISMO criterio que `asistente_instalador` de /api/usuarios/me.
+    if (!A.asistenteEncendido(req.user)) return res.status(403).json({ error: 'El asistente no está disponible ahora mismo.', code: 'ASISTENTE_OFF' });
+    next();
+};
+
+/** Lo que leen las herramientas: SUS obras, SU catálogo y SUS presupuestos. */
+function datosDelAsistente(req) {
+    return {
+        obras: () => cargarObras(req.user),
+        // Por el nº de la obra o por el del expediente; siempre dentro de las suyas.
+        obra: async (id) => {
+            const [o] = await cargarObras(req.user, { id, detalle: true });
+            if (o) return o;
+            const lista = await cargarObras(req.user);
+            const por = lista.find(x => String(x.numero_expediente || '').toUpperCase() === id);
+            return por ? ((await cargarObras(req.user, { id: por.uuid, detalle: true }))[0] || null) : null;
+        },
+        catalogo: () => catalogoDe(req),
+        presupuestos: PI(),
+    };
+}
+
+// Al abrirlo: lo preparado lo calcula el CÓDIGO (sus tareas y sus presupuestos sin bono).
+router.get('/asistente', enforceAuth, soloBetaInstalador, soloConAsistente, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const obras = await cargarObras(req.user);
+        let presupuestos = [];
+        try { presupuestos = await PI().listar(empresa, { sinSimulacion: true }); }
+        catch (e) { console.warn('[instalador-app] asistente · presupuestos:', e.message); }
+        res.json(sanear({ disponible: !!process.env.ANTHROPIC_API_KEY, ...AI.preparado({ obras, presupuestos, nombre: nombreDePila(req.user) }) }));
+    } catch (e) {
+        console.error('[instalador-app] asistente:', e.message);
+        res.status(503).json(NO_DISPONIBLE);
+    }
+});
+
+// Un mensaje: la respuesta sale según se escribe, una línea JSON por evento (NDJSON).
+router.post('/asistente/mensaje', enforceAuth, soloBetaInstalador, soloConAsistente, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    res.status(200);
+    res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+    const corte = new AbortController();
+    res.on('close', () => { if (!res.writableEnded) corte.abort(); });
+    const emitir = (ev) => { if (!res.writableEnded && !res.destroyed) res.write(`${JSON.stringify(sanear(ev))}\n`); };
+    try {
+        await AI.conversar({
+            mensajes: req.body?.mensajes, memoria: req.body?.memoria,
+            usuario: { id_usuario: req.user.id_usuario || null, nombre: nombreDePila(req.user) },
+            empresa, nombreEmpresa: req.user.acronimo || req.user.razon_social || '',
+            emitir, signal: corte.signal, deps: { datos: datosDelAsistente(req) },
+        });
+    } catch (e) {
+        console.error('[instalador-app] asistente · mensaje:', e.message);
+        emitir({ t: 'error', mensaje: 'Algo ha fallado y no he podido terminar. Vuelve a intentarlo.' });
+    }
+    if (!res.writableEnded) res.end();
+});
+
+// La nota de voz grabada en el navegador → texto (el MISMO transcriptor del WhatsApp).
+const AUDIO_OK = /^audio\/(wav|x-wav|wave|webm|ogg|mp4|mpeg|aac|x-m4a)$/i;
+router.post('/asistente/audio', enforceAuth, soloBetaInstalador, soloConAsistente,
+    express.raw({ type: (r) => AUDIO_OK.test(String(r.headers['content-type'] || '').split(';')[0].trim()), limit: '8mb' }),
+    async (req, res) => {
+        const tipo = String(req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+        if (!AUDIO_OK.test(tipo) || !Buffer.isBuffer(req.body) || req.body.length < 800) {
+            return res.status(400).json({ error: 'No me ha llegado el audio. Grábalo otra vez.', code: 'AUDIO_VACIO' });
+        }
+        try {
+            const texto = await require('../services/whatsappConversacion').transcribirBuffer(req.body, tipo === 'audio/x-wav' || tipo === 'audio/wave' ? 'audio/wav' : tipo);
+            res.json({ texto: String(texto).slice(0, 4000) });
+        } catch (e) {
+            console.warn('[instalador-app] asistente · audio:', e.message);
+            res.status(502).json({ error: 'No he podido escuchar el audio. ¿Me lo mandas otra vez o me lo escribes?', code: 'AUDIO_NO_TRANSCRITO' });
+        }
+    });
 
 module.exports = router;
 module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe, miniaturaEsc, llaveDeEscaparate, equipoPrevisto, soloLoSuyo, UUID_RE };

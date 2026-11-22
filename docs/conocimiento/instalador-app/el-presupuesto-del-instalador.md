@@ -129,7 +129,9 @@ el que subió él o leyó el equipo no se pisa ni pasa a `_old`.
 
 ### Por WhatsApp, en el grupo del instalador
 
-[services/presupuestoGrupoWhatsapp.js](implementation/backend/services/presupuestoGrupoWhatsapp.js).
+[services/presupuestoGrupoWhatsapp.js](implementation/backend/services/presupuestoGrupoWhatsapp.js). Desde la fase 6 (22/11/2026) las piezas sin canal (fusionar, qué falta, tipo y extras por defecto,
+resolver el cliente, crear y cambiar) viven en [services/presupuestoMotor.js](implementation/backend/services/presupuestoMotor.js),
+compartidas con el chat de la app: ver «La app del INSTALADOR, fase 6».
 Grupo de la beta: «RCA - BROKERGY». El instalador escribe o manda un audio («hazme un presupuesto de
 cambio de caldera de gasoil por aerotermia Panasonic, 9.200 más IVA, para Fulano, calle Tal 2 de
 Tomelloso») y el grupo recibe el PDF con el mensaje para su cliente de pie y, aparte, una burbuja para

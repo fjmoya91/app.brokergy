@@ -12,6 +12,9 @@
 // logo, el de BROKERGY tal cual; su color, en la casilla activa, ver ui/marca.js),
 // el número de lo que le toca también en la barra del móvil (el mismo que el filtro
 // «Te toca» de Obras), «Ir al contenido» para el teclado y el aviso sin conexión.
+// Fase 6: «Tu asistente» en el menú lateral (solo con `asistente`); en el móvil se
+// entra desde Inicio y la gota de las listas, y con él abierto la cabecera y la barra
+// se esconden (lleva la suya con «atrás»).
 import React from 'react';
 import { Icono, iniciales } from './ui/piezas';
 
@@ -22,6 +25,7 @@ const NAV = [
     { key: 'catalogo', texto: 'Catálogo', icono: 'catalogo' },
     { key: 'presupuestos', texto: 'Presupuestos', icono: 'factura' }, // solo en el menú lateral (en el móvil, desde Inicio)
     { key: 'pagina', texto: 'Tu página web', icono: 'web' },   // solo en el menú lateral
+    { key: 'asistente', texto: 'Tu asistente', icono: 'chat', soloAsistente: true }, // fase 6, solo en el menú lateral
 ];
 
 /** El logo de arriba: el suyo «con BROKERGY», o el de BROKERGY. */
@@ -38,7 +42,7 @@ function Marca({ nombre, logo }) {
     );
 }
 
-export function MarcoInstalador({ seccion, onIr, onNueva, onPerfil, empresa, logo, teToca = 0, enLinea = true, children }) {
+export function MarcoInstalador({ seccion, onIr, onNueva, onPerfil, empresa, logo, teToca = 0, enLinea = true, asistente = false, children }) {
     const nombre = empresa || 'Tu empresa';
     const aviso = teToca > 0 ? `${teToca} ${teToca === 1 ? 'obra te espera' : 'obras te esperan'}` : null;
     return (
@@ -53,7 +57,7 @@ export function MarcoInstalador({ seccion, onIr, onNueva, onPerfil, empresa, log
                     <Icono n="mas" size={20} grosor={2.4} /> Nueva simulación
                 </button>
                 <nav className="ia-lat-nav">
-                    {NAV.map((it) => (
+                    {NAV.filter((it) => !it.soloAsistente || asistente).map((it) => (
                         <button key={it.key} type="button" className={`ia-lat-it${seccion === it.key ? ' act' : ''}`}
                             aria-current={seccion === it.key ? 'page' : undefined} onClick={() => onIr(it.key)}>
                             <Icono n={it.icono} size={22} /> {it.texto}

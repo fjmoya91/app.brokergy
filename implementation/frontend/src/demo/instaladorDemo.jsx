@@ -486,8 +486,131 @@ const apiPresupuestos = {
     }, 400).then(() => ({ presupuesto: copia(prPorId(id)?.presupuesto || null) })),
 };
 
+// ── Fase 6: el ASISTENTE de mentira (guionizado; nada sale del navegador) ──
+// ?seccion=asistente abre el chat; ?asistente=0, sin asistente (ni menú ni gota);
+// ?asistente=off, encendido en la cuenta pero el servidor dice 403 (no disponible);
+// con ?fallo=1 la respuesta trae su error. Lo que se pide por escrito o por «audio»
+// (el audio devuelve siempre la misma frase) se contesta con un guion por palabras.
+const ASISTENTE = p.get('asistente');
+const BOTON_DEMO = { cifo: 'Firmar ahora', rite: 'Subir el RITE', factura: 'Hacer la factura', propuesta: 'Pasársela por WhatsApp' };
+function preparadoDemo() {
+    const cosas = [];
+    for (const o of LISTA) for (const x of o.tareas || []) {
+        if (!x.destino?.accion) continue;
+        cosas.push({ tipo: 'tarea', clave: `${o.id}:${x.key}`, que: x.que, por: [o.cliente, o.municipio].filter(Boolean).join(' · '), boton: BOTON_DEMO[x.key] || 'Hacerlo ahora', obra: o.id, accion: x.destino.accion, modo: x.destino.modo || null });
+    }
+    for (const { presupuesto: x } of PRS) {
+        if (x.estado === 'ANULADO' || x.id_oportunidad || x.simulacion) continue;
+        cosas.push({ tipo: 'bono', clave: `bono:${x.id}`, que: `Calcula el bono de ${x.cliente.nombre}`, por: `Tu presupuesto ${x.numero} aún no tiene la ayuda calculada. Con ella, tu cliente ve cuánto le pagamos.`, boton: 'Calcular el bono', presupuesto: x.id });
+    }
+    const n = cosas.length;
+    return {
+        disponible: true, saludo: 'Buenos días, Ramón.',
+        texto: n ? `He mirado tus obras y te he adelantado ${n === 1 ? '1 cosa' : `${n} cosas`}. Cada una tiene su botón: lo pulsas y vas directo.` : 'He mirado tus obras: ahora mismo no tienes nada pendiente. ¿Hacemos un presupuesto?',
+        cosas: cosas.slice(0, 4), mas: Math.max(0, n - 4),
+        sugerencias: ['Hazme un presupuesto', '¿Cómo va una obra?', 'Precio de un equipo', '¿Qué más me toca?'],
+    };
+}
+const tarjetaObraDemo = (o) => {
+    const pp = o.papeles || [];
+    return {
+        tipo: 'obra', obra: {
+            id: o.id, expediente: o.numero_expediente, cliente: o.cliente, municipio: o.municipio, paso: o.paso, fase: o.fase, quien: o.quien,
+            te_toca: pp.filter((f) => f.tono === 'tu').map((f) => f.nombre).slice(0, 3),
+            nosotros: pp.filter((f) => f.tono === 'nos').map((f) => f.nombre).slice(0, 3),
+            hecho: pp.filter((f) => f.tono === 'ok').map((f) => f.nombre).slice(0, 4),
+            tareas: (o.tareas || []).filter((x) => x.destino?.accion).map((x) => ({ key: x.key, que: x.que, accion: x.destino.accion, modo: x.destino.modo || null })).slice(0, 2),
+        },
+    };
+};
+const tarjetaPrDemo = (x, actualizado = false) => ({
+    tipo: 'presupuesto', actualizado, presupuesto: {
+        id: x.id, numero: x.numero, fecha: x.fecha, cliente: x.cliente.nombre, municipio: x.cliente.municipio || x.obra.municipio, resumen: resumenObra(x.obra),
+        base: x.base, iva_pct: x.iva_pct, total: x.total, simulacion: x.simulacion, id_oportunidad: x.id_oportunidad, cliente_creado: !x.cliente_id,
+    },
+});
+async function guionDemo(texto, memoria, emitir, signal) {
+    const pausa = (ms) => new Promise((ok, ko) => {
+        const h = setTimeout(ok, ms);
+        signal?.addEventListener?.('abort', () => { clearTimeout(h); ko(Object.assign(new Error('Abortado'), { name: 'AbortError' })); }, { once: true });
+    });
+    const decir = async (s) => { for (const linea of s.split(/(?<=\n)/)) { await pausa(160); emitir({ t: 'texto', d: linea }); } };
+    const q = texto.toLowerCase();
+    await pausa(350);
+    if (FALLO) { emitir({ t: 'error', mensaje: 'En el banco, con ?fallo=1, el asistente falla: así se ve un error.' }); return; }
+    if (/(b[aá]jale|s[uú]bele|cambia|ponle)/.test(q) && memoria?.presupuesto?.id) {
+        emitir({ t: 'paso', texto: 'Cambiando el presupuesto…' });
+        await pausa(700);
+        const x = prPorId(memoria.presupuesto.id)?.presupuesto;
+        const menos = Number((q.match(/(\d+)/) || [])[1]) || 300;
+        if (x) { x.total = Math.max(0, x.total - menos); x.base = Math.round((x.total / (1 + x.iva_pct / 100)) * 100) / 100; }
+        await decir(`Hecho: el ${memoria.presupuesto.numero} se queda en ${x ? milesD(x.total) : '—'} con IVA. El número y la fecha no cambian.\n`);
+        if (x) emitir({ t: 'tarjeta', tarjeta: tarjetaPrDemo(x, true) });
+        emitir({ t: 'sugerencias', opciones: ['Bájale otros 100 €', 'Otro presupuesto', '¿Cómo va la de Lucía?'] });
+        return;
+    }
+    if (/presupuesto/.test(q) && /(para|a )\s*[a-záéíóúñ]+/i.test(texto) && /\d/.test(q)) {
+        emitir({ t: 'paso', texto: 'Buscando a tu cliente…' });
+        await pausa(600);
+        emitir({ t: 'paso', texto: 'Haciendo el presupuesto…' });
+        await pausa(800);
+        const o = obraPr({ direccion: '', codigo_postal: '', municipio: 'Pozo Alto', acs: true, extras: [{ clave: 'deposito_acs', litros: 200 }] });
+        const ent = { numero: sugeridoPr(), fecha: new Date().toISOString().slice(0, 10), cliente: { nombre: 'Carmen', apellidos: 'López Gil', municipio: 'Pozo Alto' }, obra: o, conceptos: conceptosDe(o), modo: 'total', total: '9500', con_iva: true, partidas: [], iva_pct: 21 };
+        const nuevo = filaDeEntrada(`aaaaaaaa-0000-4000-8000-${String(Date.now()).slice(-12)}`, ent);
+        PRS.unshift(nuevo);
+        const x = nuevo.presupuesto;
+        await decir(`Listo, Ramón: el **${x.numero}** para Carmen López, ${milesD(x.total)} con IVA.\nNo la tenía entre tus clientes y la he dado de alta. ¿Te lo mando a tu WhatsApp para que se lo reenvíes?\n`);
+        emitir({ t: 'tarjeta', tarjeta: tarjetaPrDemo(x) });
+        emitir({ t: 'memoria', memoria: { presupuesto: { id: x.id, numero: x.numero, cliente: 'Carmen López Gil' }, candidatos: null } });
+        emitir({ t: 'sugerencias', opciones: ['Bájale 300 €', 'Otro presupuesto', '¿Cómo va la de Lucía?'] });
+        return;
+    }
+    if (/presupuesto/.test(q)) {
+        await decir('Vamos. ¿Para qué cliente es, qué equipo lleva y por cuánto? Con eso te lo hago.\n\nPor ejemplo: «Para Carmen López, aerotermia de 8 kW con depósito de 200 litros, 9.500 € con IVA».\n');
+        emitir({ t: 'sugerencias', opciones: ['Para un cliente nuevo', 'Para Lucía Prado', 'Para Andrés Molina'] });
+        return;
+    }
+    if (/(c[oó]mo va|obra|luc[ií]a)/.test(q)) {
+        emitir({ t: 'paso', texto: 'Mirando tus obras…' });
+        await pausa(700);
+        const o = obraDe('26RES060_OP901');
+        await decir(`La de **${o.cliente}** está en trámite. Te toca firmar el certificado de la instalación y hacer la factura; lo demás lo llevamos nosotros.\n`);
+        emitir({ t: 'tarjeta', tarjeta: tarjetaObraDemo(o) });
+        emitir({ t: 'memoria', memoria: { obra: { id: o.id, cliente: o.cliente } } });
+        emitir({ t: 'sugerencias', opciones: ['¿Qué más me toca?', 'Hazme un presupuesto'] });
+        return;
+    }
+    if (/(precio|cu[aá]nto|equipo|marca|kw)/.test(q)) {
+        emitir({ t: 'paso', texto: 'Buscando en tu catálogo…' });
+        await pausa(600);
+        await decir('En tu catálogo tienes estas de 8 kW:\n\n**MARCA A MA-U8-M1**: tu precio 3.950 € sin IVA (tarifa de Distribuidor Norte 4.380 €).\n**MARCA B MB-8**: sin precio tuyo; tarifa de Distribuidor Sur 4.120 €.\n\n¿Te hago el presupuesto con alguna?\n');
+        emitir({ t: 'sugerencias', opciones: ['Presupuesto con la MARCA A', 'Ver el catálogo', 'Otra potencia'] });
+        return;
+    }
+    if (/(toca|pendiente|m[aá]s)/.test(q)) {
+        await decir('Te tocan 4 cosas en 3 obras: firmar el certificado y la factura de Lucía Prado, subir el RITE de la 906 y volver a firmar el certificado de la 907. Lo tienes arriba con sus botones.\n');
+        emitir({ t: 'sugerencias', opciones: ['¿Cómo va la de Lucía?', 'Hazme un presupuesto'] });
+        return;
+    }
+    await decir('Te puedo hacer un presupuesto, decirte cómo va una obra o buscarte el precio de un equipo. ¿Qué necesitas?\n');
+    emitir({ t: 'sugerencias', opciones: ['Hazme un presupuesto', '¿Cómo va una obra?', 'Precio de un equipo'] });
+}
+const apiAsistente = {
+    asistente: () => (ASISTENTE === 'off'
+        ? new Promise((ok, ko) => setTimeout(() => ko(Object.assign(new Error('403'), { response: { status: 403, data: { code: 'ASISTENTE_OFF', error: 'El asistente no está disponible ahora mismo.' } } })), 300))
+        : espera(preparadoDemo(), 500)),
+    asistenteAudio: () => espera({ texto: 'Hazme un presupuesto para Carmen López, aerotermia de 8 kW con depósito, 9.500 euros con IVA' }, 900),
+    asistenteMensaje: async (cuerpo, { signal, onEvento } = {}) => {
+        if (sinRedAhora) throw new TypeError('Failed to fetch');
+        const ultimo = [...(cuerpo?.mensajes || [])].reverse().find((m) => m.role === 'user')?.content || '';
+        await guionDemo(ultimo, cuerpo?.memoria || {}, (ev) => onEvento?.(ev), signal);
+        onEvento?.({ t: 'fin', uso: { vueltas: 1, coste_usd: 0 } });
+    },
+};
+
 const api = {
     ...apiPresupuestos,
+    ...apiAsistente,
     // ── Fase 4 ──
     catalogo: () => espera(catalogoDeMentira()),
     equipo: (id) => (equipoDe(id) ? espera({ ...copia(conTarifa(equipoDe(id))), proveedores: copia(PROVEEDORES) }, 250) : Promise.reject(new Error('404'))),
@@ -783,6 +906,7 @@ function Demo() {
         <AppInstalador
             api={api}
             saludo="RCA"
+            asistente={ASISTENTE !== '0'}
             empresa="Instalaciones de Prueba, S.L."
             paginaVista={p.has('elegir') ? 'elegir' : 'pagina'}
             logo={MARCA ? LOGO_DEMO : null}

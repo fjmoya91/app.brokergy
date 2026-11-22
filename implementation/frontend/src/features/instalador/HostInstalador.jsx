@@ -45,6 +45,7 @@ export default function HostInstalador({ user, signOut, onNueva, onAbrirOportuni
                 empresa={empresa}
                 logo={user?.logo_empresa || miEmpresa?.logo_empresa || null}
                 colorMarca={miEmpresa?.landing_color_primary || null}
+                asistente={!!user?.asistente_instalador}
                 direccion={direccion}
                 fichaEnHistorial={fichaEnHistorial}
                 onNueva={onNueva}

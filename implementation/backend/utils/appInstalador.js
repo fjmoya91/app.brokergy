@@ -37,6 +37,16 @@ function enBetaInstalador(user, env = process.env) {
     return empresasEnBeta(env).includes(String(user.prescriptor_id).toLowerCase());
 }
 
+/**
+ * Fase 6: ¿tiene el ASISTENTE (el chat de la app)? Con la beta, encendido salvo
+ * `ASISTENTE_INSTALADOR_ENABLED=false`, y solo si el servidor tiene la llave de la
+ * API de Claude. Lo lee `/api/usuarios/me` (`asistente_instalador`) y la ruta.
+ */
+function asistenteEncendido(user, env = process.env) {
+    if (!enBetaInstalador(user, env)) return false;
+    return env.ASISTENTE_INSTALADOR_ENABLED !== 'false' && !!String(env.ANTHROPIC_API_KEY || '').trim();
+}
+
 // ── 2. Paso de la obra y quién tiene la pelota ───────────────────────────────
 const PASOS = ['Simulada', 'Propuesta enviada', 'Aceptada', 'En trámite', 'Cobrada'];
 
@@ -268,7 +278,7 @@ function caminoDeObra({ paso, quien, conExpediente, esInstaladora, presupuesto, 
 }
 
 module.exports = {
-    empresasEnBeta, enBetaInstalador, PASOS, CAPTACION, caminoDeObra,
+    empresasEnBeta, enBetaInstalador, asistenteEncendido, PASOS, CAPTACION, caminoDeObra,
     obraHecha, ceeInicialRegistrado, tareasDeExpediente, esperaAlCliente, pasoDeObra,
     cuentasCliente, financialsDeLaObra,
 };

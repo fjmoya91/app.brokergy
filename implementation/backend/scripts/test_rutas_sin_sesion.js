@@ -70,6 +70,8 @@ const srv = app.listen(0, async () => {
       ['POST', '/00000000-0000-4000-8000-000000000000/anular'], ['GET', '/00000000-0000-4000-8000-000000000000/pdf'],
       ['POST', '/00000000-0000-4000-8000-000000000000/whatsapp'], ['POST', '/00000000-0000-4000-8000-000000000000/vincular'],
     ].map(([m, r]) => [m, `/api/instalador-app/presupuestos${r}`]),
+    // El asistente (fase 6): ni lo preparado, ni un mensaje (que gasta modelo), ni una nota de voz.
+    ...[['GET', ''], ['POST', '/mensaje'], ['POST', '/audio']].map(([m, r]) => [m, `/api/instalador-app/asistente${r}`]),
   ];
   // Las miniaturas y ficheros de la app van SIN sesión, con LLAVE: sin ella, 403 (ver test_app_instalador.js).
   q('anónimo', 'GET', '/api/instalador-app/thumb/26RES060_OP217/abcdefghij123', 403, {});

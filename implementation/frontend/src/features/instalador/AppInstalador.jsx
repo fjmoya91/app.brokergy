@@ -34,6 +34,12 @@
 // puede instalar (ui/cabeceraApp.js: manifiesto crema solo mientras está montada) y
 // lleva la marca de su empresa (ui/marca.js). Sin conexión, lo dice y lo vuelve a
 // intentar sola al volver la cobertura.
+//
+// Fase 6: «Tu asistente» (AsistenteView): un chat que hace el presupuesto, dice cómo va
+// una obra y deja preparado lo que le toca, con texto o nota de voz. Solo si
+// `/api/usuarios/me` dice `asistente_instalador` (prop `asistente`). Se entra por el
+// menú lateral, la tarjeta de Inicio y la gota flotante de las listas del móvil. La
+// charla vive en un ref de aquí (`charla`): sobrevive a abrir una obra y volver.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EstiloInstalador, Icono, useEnLinea, useHojaTeclado } from './ui/piezas';
 import { leerDireccion, clavesDe, escribir } from './ui/direccion';
@@ -48,7 +54,10 @@ import { MiPaginaView } from './views/MiPaginaView';
 import { CatalogoView, EquipoView } from './views/CatalogoView';
 import { PresupuestosView, PresupuestoFicha } from './views/PresupuestosView';
 import { PresupuestoForm } from './views/PresupuestoForm';
+import { AsistenteView } from './views/AsistenteView';
+import mascotaGota from '../../assets/mascota-gota.webp';
 import { simulacionDesde } from './logic/presupuestoApp';
+import { leerNdjson } from './logic/asistente';
 import { API_DOCS_INSTALADOR } from '../docs/docsApi';
 
 const B = '/api/instalador-app';
@@ -131,6 +140,16 @@ export function apiReal(axios) {
             .then((r) => ({ bytes: r.data, nombre: nombreDeDescarga(r.headers) })),
         presupuestoWhatsapp: (id) => axios.post(`${B}/presupuestos/${e(id)}/whatsapp`).then((r) => r.data),
         vincularPresupuesto: (id, obra) => axios.post(`${B}/presupuestos/${e(id)}/vincular`, { obra }).then((r) => r.data),
+        // ── Fase 6: el ASISTENTE ──
+        asistente: () => axios.get(`${B}/asistente`).then((r) => r.data),
+        // La nota de voz, ya pasada a WAV en el navegador: el servidor la transcribe y devuelve `{ texto }`.
+        asistenteAudio: (wav) => axios.post(`${B}/asistente/audio`, wav, { headers: { 'Content-Type': 'audio/wav' } }).then((r) => r.data),
+        // NDJSON en streaming (axios no lo deja leer a trozos): fetch con la MISMA sesión de axios.
+        asistenteMensaje: (cuerpo, { signal, onEvento } = {}) => leerNdjson(fetch(`${B}/asistente/mensaje`, {
+            method: 'POST', signal,
+            headers: { 'Content-Type': 'application/json', Authorization: axios.defaults.headers.common.Authorization || '' },
+            body: JSON.stringify(cuerpo),
+        }), onEvento),
     };
 }
 
@@ -167,7 +186,7 @@ function useCarga(fn, activo, nonce) {
 }
 
 export default function AppInstalador({
-    api, saludo, empresa, logo, colorMarca = null,
+    api, saludo, empresa, logo, colorMarca = null, asistente = false,
     onNueva, onAbrirOportunidad, onPerfil, onSalir, onNuevoCliente, onCambiarCliente,
     externo = null, onCerrarExterno, nonce = 0, paginaVista = 'pagina', instalarComo = null,
     // Dónde abrir: la dirección con la que se cargó la página (quien nos aloja la
@@ -191,6 +210,9 @@ export default function AppInstalador({
     // Tras un envío dentro de la obra, se vuelve a pedir todo (la recarga de quien nos aloja va aparte).
     const [cambios, setCambios] = useState(0);
     const recarga = nonce * 1000 + cambios;
+    // Fase 6: la charla con el asistente (en memoria) y si hay que abrirlo grabando.
+    const charla = useRef(null);
+    const [dictar, setDictar] = useState(false);
 
     const cargarObras = useCallback(() => api.obras(), [api]);
     const cargarClientes = useCallback(() => api.clientes(), [api]);
@@ -338,6 +360,12 @@ export default function AppInstalador({
             },
         });
     };
+    // Desde el asistente: «Calcular el bono» de un presupuesto (se lee y se abre la simulación).
+    const bonoDe = async (id) => {
+        const d = await api.presupuestoHecho(id);
+        simularPresupuesto({ presupuesto: d?.presupuesto || {}, entrada: d?.entrada || null });
+    };
+    const abrirAsistente = (grabando = false) => { setDictar(!!grabando); ir('asistente'); };
     const abrirObraPorId = (idOp) => {
         const o = obras.datos?.obras?.find((x) => x.id === idOp || x.numero_expediente === idOp);
         if (!o) { onAbrirOportunidad?.(idOp); return; }
@@ -460,6 +488,12 @@ export default function AppInstalador({
     } else if (ficha?.tipo === 'equipo') {
         contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} proveedores={catalogo.datos?.proveedores} api={api}
             onVolver={cerrarFicha} onCalcular={onNueva ? calcularCon : null} onCambio={onCambio} />;
+    } else if (seccion === 'asistente' && asistente) {
+        contenido = <AsistenteView api={api} obras={obras.datos?.obras || []} guardado={charla}
+            dictar={dictar} onDictado={() => setDictar(false)} onVolver={() => ir('inicio')}
+            onAbrirAccion={abrirAccion} onAbrirObra={abrirObraPorId}
+            onAbrirPresupuesto={(id) => abrirPresu({ tipo: 'presupuesto', id })}
+            onBono={onNueva ? bonoDe : null} onVerObras={() => ir('obras')} />;
     } else if (seccion === 'catalogo') {
         contenido = <CatalogoView datos={catalogo.datos} cargando={catalogo.cargando} error={catalogo.error} onReintentar={catalogo.reintentar}
             onAbrir={(eq) => abrirFicha({ tipo: 'equipo', equipo: eq })} />;
@@ -478,11 +512,16 @@ export default function AppInstalador({
         contenido = <InicioView saludo={saludo} datos={obras.datos} cargando={obras.cargando} error={obras.error}
             onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion}
             onMiPagina={() => ir('pagina')} instalarComo={instalarComo}
-            onPresupuesto={() => nuevoPresupuesto()} onVerPresupuestos={() => ir('presupuestos')} />;
+            onPresupuesto={() => nuevoPresupuesto()} onVerPresupuestos={() => ir('presupuestos')}
+            onAsistente={asistente ? abrirAsistente : null} />;
     }
 
     const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : ficha?.tipo === 'equipo' ? 'catalogo'
-        : ficha?.tipo === 'presupuesto' ? (ficha.vuelta?.tipo === 'obra' ? 'obras' : ficha.vuelta?.tipo === 'cliente' ? 'clientes' : 'presupuestos') : externo ? 'obras' : seccion;
+        : ficha?.tipo === 'presupuesto' ? (ficha.vuelta?.tipo === 'obra' ? 'obras' : ficha.vuelta?.tipo === 'cliente' ? 'clientes' : 'presupuestos') : externo ? 'obras'
+            : seccion === 'asistente' && !asistente ? 'inicio' : seccion;
+    // En el móvil, el asistente ocupa la pantalla (su cabecera con «atrás»); en las listas, la gota.
+    const enAsistente = seccionVisible === 'asistente' && !ficha && !externo;
+    const conGota = asistente && !ficha && !externo && ['obras', 'clientes', 'catalogo', 'presupuestos'].includes(seccionVisible);
     const QUE_NO = {
         obra: 'Esa obra no está entre las tuyas, o ya no sigue en marcha.',
         cliente: 'Ese cliente no está entre los tuyos.',
@@ -490,11 +529,11 @@ export default function AppInstalador({
         presupuesto: 'Ese presupuesto no está entre los tuyos.',
     };
     return (
-        <div className="ia-app" style={marca || undefined}>
+        <div className={`ia-app${enAsistente ? ' con-asistente' : ''}${conGota ? ' con-gota' : ''}`} style={marca || undefined}>
             <EstiloInstalador />
             <div className="ia-filete" />
             <MarcoInstalador seccion={seccionVisible} onIr={ir} onNueva={onNueva} onPerfil={perfil}
-                empresa={empresa} logo={logo} teToca={obras.datos?.resumen?.te_toca || 0} enLinea={enLinea}>
+                empresa={empresa} logo={logo} teToca={obras.datos?.resumen?.te_toca || 0} enLinea={enLinea} asistente={asistente}>
                 {noEncontrada && !ficha && !externo && (
                     <div className="ia-pagina estrecha" style={{ paddingBottom: 0 }}>
                         <div className="ia-aviso tu ia-aviso-fila" role="status">
@@ -505,6 +544,11 @@ export default function AppInstalador({
                 )}
                 {contenido}
             </MarcoInstalador>
+            {conGota && (
+                <button type="button" className="ia-asi-gota" onClick={() => abrirAsistente()} aria-label="Abrir tu asistente">
+                    <img src={mascotaGota} alt="" />
+                </button>
+            )}
             {hoja && (
                 <HojaCuenta empresa={empresa} onCerrar={() => setHoja(false)}
                     onPerfil={onPerfil ? () => { setHoja(false); onPerfil(); } : null}

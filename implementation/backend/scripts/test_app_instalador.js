@@ -380,6 +380,56 @@ const srv = app.listen(0, async () => {
   await pide('rca', `POST ${P}/presupuestos/${AJENO}/vincular`, 404, null, { obra: '26RES060_OP902' });
   await pide('rca', `GET ${P}/presupuestos/no-es-un-id`, 404);
 
+  // El ASISTENTE (fase 6). El cerebro, en test_asistente_instalador.js; aquí, la puerta y el saneado.
+  console.log('— Asistente: sin sesión → 401, fuera de la beta → 403, sin la llave de la API → 403 ASISTENTE_OFF');
+  const ASI = [['GET', '/asistente'], ['POST', '/asistente/mensaje'], ['POST', '/asistente/audio']];
+  for (const [m, r] of ASI) await pide('anónimo', `${m} ${P}${r}`, 401, null, m === 'GET' ? undefined : {});
+  for (const quien of ['otro', 'dist', 'admin']) for (const [m, r] of ASI) await pide(quien, `${m} ${P}${r}`, 403, null, m === 'GET' ? undefined : {});
+  const llaveAntes = process.env.ANTHROPIC_API_KEY;
+  delete process.env.ANTHROPIC_API_KEY;
+  await t('rca', '/api/usuarios/me', 200, js => js.asistente_instalador === false || 'sin llave, el menú enseñaría el asistente');
+  await pide('rca', `GET ${P}/asistente`, 403, js => js?.code === 'ASISTENTE_OFF' || 'code=' + js?.code);
+  process.env.ANTHROPIC_API_KEY = 'llave-de-prueba';
+  await t('rca', '/api/usuarios/me', 200, js => js.asistente_instalador === true || 'asistente_instalador=' + js.asistente_instalador);
+  await t('otro', '/api/usuarios/me', 200, js => js.asistente_instalador === false || 'fuera de la beta lo vería');
+  // Lo preparado: solo SUS obras (las mismas cuatro de «Solo lo suyo»).
+  await pide('rca', `GET ${P}/asistente`, 200, js => (js?.disponible === true && Array.isArray(js.cosas)
+    && js.cosas.every(c => !c.obra || ['26RES060_OP900', '26RES060_OP902', '26RES060_OP904', '26RES060_OP905'].includes(c.obra)))
+    || 'preparado=' + JSON.stringify(js).slice(0, 200));
+  process.env.ASISTENTE_INSTALADOR_ENABLED = 'false';
+  await pide('rca', `GET ${P}/asistente`, 403, js => js?.code === 'ASISTENTE_OFF' || 'apagado y responde ' + js?.code);
+  delete process.env.ASISTENTE_INSTALADOR_ENABLED;
+  {
+    // Un mensaje: NDJSON sin búfer y cada evento pasa por `sanear` (sin el modelo: se sustituye `conversar`).
+    const AIm = require(path.join(B, 'services/asistenteInstalador'));
+    const conversarAntes = AIm.conversar;
+    let visto = null;
+    AIm.conversar = async (args) => {
+      visto = { empresa: args.empresa, n: args.mensajes.length };
+      args.emitir({ t: 'texto', d: 'Hola' });
+      args.emitir({ t: 'tarjeta', tarjeta: { tipo: 'presupuesto', presupuesto: { id: 'x', drive_link: 'https://drive.google.com/x', pdf_url: 'https://x', token: 't' } } }); // las tarjetas son listas blancas (test_asistente_instalador.js); `sanear` quita además enlaces y tokens
+      args.emitir({ t: 'fin', uso: {} });
+    };
+    n++;
+    const r = await fetch(`${base}${P}/asistente/mensaje`, { method: 'POST', headers: { Authorization: 'Bearer tok-rca', 'Content-Type': 'application/json' }, body: JSON.stringify({ mensajes: [{ role: 'user', content: 'hola' }], memoria: {} }) });
+    const cuerpo = await r.text();
+    const ev = cuerpo.split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const mal = [...clavesProhibidas(ev), ...conEnlaceOToken(ev)];
+    const bien = r.status === 200 && /ndjson/.test(r.headers.get('content-type') || '') && /no-transform/.test(r.headers.get('cache-control') || '')
+      && r.headers.get('x-accel-buffering') === 'no' && ev.length === 3 && !mal.length && visto?.empresa && visto.n === 1;
+    if (!bien) fallos++;
+    console.log(`${bien ? '✓' : '✗'} rca      POST   ${P}/asistente/mensaje → ${r.status} NDJSON saneado${bien ? '' : `  (eventos ${ev.length}, se escapa: ${mal.join(' ')}, visto ${JSON.stringify(visto)})`}`);
+    AIm.conversar = conversarAntes;
+    // La nota de voz: sin audio de verdad, 400 sin llamar a nadie; un tipo que no es audio, ni entra.
+    n++;
+    const a = await fetch(`${base}${P}/asistente/audio`, { method: 'POST', headers: { Authorization: 'Bearer tok-rca', 'Content-Type': 'audio/wav' }, body: new Uint8Array(100) });
+    const aj = await a.json().catch(() => ({}));
+    const bienA = a.status === 400 && aj.code === 'AUDIO_VACIO';
+    if (!bienA) fallos++;
+    console.log(`${bienA ? '✓' : '✗'} rca      POST   ${P}/asistente/audio (100 bytes) → ${a.status} ${aj.code || ''}`);
+  }
+  if (llaveAntes === undefined) delete process.env.ANTHROPIC_API_KEY; else process.env.ANTHROPIC_API_KEY = llaveAntes;
+
   console.log('— Fase 2: la obra que trae pero NO instala → 403 al firmar, al RITE y a la factura; fotos, sí');
   for (const l of NUEVAS.filter(x => /\/(factura|instalador|cifo|rite|fm-declaracion)/.test(x) && !/factura\/fichero/.test(x))) {
     const [m, r] = l.split(' ');

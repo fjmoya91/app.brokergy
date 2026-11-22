@@ -3,8 +3,9 @@ import React from 'react';
 import { Icono, iconoDeTarea, Esqueleto, AvisoError } from '../ui/piezas';
 import { Destino } from './Tarea';
 import { InvitacionInstalar } from '../ui/Instalar';
+import mascota from '../../../assets/mascota-gota.webp';
 
-export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina, onPresupuesto = null, onVerPresupuestos = null, instalarComo = null }) {
+export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina, onPresupuesto = null, onVerPresupuestos = null, instalarComo = null, onAsistente = null }) {
     const obras = datos?.obras || [];
     const r = datos?.resumen || { total: 0, en_marcha: 0, te_toca: 0, cobradas: 0 };
     // Todas las tareas de todas las obras, en una lista (las de cada obra, en su orden).
@@ -69,6 +70,26 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
             )}
             {onVerPresupuestos && (
                 <button type="button" className="ia-link" style={{ alignSelf: 'center', ...O(1) }} onClick={onVerPresupuestos}>Ver los presupuestos que has hecho</button>
+            )}
+
+            {onAsistente && (
+                <section className="ia-card ia-asi-entrada ia-entra" style={O(1)} aria-labelledby="ia-asi-entrada-tit">
+                    <div className="ia-asi-entrada-cab">
+                        <img src={mascota} alt="" />
+                        <div>
+                            <b id="ia-asi-entrada-tit">Tu asistente</b>
+                            <span>Pídeme un presupuesto o pregúntame cómo va una obra. Por escrito o con un audio.</span>
+                        </div>
+                    </div>
+                    <div className="ia-asi-entrada-bts">
+                        <button type="button" className="ia-btn ia-btn-sec" onClick={() => onAsistente(false)}>
+                            <Icono n="chat" size={20} /> Abrir el asistente
+                        </button>
+                        <button type="button" className="ia-btn ia-btn-sec" onClick={() => onAsistente(true)}>
+                            <Icono n="mic" size={20} /> Dictar
+                        </button>
+                    </div>
+                </section>
             )}
 
             {!cargando && !error && (
