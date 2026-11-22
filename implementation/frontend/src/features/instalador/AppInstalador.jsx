@@ -51,11 +51,20 @@ const B = '/api/instalador-app';
 const e = encodeURIComponent;
 
 /** La API de verdad (con la sesión de axios ya puesta por AuthContext). */
+/** GET /obras/:id responde `{ obra }`. Hasta el 22/11/2026 se pasaba la envoltura tal cual y la
+ *  ficha y el panel del ordenador salían vacíos con datos reales (el demo devolvía la obra a pelo).
+ *  El demo pasa ahora por aquí con la misma forma que el servidor. */
+export function obraDeRespuesta(data) {
+    const o = data?.obra;
+    if (!o?.id) throw new Error('Obra sin datos');
+    return o;
+}
+
 export function apiReal(axios) {
     const obra = (id) => `${B}/obras/${e(id)}`;
     return {
         obras: () => axios.get(`${B}/obras`).then((r) => r.data),
-        obra: (id) => axios.get(obra(id)).then((r) => r.data),
+        obra: (id) => axios.get(obra(id)).then((r) => obraDeRespuesta(r.data)),
         clientes: () => axios.get('/api/clientes').then((r) => (Array.isArray(r.data) ? r.data : [])),
         // ── La propuesta: verla y decir que ya se la ha pasado a su cliente ──
         propuestaPdf: (id) => axios.get(`${obra(id)}/propuesta/pdf`, { responseType: 'arraybuffer' }).then((r) => r.data),

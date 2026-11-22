@@ -46,7 +46,7 @@ paths:
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 15,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 11,6 KB
-- `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21) · 7,1 KB
+- `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21) · 8,0 KB
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 12,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -86,6 +86,8 @@ de la casilla activa); si no, se oscurece un poco y, si ni así, se queda el de 
   - **REGLA — ENVIADA le toca al instalador solo si la propuesta le llegó SOLO a él.**
   - **REGLA — el instalador pasa la propuesta con SU WhatsApp; la app no envía nada.**
   - **REGLA — de la propuesta sale a la app una lista BLANCA; el PDF, por proxy y sin id del navegador.**
+  - **REGLA — el detalle se desenvuelve en UN sitio, `obraDeRespuesta` de
+`AppInstalador.jsx`, y el demo devuelve la MISMA forma que el servidor y pasa por ella.**
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md`
   - **REGLA — los dos SQL van ANTES del deploy, y la beta se enciende DESPUÉS de comprobar que los demás
 usuarios ven lo de siempre.**

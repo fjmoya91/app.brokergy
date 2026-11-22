@@ -82,3 +82,14 @@ rutas y `npm run build`. Y en LECTURA contra las 11 obras reales de RCA: todas d
 toca pasarla», 1 espera al cliente, 1 preparándola, 5 con expediente) y el PDF de una propuesta sale por
 el proxy (2,1 MB). No se ha probado con una sesión real de RCA ni se ha pulsado «Ya se la he pasado» contra
 la base (escribe en producción).
+
+### Y con la sesión real de RCA, la obra salía VACÍA (2026-11-22)
+
+Fran, entrando como RCA en el ordenador: el panel de la derecha de «Obras» sin nombre, sin pasos y con
+«…» en la factura y en «Todo lo de esta obra». `GET /api/instalador-app/obras/:id` responde `{ obra }` desde
+la fase 1, y `apiReal().obra` devolvía la envoltura tal cual: el detalle «llegaba» (por eso decía «Sin
+presupuesto») pero sin un solo campo, y la ficha entera igual. Nadie lo vio porque el banco de pruebas
+devolvía la obra a pelo. **REGLA — el detalle se desenvuelve en UN sitio, `obraDeRespuesta` de
+`AppInstalador.jsx`, y el demo devuelve la MISMA forma que el servidor y pasa por ella.** Además, el enlace
+del escaparate en la ficha del partner (CRM) apuntaba al antiguo `instaladores.brokergy.es/escaparate/…`:
+ahora es `brokergy.es/encuentra-tu-instalador/{marketplace_slug}/`, la ficha que genera `brokergy-web`.

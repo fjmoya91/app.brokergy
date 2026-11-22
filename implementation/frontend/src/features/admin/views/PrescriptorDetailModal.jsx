@@ -775,13 +775,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
     // ─── Escaparate público de instaladores ────────────────────────────────────
     const MKT_SLUG_RE = /^[a-z0-9]([a-z0-9-]{1,78}[a-z0-9])$/;
     const mktSlugValido = !form.marketplace_slug || MKT_SLUG_RE.test(form.marketplace_slug);
-    const marketplaceBase = typeof window !== 'undefined' && window.location.hostname === 'app.brokergy.es'
-        ? 'https://instaladores.brokergy.es/escaparate'
-        : `${landingBase}/escaparate`;
+    // La ficha pública vive en la web (repo brokergy-web, Astro): brokergy.es/encuentra-tu-instalador/{slug}/.
+    // El slug es `marketplace_slug` (scripts/red.mjs). instaladores.brokergy.es/escaparate es el escaparate antiguo.
+    const marketplaceBase = 'https://brokergy.es/encuentra-tu-instalador';
+    const marketplaceUrl = (slug) => `${marketplaceBase}/${slug}/`;
     const [mktLinkCopied, setMktLinkCopied] = useState(false);
     const copyMarketplaceLink = (slug) => {
         try {
-            navigator.clipboard?.writeText(`${marketplaceBase}/${slug}`);
+            navigator.clipboard?.writeText(marketplaceUrl(slug));
             setMktLinkCopied(true);
             setTimeout(() => setMktLinkCopied(false), 2000);
         } catch { /* clipboard no disponible */ }
@@ -1910,14 +1911,14 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         <div className="space-y-3">
                                             <div className="flex items-center gap-2">
                                                 <code className="flex-1 min-w-0 truncate text-sm text-amber-400 font-mono bg-black/30 rounded-lg px-3 py-2 border border-white/[0.06]">
-                                                    {marketplaceBase}/{p.marketplace_slug}
+                                                    {marketplaceUrl(p.marketplace_slug)}
                                                 </code>
                                                 <button type="button" onClick={() => copyMarketplaceLink(p.marketplace_slug)}
                                                     title="Copiar enlace"
                                                     className="shrink-0 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest hover:bg-amber-500/20 transition-all">
                                                     {mktLinkCopied ? '✓ Copiado' : 'Copiar'}
                                                 </button>
-                                                <a href={`${marketplaceBase}/${p.marketplace_slug}`} target="_blank" rel="noopener noreferrer"
+                                                <a href={marketplaceUrl(p.marketplace_slug)} target="_blank" rel="noopener noreferrer"
                                                     title="Abrir ficha pública en nueva pestaña"
                                                     className="shrink-0 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white/50 hover:text-white transition-all">
                                                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>
@@ -2892,7 +2893,7 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                             {isAdmin && form.tipo_empresa === 'INSTALADOR' && (
                             <Collapse
                                 title="Escaparate de Instaladores"
-                                subtitle="Ficha pública en instaladores.brokergy.es. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes."
+                                subtitle="Ficha pública en brokergy.es/encuentra-tu-instalador. Al publicar se geolocaliza solo (si falta) y aparece en el mapa. Nunca se muestran datos personales de clientes."
                                 summary={(form.visible_marketplace
                                     ? `Publicado · /${form.marketplace_slug || 'sin enlace'}`
                                     : 'No publicado') + (form.oculto_web ? ' · Oculto en brokergy.es' : '')}

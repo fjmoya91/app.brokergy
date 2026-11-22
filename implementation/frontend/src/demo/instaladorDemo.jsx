@@ -38,7 +38,7 @@ import ReactDOM from 'react-dom/client';
 import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import '../index.css';
-import AppInstalador from '../features/instalador/AppInstalador';
+import AppInstalador, { obraDeRespuesta } from '../features/instalador/AppInstalador';
 import { API_DOCS_INSTALADOR } from '../features/docs/docsApi';
 import { RevisionEscaparate } from '../features/admin/components/RevisionEscaparate';
 import { CargarTarifaModal } from '../features/aerotermia/components/CargarTarifaModal';
@@ -331,7 +331,8 @@ const api = {
     guardarPrecio: (id, precio) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = precio; }),
     quitarPrecio: (id) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = null; }),
     obras: () => espera({ obras: copia(LISTA), resumen: resumen(LISTA) }),
-    obra: (id) => espera(obraDe(id) ? copia(obraDe(id)) : Promise.reject(new Error('404')), 250),
+    // Con la MISMA forma que el servidor ({ obra }) y el mismo desenvoltorio que la app real.
+    obra: (id) => espera(obraDe(id) ? { obra: copia(obraDe(id)) } : Promise.reject(new Error('404')), 250).then(obraDeRespuesta),
     clientes: () => espera(VACIO ? [] : CLIENTES),
     propuestaPdf: (id) => espera(pdfDeMentira('Propuesta de ayuda CAE', [
         ['Cliente', obraDe(id)?.cliente || ''], ['Bono CAE', milesD(obraDe(id)?.bono || 0)], ['Presupuesto de la obra', obraDe(id)?.presupuesto?.importe ? milesD(obraDe(id).presupuesto.importe) : 'Estimado'],
