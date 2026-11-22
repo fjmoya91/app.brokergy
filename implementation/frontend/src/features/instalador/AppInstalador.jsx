@@ -45,6 +45,9 @@ import { ObraView } from './views/ObraView';
 import { ClientesView, ClienteView } from './views/ClientesView';
 import { MiPaginaView } from './views/MiPaginaView';
 import { CatalogoView, EquipoView } from './views/CatalogoView';
+import { PresupuestosView, PresupuestoFicha } from './views/PresupuestosView';
+import { PresupuestoForm } from './views/PresupuestoForm';
+import { simulacionDesde } from './logic/presupuestoApp';
 import { API_DOCS_INSTALADOR } from '../docs/docsApi';
 
 const B = '/api/instalador-app';
@@ -106,8 +109,45 @@ export function apiReal(axios) {
         fichaEquipo: (id) => axios.get(`${B}/catalogo/${e(id)}/ficha`, { responseType: 'arraybuffer' }).then((r) => r.data),
         guardarPrecio: (id, precio) => axios.put(`${B}/catalogo/${e(id)}/precio`, { precio }).then((r) => r.data),
         quitarPrecio: (id) => axios.delete(`${B}/catalogo/${e(id)}/precio`).then((r) => r.data),
+        // ── Los presupuestos que el instalador HACE en la app (22/11/2026) ──
+        // Ojo: `presupuesto(id)` de arriba es el presupuesto SUBIDO de una obra (fase 2);
+        // los hechos aquí van con nombre propio para no pisarlo.
+        presupuestos: () => axios.get(`${B}/presupuestos`).then((r) => r.data),
+        presupuestoNuevo: ({ obra = null, cliente = null } = {}) => axios.get(`${B}/presupuestos/nuevo`, {
+            params: { ...(obra ? { obra } : {}), ...(cliente ? { cliente } : {}) },
+        }).then((r) => r.data),
+        // No guarda ni gasta número: el PDF tal cual saldría, y si el texto desborda la hoja.
+        presupuestoVistaPrevia: (entrada) => axios.post(`${B}/presupuestos/vista-previa`, entrada, { responseType: 'arraybuffer' })
+            .then((r) => ({ pdf: r.data, ...cabecerasPrevia(r.headers) })),
+        crearPresupuesto: (entrada) => axios.post(`${B}/presupuestos`, entrada).then((r) => r.data),
+        presupuestoHecho: (id) => axios.get(`${B}/presupuestos/${e(id)}`).then((r) => r.data),
+        guardarPresupuesto: (id, entrada) => axios.put(`${B}/presupuestos/${e(id)}`, entrada).then((r) => r.data),
+        anularPresupuesto: (id) => axios.post(`${B}/presupuestos/${e(id)}/anular`).then((r) => r.data),
+        presupuestoHechoPdf: (id) => axios.get(`${B}/presupuestos/${e(id)}/pdf`, { responseType: 'arraybuffer' }).then((r) => r.data),
+        presupuestoDescarga: (id) => axios.get(`${B}/presupuestos/${e(id)}/pdf`, { params: { descargar: 1 }, responseType: 'arraybuffer' })
+            .then((r) => ({ bytes: r.data, nombre: nombreDeDescarga(r.headers) })),
+        presupuestoWhatsapp: (id) => axios.post(`${B}/presupuestos/${e(id)}/whatsapp`).then((r) => r.data),
+        vincularPresupuesto: (id, obra) => axios.post(`${B}/presupuestos/${e(id)}/vincular`, { obra }).then((r) => r.data),
     };
 }
+
+/** Las cabeceras de la vista previa (axios las da en minúsculas). */
+export const cabecerasPrevia = (h = {}) => ({
+    desborda: String(h['x-presupuesto-desborda'] || '') === '1',
+    numeroLargo: String(h['x-presupuesto-numero-largo'] || '') === '1',
+});
+/** «attachment; filename="Presupuesto 40-26 - Cliente.pdf"» → el nombre (o null). */
+export function nombreDeDescarga(h = {}) {
+    const cd = String(h['content-disposition'] || '');
+    const utf = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(cd);
+    if (utf) { try { return decodeURIComponent(utf[1].replace(/"/g, '')); } catch { /* */ } }
+    const m = /filename\s*=\s*"?([^";]+)"?/i.exec(cd);
+    return m ? m[1] : null;
+}
+
+/** Lo que se ve al volver atrás desde una ficha: sin su acción; un presupuesto abierto desde otra ficha, esa. */
+export const trasAtras = (f) => (f?.tipo === 'presupuesto' && f.vuelta && (f.enSitio || !f.accion)
+    ? { ...f.vuelta, accion: null } : { ...f, accion: null });
 
 function useCarga(fn, activo, nonce) {
     const [estado, setEstado] = useState({ datos: null, cargando: !!activo, error: false });
@@ -155,6 +195,10 @@ export default function AppInstalador({
     const clientes = useCarga(cargarClientes, seccion === 'clientes' || ficha?.tipo === 'cliente', nonce);
     const cargarCatalogo = useCallback(() => api.catalogo(), [api]);
     const catalogo = useCarga(cargarCatalogo, seccion === 'catalogo' || ficha?.tipo === 'equipo', recarga);
+    // Los presupuestos que hace en la app: la lista solo cuando se mira.
+    const [presuN, setPresuN] = useState(0);
+    const cargarPresupuestos = useCallback(() => api.presupuestos(), [api]);
+    const presupuestos = useCarga(cargarPresupuestos, seccion === 'presupuestos' && !ficha, recarga * 1000 + presuN);
     // «Calcular una obra con este equipo»: su precio (o la tarifa) como presupuesto de la aerotermia.
     const calcularCon = (eq) => onNueva?.({
         equipo: {
@@ -183,7 +227,7 @@ export default function AppInstalador({
             if (!pila.current) return;
             const d = Math.max(0, Math.min(pila.current - 1, Number(ev.state?.iaFicha) || 0));
             pila.current = d;
-            setFicha((f) => (d === 0 ? null : f ? { ...f, accion: null } : f));
+            setFicha((f) => (d === 0 ? null : f ? trasAtras(f) : f));
             document.getElementById('ia-main')?.scrollTo?.(0, 0);
         };
         window.addEventListener('popstate', alVolver);
@@ -236,6 +280,67 @@ export default function AppInstalador({
     // calculadora de siempre queda detrás de «Corregir el cálculo», dentro de la ficha.
     const abrirObra = (o) => abrirFicha({ tipo: 'obra', obra: o });
 
+    // ── Los PRESUPUESTOS: lista → ficha → cambiarlo / otro igual (cada uno, su entrada) ──
+    // Desde un cliente (entrada 1) el formulario se empuja encima y «atrás» vuelve a él
+    // (`vuelta`); desde la acción de una obra (entrada 2, ya no caben más) se abre EN SU
+    // SITIO y «atrás» vuelve a la obra.
+    const abrirPresu = (f) => {
+        let g = f;
+        if (pila.current < 2) empujar(pila.current + 1, f);
+        else g = { ...f, enSitio: true };
+        setFicha(g);
+        arriba();
+    };
+    const nuevoPresupuesto = (desde = null, vuelta = null) => abrirPresu({ tipo: 'presupuesto', id: 'nuevo', desde, vuelta });
+    const volverPresu = () => {
+        const f = ficha;
+        if (f?.accion) {
+            if (!f.enSitio && pila.current === 2) { window.history.back(); return; }
+            setFicha({ ...f, accion: null });
+            arriba();
+            return;
+        }
+        if (f?.vuelta && f.enSitio) { setFicha(f.vuelta); arriba(); return; }
+        if (f?.vuelta && pila.current === 2) { window.history.back(); return; }
+        cerrarFicha();
+    };
+    const presuGuardado = (p, { nuevo }) => {
+        const f = ficha;
+        setPresuN((n) => n + 1);
+        if (!nuevo) { // cambiado: a su ficha, que se vuelve a pedir
+            if (!f.enSitio && pila.current === 2) window.history.back();
+            else setFicha({ ...f, accion: null });
+            arriba();
+            return;
+        }
+        if (!p?.id) { volverPresu(); return; }
+        // Nuevo u «otro igual»: su ficha ocupa el sitio del formulario (la dirección se reescribe).
+        setFicha({ tipo: 'presupuesto', id: p.id, recien: true, vuelta: f.vuelta || null, enSitio: !!f.enSitio });
+        arriba();
+    };
+    // «Calcular el bono CAE»: la Nueva simulación de siempre con lo del presupuesto; al
+    // crearse la oportunidad, el presupuesto se liga a ella y se vuelve a su ficha.
+    const simularPresupuesto = ({ presupuesto, entrada }) => {
+        const sim = simulacionDesde({ presupuesto, entrada });
+        if (!sim || !onNueva) return;
+        onNueva({
+            presupuesto: {
+                ...sim,
+                alCrear: async (res) => {
+                    const idOp = res?.id_oportunidad || res?.oportunidad?.id_oportunidad || null;
+                    if (idOp) { try { await api.vincularPresupuesto(sim.id, idOp); } catch { /* queda sin ligar */ } }
+                    setPresuN((n) => n + 1);
+                    onCambio();
+                },
+            },
+        });
+    };
+    const abrirObraPorId = (idOp) => {
+        const o = obras.datos?.obras?.find((x) => x.id === idOp || x.numero_expediente === idOp);
+        if (!o) { onAbrirOportunidad?.(idOp); return; }
+        if (pila.current >= 1) { setFicha({ tipo: 'obra', obra: o }); arriba(); } else abrirFicha({ tipo: 'obra', obra: o });
+    };
+
     // ── Abrir donde dice la dirección (recargar, un enlace directo, el banco) ──
     // Recargando, el historial ya tiene las entradas de la ficha (`iaFicha`): se abre
     // sin empujar más. Con un enlace nuevo, la entrada actual pasa a ser la pantalla
@@ -243,7 +348,7 @@ export default function AppInstalador({
     const alEmpezar = useRef(undefined);
     if (alEmpezar.current === undefined) {
         const d = inicio.current;
-        alEmpezar.current = (d.obra || d.cliente || d.equipo)
+        alEmpezar.current = (d.obra || d.cliente || d.equipo || d.presupuesto)
             ? { ...d, enHistorial: Math.max(0, Math.min(2, Number(fichaEnHistorial) || 0)) }
             : null;
     }
@@ -287,6 +392,11 @@ export default function AppInstalador({
                 : { tipo: 'accion', accion: a.accion };
         abrirDesdeDireccion({ tipo: 'obra', obra: o }, acc);
     }, [obras.datos]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        const a = alEmpezar.current;
+        if (!a?.presupuesto) return;
+        abrirDesdeDireccion({ tipo: 'presupuesto', id: a.presupuesto });
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
     // Si la lista no carga (sin red), la dirección se queda como estaba hasta que cargue.
 
     // La dirección dice siempre lo que se ve (sin añadir entradas: eso lo hacen las
@@ -322,11 +432,28 @@ export default function AppInstalador({
         contenido = <ObraView key={ficha.obra.id} obraId={ficha.obra.id} base={ficha.obra} cargarDetalle={cargarDetalle}
             api={api} nonce={recarga} accion={ficha.accion || null} onCambio={onCambio}
             onAccion={(d) => (d ? abrirAccion(ficha.obra, d) : cerrarAccion())}
-            onVolver={cerrarFicha} onAbrirOportunidad={onAbrirOportunidad} onMiPagina={() => ir('pagina')} />;
+            onVolver={cerrarFicha} onAbrirOportunidad={onAbrirOportunidad} onMiPagina={() => ir('pagina')}
+            onHacerPresupuesto={(o) => nuevoPresupuesto({ obra: o.id }, { tipo: 'obra', obra: ficha.obra, accion: ficha.accion || null })}
+            onAbrirPresupuesto={(h) => abrirPresu({ tipo: 'presupuesto', id: h.id, vuelta: { tipo: 'obra', obra: ficha.obra, accion: ficha.accion || null } })} />;
+    } else if (ficha?.tipo === 'presupuesto') {
+        const ac = ficha.accion;
+        if (ficha.id === 'nuevo' || ac) {
+            contenido = <PresupuestoForm key={`${ficha.id}-${ac?.accion || 'nuevo'}`} api={api}
+                modo={ac?.accion || 'nuevo'} id={ficha.id === 'nuevo' ? null : ficha.id} entrada={ac?.entrada || null}
+                desde={ficha.desde || null} onGuardado={presuGuardado} onVolver={volverPresu}
+                volverTexto={ac ? 'El presupuesto' : ficha.vuelta?.tipo === 'obra' ? 'La obra' : ficha.vuelta?.tipo === 'cliente' ? 'El cliente' : 'Presupuestos'} />;
+        } else {
+            contenido = <PresupuestoFicha key={`${ficha.id}-${presuN}`} api={api} id={ficha.id} empresa={empresa} recien={!!ficha.recien}
+                onVolver={volverPresu} onCambio={() => setPresuN((n) => n + 1)}
+                onEditar={(entrada) => abrirPresu({ ...ficha, recien: false, accion: { accion: 'editar', entrada } })}
+                onDuplicar={(entrada) => abrirPresu({ ...ficha, recien: false, accion: { accion: 'duplicar', entrada } })}
+                onSimular={onNueva ? simularPresupuesto : null} onAbrirObra={abrirObraPorId} />;
+        }
     } else if (ficha?.tipo === 'cliente') {
         const actual = (clientes.datos || []).find((c) => c.id_cliente === ficha.cliente.id_cliente) || ficha.cliente;
         contenido = <ClienteView cliente={actual} obras={obras.datos?.obras} onVolver={cerrarFicha}
-            onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva} />;
+            onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva}
+            onPresupuesto={(c) => nuevoPresupuesto({ cliente: c }, { tipo: 'cliente', cliente: c })} />;
     } else if (ficha?.tipo === 'equipo') {
         contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} api={api}
             onVolver={cerrarFicha} onCalcular={onNueva ? calcularCon : null} onCambio={onCambio} />;
@@ -336,6 +463,9 @@ export default function AppInstalador({
     } else if (seccion === 'obras') {
         contenido = <ObrasView datos={obras.datos} cargando={obras.cargando} error={obras.error} onReintentar={obras.reintentar}
             cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} onNueva={onNueva} />;
+    } else if (seccion === 'presupuestos') {
+        contenido = <PresupuestosView datos={presupuestos.datos} cargando={presupuestos.cargando} error={presupuestos.error}
+            onReintentar={presupuestos.reintentar} onAbrir={(p) => abrirPresu({ tipo: 'presupuesto', id: p.id })} onNuevo={() => nuevoPresupuesto()} />;
     } else if (seccion === 'pagina') {
         contenido = <MiPaginaView key={nonce} api={api} vistaInicial={paginaVista} />;
     } else if (seccion === 'clientes') {
@@ -344,14 +474,17 @@ export default function AppInstalador({
     } else {
         contenido = <InicioView saludo={saludo} datos={obras.datos} cargando={obras.cargando} error={obras.error}
             onReintentar={obras.reintentar} onNueva={onNueva} onVerObras={() => ir('obras')} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion}
-            onMiPagina={() => ir('pagina')} instalarComo={instalarComo} />;
+            onMiPagina={() => ir('pagina')} instalarComo={instalarComo}
+            onPresupuesto={() => nuevoPresupuesto()} onVerPresupuestos={() => ir('presupuestos')} />;
     }
 
-    const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : ficha?.tipo === 'equipo' ? 'catalogo' : externo ? 'obras' : seccion;
+    const seccionVisible = ficha?.tipo === 'obra' ? 'obras' : ficha?.tipo === 'cliente' ? 'clientes' : ficha?.tipo === 'equipo' ? 'catalogo'
+        : ficha?.tipo === 'presupuesto' ? (ficha.vuelta?.tipo === 'obra' ? 'obras' : ficha.vuelta?.tipo === 'cliente' ? 'clientes' : 'presupuestos') : externo ? 'obras' : seccion;
     const QUE_NO = {
         obra: 'Esa obra no está entre las tuyas, o ya no sigue en marcha.',
         cliente: 'Ese cliente no está entre los tuyos.',
         equipo: 'Ese equipo no está en tu catálogo.',
+        presupuesto: 'Ese presupuesto no está entre los tuyos.',
     };
     return (
         <div className="ia-app" style={marca || undefined}>

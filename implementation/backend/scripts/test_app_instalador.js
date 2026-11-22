@@ -362,6 +362,24 @@ const srv = app.listen(0, async () => {
   if (ECO.length !== ECO_ANTES) { fallos++; console.log(`✗ con 401/403/404 la ruta de siempre llegó a ejecutarse ${ECO.length - ECO_ANTES} vez/veces`); }
   else console.log('✓ con 401/403/404 la ruta de siempre no llega a ejecutarse');
 
+  // Sus PRESUPUESTOS (22/11/2026). El detalle (crear, PDF, WhatsApp…) en test_presupuesto_instalador.js;
+  // aquí, que entran por la misma puerta que el resto de la app.
+  console.log('— Presupuestos: sin sesión → 401, fuera de la beta → 403, ajeno → 404');
+  const AJENO = '33333333-3333-4333-8333-333333333333';
+  const PRESUS = ['GET /presupuestos', 'GET /presupuestos/nuevo', 'POST /presupuestos/vista-previa', 'POST /presupuestos',
+    `GET /presupuestos/${AJENO}`, `PUT /presupuestos/${AJENO}`, `POST /presupuestos/${AJENO}/anular`, `GET /presupuestos/${AJENO}/pdf`,
+    `POST /presupuestos/${AJENO}/whatsapp`, `POST /presupuestos/${AJENO}/vincular`];
+  for (const l of PRESUS) { const [m, r] = l.split(' '); await pide('anónimo', `${m} ${P}${r}`, 401, null, m === 'GET' ? undefined : {}); }
+  for (const quien of ['otro', 'dist', 'admin']) {
+    for (const l of PRESUS) { const [m, r] = l.split(' '); await pide(quien, `${m} ${P}${r}`, 403, null, m === 'GET' ? undefined : {}); }
+  }
+  for (const l of PRESUS.filter(x => x.includes(AJENO) && !/vincular/.test(x))) {
+    const [m, r] = l.split(' ');
+    await pide('rca', `${m} ${P}${r}`, 404, null, m === 'GET' ? undefined : {});
+  }
+  await pide('rca', `POST ${P}/presupuestos/${AJENO}/vincular`, 404, null, { obra: '26RES060_OP902' });
+  await pide('rca', `GET ${P}/presupuestos/no-es-un-id`, 404);
+
   console.log('— Fase 2: la obra que trae pero NO instala → 403 al firmar, al RITE y a la factura; fotos, sí');
   for (const l of NUEVAS.filter(x => /\/(factura|instalador|cifo|rite|fm-declaracion)/.test(x) && !/factura\/fichero/.test(x))) {
     const [m, r] = l.split(' ');

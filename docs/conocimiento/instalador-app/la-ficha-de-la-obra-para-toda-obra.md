@@ -93,3 +93,17 @@ devolvía la obra a pelo. **REGLA — el detalle se desenvuelve en UN sitio, `ob
 `AppInstalador.jsx`, y el demo devuelve la MISMA forma que el servidor y pasa por ella.** Además, el enlace
 del escaparate en la ficha del partner (CRM) apuntaba al antiguo `instaladores.brokergy.es/escaparate/…`:
 ahora es `brokergy.es/encuentra-tu-instalador/{marketplace_slug}/`, la ficha que genera `brokergy-web`.
+
+### Los filtros de Obras: oportunidades aparte de obras (2026-11-22)
+
+Fran: «se debe poder filtrar las que son oportunidades de las que son obras en curso. Filtros mejores».
+Eran Todas · Te toca · En marcha · Cobradas, y «En marcha» contaba lo mismo que «Todas» (11 y 11, en RCA
+ninguna cobrada). **REGLA — dos ejes que se combinan: ETAPA (Oportunidades = pasos 1-2, sin aceptar · En
+obra = pasos 3-4 o con expediente · Cobradas = paso 5) y QUIÉN la tiene (Te toca · Espera al cliente · Lo
+llevamos nosotros, que se pulsa otra vez para quitarlo), más Pueblo y Tipo (solo si hay más de uno) y
+Ordenar (por defecto, lo que te toca primero y dentro lo último movido).** Las cifras de cada botón se
+cuentan con los DEMÁS filtros puestos, así que lo que dice el botón es lo que sale al pulsarlo. Todo en el
+navegador sobre la lista que ya llega (`logic/obras.js`: `etapaDe`, `pasaFiltros`, `cuentasFiltros`,
+`ordenarObras`); el servidor no cambia. Se recuerda como el resto (`memoriaVista`, clave
+`instalador-obras`), y lo recordado con el filtro viejo se traduce (`filtrosIniciales`). En el móvil van en
+dos filas que se deslizan; sin resultados, «Quitar filtros y búsqueda».

@@ -34,11 +34,14 @@ function mensajeErrorOcr(e) {
 // `initialQuery`: referencia con la que nace escrito el campo (la del CEE cargado en
 // "Nueva simulación"). Si su búsqueda automática falla, reintentar es pulsar Buscar,
 // no volver a teclear 20 caracteres que ya estaban en el certificado.
-export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false, initialQuery = '', modoInicial = 'rc' }) {
+// `direccionInicial` (22/11/2026): la dirección de la obra de un PRESUPUESTO de la app del
+// instalador. Nace escrita en la pestaña DIRECCIÓN y salen sus sugerencias: la vivienda la
+// elige y la confirma él, como siempre (la del cliente y la del Catastro bailan de número).
+export function CatastroSearchBox({ onSearch, onAddressSelect, onManualEntry, onGeolocate, geolocatePrimary = false, permiteFotoRc = false, initialQuery = '', modoInicial = 'rc', direccionInicial = '' }) {
     // El cliente de la web busca por DIRECCIÓN (`modoInicial="address"`): la referencia
     // catastral es jerga para él. El CRM sigue abriendo por referencia.
-    const [searchMode, setSearchMode] = useState(modoInicial === 'address' && !initialQuery ? 'address' : 'rc'); // 'rc' | 'address'
-    const [query, setQuery] = useState(initialQuery || '');
+    const [searchMode, setSearchMode] = useState((modoInicial === 'address' && !initialQuery) || (direccionInicial && !initialQuery) ? 'address' : 'rc'); // 'rc' | 'address'
+    const [query, setQuery] = useState(initialQuery || direccionInicial || '');
     const [isFocused, setIsFocused] = useState(false);
     const [geoLoading, setGeoLoading] = useState(false);
 

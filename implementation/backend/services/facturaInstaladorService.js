@@ -43,6 +43,10 @@ async function leerDeDisco(dir, id) {
         cfg, fondo: leer(cfg.fondo), fuentes: Object.fromEntries(Object.entries(cfg.fuentes || {}).map(([k, f]) => [k, leer(f)])),
         // Su factura en WORD (opcional): la que va pre-rellena con el concepto (facturaWordService).
         word: cfg.word ? leer(cfg.word) : null,
+        // Su PRESUPUESTO (opcional, 22/11/2026): el mismo Word titulado «PRESUPUESTO»,
+        // exportado en blanco. Sin sección `presupuesto`, el presupuesto sale en la
+        // hoja genérica (presupuestoInstaladorService), nunca en el fondo de la factura.
+        fondoPresupuesto: cfg.presupuesto?.fondo ? leer(cfg.presupuesto.fondo) : null,
     };
 }
 
@@ -62,7 +66,10 @@ async function leerDeDrive(carpeta, id) {
     const cfg = JSON.parse((await bajar('plantilla.json')).toString('utf8'));
     const fuentes = {};
     for (const [k, f] of Object.entries(cfg.fuentes || {})) fuentes[k] = await bajar(f);
-    return { cfg, fondo: await bajar(cfg.fondo), fuentes, word: cfg.word ? await bajar(cfg.word) : null };
+    return {
+        cfg, fondo: await bajar(cfg.fondo), fuentes, word: cfg.word ? await bajar(cfg.word) : null,
+        fondoPresupuesto: cfg.presupuesto?.fondo ? await bajar(cfg.presupuesto.fondo) : null,
+    };
 }
 
 /** La plantilla de factura de un instalador, o null si no la tiene. */
@@ -297,13 +304,22 @@ function calcular(entrada, { lineas: lineasConsejo, cfg, fechaMinima, hoy = new 
  * Compone la factura sobre el fondo de la plantilla. Posiciones en puntos PDF,
  * `y` medida DESDE ARRIBA (como en el visor) y en la LÍNEA BASE del texto.
  * `numeroLargo`: el nº de factura no cabe en su casilla ni encogido (con `numero.zona`).
+ *
+ * `opciones.tipo === 'presupuesto'` (22/11/2026, Fran: «el presupuesto con la MISMA
+ * plantilla que su factura»): el fondo de presupuesto (`plantilla.fondoPresupuesto`), las
+ * MISMAS posiciones con lo que `cfg.presupuesto` sobreescriba (`numero`, `fecha`, `tabla`,
+ * `totales`) y, bajo las líneas, en lugar de INMUEBLE / REF. CATASTRAL / observaciones
+ * del IRPF (que son de la factura de la obra ya hecha), la DIRECCIÓN DE LA OBRA si es
+ * otra que la del cliente (`datos.direccionObra`), las notas (`datos.notas`) y la
+ * validez (`datos.validezDias`). Sin `opciones`, la factura de siempre, byte a byte.
  * @returns {Promise<{ buffer: Buffer, desborda: boolean, numeroLargo: boolean }>}
  */
-async function componerPdf(plantilla, datos, calculo) {
+async function componerPdf(plantilla, datos, calculo, opciones = {}) {
     const { PDFDocument, rgb } = require('pdf-lib');
     const fontkit = require('@pdf-lib/fontkit');
-    const { cfg } = plantilla;
-    const pdf = await PDFDocument.load(plantilla.fondo);
+    const esPresupuesto = opciones?.tipo === 'presupuesto';
+    const cfg = esPresupuesto ? cfgPresupuesto(plantilla.cfg) : plantilla.cfg;
+    const pdf = await PDFDocument.load(esPresupuesto ? (plantilla.fondoPresupuesto || plantilla.fondo) : plantilla.fondo);
     pdf.registerFontkit(fontkit);
     const fR = await pdf.embedFont(plantilla.fuentes.normal, { subset: true });
     const fB = plantilla.fuentes.negrita ? await pdf.embedFont(plantilla.fuentes.negrita, { subset: true }) : fR;
@@ -362,10 +378,26 @@ async function componerPdf(plantilla, datos, calculo) {
     }
     const ex = cfg.extra;
     y += ex.antes ?? 2;
-    for (const t of partir(`INMUEBLE: ${datos.inmueble}`, tb.concepto.ancho, ex.size)) { txt(tb.concepto.x, y, t, { size: ex.size }); y += ex.pitch; }
-    txt(tb.concepto.x, y, `REF. CATASTRAL: ${datos.refCatastral}`, { size: ex.size }); y += ex.pitch + 2;
-    for (const t of partir(datos.observaciones, tb.concepto.ancho, ex.obsSize)) { txt(tb.concepto.x, y, t, { size: ex.obsSize }); y += ex.obsPitch; }
-    const desborda = y - ex.obsPitch > tb.fondo;
+    let desborda;
+    if (esPresupuesto) {
+        // Lo que acompaña al presupuesto, con la letra del INMUEBLE de la factura.
+        const pie = [
+            datos.direccionObra ? `DIRECCIÓN DE LA OBRA: ${datos.direccionObra}` : null,
+            ...String(datos.notas || '').split(/\r?\n+/).map(s => textoConcepto(s).toUpperCase()).filter(Boolean),
+            Number(datos.validezDias) > 0 ? `VALIDEZ DEL PRESUPUESTO: ${Math.round(Number(datos.validezDias))} DÍAS` : null,
+        ].filter(Boolean);
+        let ultimo = y;
+        for (const p of pie) {
+            for (const t of partir(p, tb.concepto.ancho, ex.size)) { txt(tb.concepto.x, y, t, { size: ex.size }); ultimo = y; y += ex.pitch; }
+            y += 2;
+        }
+        desborda = ultimo > tb.fondo;
+    } else {
+        for (const t of partir(`INMUEBLE: ${datos.inmueble}`, tb.concepto.ancho, ex.size)) { txt(tb.concepto.x, y, t, { size: ex.size }); y += ex.pitch; }
+        txt(tb.concepto.x, y, `REF. CATASTRAL: ${datos.refCatastral}`, { size: ex.size }); y += ex.pitch + 2;
+        for (const t of partir(datos.observaciones, tb.concepto.ancho, ex.obsSize)) { txt(tb.concepto.x, y, t, { size: ex.obsSize }); y += ex.obsPitch; }
+        desborda = y - ex.obsPitch > tb.fondo;
+    }
 
     // Totales
     const to = cfg.totales;
@@ -373,9 +405,31 @@ async function componerPdf(plantilla, datos, calculo) {
     txt(to.iva.x, to.iva.y, eur(calculo.iva), { size: to.iva.size, align: to.iva.align, bold: to.iva.bold });
     txt(to.total.x, to.total.y, eur(calculo.total), { size: to.total.size, align: to.total.align, bold: to.total.bold, col: to.total.color });
 
-    pdf.setTitle(`Factura ${calculo.numero}`);
+    pdf.setTitle(`${esPresupuesto ? 'Presupuesto' : 'Factura'} ${calculo.numero}`);
     pdf.setProducer('BROKERGY');
     return { buffer: Buffer.from(await pdf.save()), desborda, numeroLargo: !numeroCabe };
+}
+
+/**
+ * Las posiciones del PRESUPUESTO: las de la factura, con lo que `cfg.presupuesto`
+ * sobreescriba campo a campo (en `tabla` y `totales`, también un nivel más abajo:
+ * `{ tabla: { y: 260 } }` no borra las columnas). Lo demás de `cfg.presupuesto`
+ * (fondo, ejemplo, notas, validez) no son posiciones y aquí no se miran.
+ */
+function cfgPresupuesto(cfg) {
+    const p = cfg?.presupuesto || {};
+    const fundir = (a, b) => {
+        if (!b || typeof b !== 'object' || Array.isArray(b)) return a;
+        const o = { ...(a || {}) };
+        for (const [k, v] of Object.entries(b)) o[k] = v && typeof v === 'object' && !Array.isArray(v) && a?.[k] && typeof a[k] === 'object' ? { ...a[k], ...v } : v;
+        return o;
+    };
+    return {
+        ...cfg,
+        numero: fundir(cfg.numero, p.numero), fecha: fundir(cfg.fecha, p.fecha),
+        tabla: fundir(cfg.tabla, p.tabla), totales: fundir(cfg.totales, p.totales),
+        extra: fundir(cfg.extra, p.extra),
+    };
 }
 
 // ── Guardar: lo mismo que una factura subida al apartado ─────────────────────
@@ -500,4 +554,4 @@ async function guardarFactura({ ctx, calculo, buffer, escribir = true, sustituir
     return { fileName, link: s.link, driveId: s.driveId, patch, sustituye };
 }
 
-module.exports = { plantillaDe, datosFactura, calcular, componerPdf, guardarFactura, patchFila, aSustituir, refFactura, eur, fechaTexto, partidaDe };
+module.exports = { plantillaDe, datosFactura, calcular, componerPdf, cfgPresupuesto, guardarFactura, patchFila, aSustituir, refFactura, eur, fechaTexto, partidaDe };

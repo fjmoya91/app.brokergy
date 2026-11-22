@@ -156,6 +156,20 @@ export const CSS = `
 .ia-filtros::-webkit-scrollbar{display:none}
 .ia-filtro{flex:none;min-height:44px;padding:0 16px;border-radius:999px;border:1.5px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font-size:14.5px;font-weight:700;cursor:pointer;white-space:nowrap}
 .ia-filtro[aria-pressed="true"]{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+.ia-filtro .n{font-weight:800;opacity:.55;margin-left:2px}
+.ia-filtro[aria-pressed="true"] .n{opacity:.8}
+.ia-filtros-todo{display:flex;flex-direction:column;gap:10px;min-width:0}
+.ia-filtros-2{align-items:center}
+.ia-filtro.peq{min-height:40px;padding:0 13px;font-size:13.5px;font-weight:700;border-width:1px}
+.ia-filtro.peq.tu:not([aria-pressed="true"]){background:var(--ambar-bg);border-color:var(--ambar-borde);color:var(--ambar-txt)}
+.ia-desple{position:relative;flex:none;display:inline-flex;align-items:center;gap:6px;min-height:40px;padding:0 12px 0 14px;border-radius:999px;border:1px solid rgba(20,17,17,.14);background:#fff;color:var(--tinta);font-size:13.5px;font-weight:700;white-space:nowrap;cursor:pointer}
+.ia-desple svg{transform:rotate(90deg);opacity:.6}
+.ia-desple.puesto{background:var(--tinta);color:#fff;border-color:var(--tinta)}
+.ia-desple select{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:16px}
+.ia-desple .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.ia-desple:focus-within{outline:2px solid var(--naranja);outline-offset:2px}
+.ia-quitar{flex:none;min-height:40px;padding:0 6px;background:none;border:0;color:var(--naranja-txt);font-size:13.5px;font-weight:700;text-decoration:underline;cursor:pointer;white-space:nowrap}
+.ia-nada .ia-btn{margin-top:10px}
 .ia-obras{display:flex;flex-direction:column;gap:12px;padding:4px 16px 18px}
 .ia-obra{flex:none;display:flex;flex-direction:column;gap:10px;background:#fff;border:1px solid var(--linea);border-radius:22px;padding:16px 18px;text-decoration:none;color:var(--tinta);box-shadow:var(--sombra);text-align:left;cursor:pointer;width:100%;font:inherit}
 .ia-obra[aria-pressed="true"]{border:1.5px solid var(--tinta)}
@@ -206,6 +220,7 @@ export const CSS = `
   .ia-pc-cab h1{margin:0;font-size:40px;line-height:1.1}
   .ia-pc-cab .ia-buscar{flex:0 1 340px;min-height:48px}
   .ia-pc-filtros{flex-basis:100%;display:flex;gap:8px}
+  .ia-pc-filtros .ia-filtros{margin:0;padding:0;flex-wrap:wrap;overflow:visible}
   .ia-split{display:flex;gap:18px;align-items:flex-start;padding:18px 28px 32px}
   .ia-split .ia-obras{flex:1 1 340px;max-width:440px;min-width:0;padding:0;gap:10px}
   .ia-split .ia-obra{border-radius:20px;padding:14px 16px;gap:8px;box-shadow:0 1px 2px rgba(20,17,17,.04)}
@@ -387,7 +402,81 @@ export const CSS = `
 .ia-eq-papel>span.ver{flex:none;font-size:14.5px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
 .ia-campo input[type=text].ia-precio{font-family:'Antonio','Inter',Impact,sans-serif;font-size:30px!important;font-variant-numeric:tabular-nums;min-height:60px}
 
+/* ── Presupuestos que hace el instalador (22/11/2026) ── */
+.ia-pr-imp{flex:none;text-align:right;display:flex;flex-direction:column;gap:1px}
+.ia-pr-imp b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:20px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ia-pr-imp span{font-size:12px;color:var(--gris)}
+.ia-pr-imp.anulado b{color:var(--gris2);text-decoration:line-through}
+.ia-pr-sec{display:flex;flex-direction:column;gap:14px}
+.ia-pr-sec>h2{margin:0;display:flex;align-items:center;gap:10px;font-size:19px;line-height:1.25;font-weight:800}
+.ia-pr-n{flex:none;width:28px;height:28px;border-radius:999px;background:var(--tinta);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:13.5px;font-weight:800}
+.ia-pr-sec>h2 .ok{margin-left:auto;color:var(--verde-txt)}
+.ia-campo input[type=tel],.ia-campo input[type=email],.ia-campo input[type=number],.ia-campo input[type=search],.ia-campo select{width:100%;min-height:52px;padding:12px 14px;border-radius:16px;border:1.5px solid rgba(20,17,17,.14);background:#fff;font:inherit;font-size:16px;line-height:1.45;color:var(--tinta)}
+.ia-campo input:focus,.ia-campo select:focus{outline:0;border-color:var(--tinta)}
+.ia-campo.mal input,.ia-campo.mal textarea{border-color:var(--ambar-borde);background:var(--ambar-bg)}
+.ia-pr-fila2{display:grid;grid-template-columns:minmax(0,120px) minmax(0,1fr);gap:10px}
+.ia-pr-fila2.mitad{grid-template-columns:repeat(2,minmax(0,1fr))}
+.ia-pr-elegido{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.ia-pr-elegido>div{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ia-pr-elegido b{font-size:16px;line-height:1.3;overflow-wrap:anywhere}
+.ia-pr-elegido span{font-size:13.5px;color:var(--gris);line-height:1.4}
+.ia-pr-lista{display:flex;flex-direction:column;border:1px solid var(--linea);border-radius:18px;overflow:hidden;background:#fff}
+.ia-pr-lista button{display:flex;align-items:center;gap:12px;min-height:56px;padding:8px 14px;border:0;border-top:1px solid var(--linea);background:none;text-align:left;cursor:pointer;color:var(--tinta);width:100%}
+.ia-pr-lista button:first-child{border-top:0}
+.ia-pr-lista button>span{min-width:0;display:flex;flex-direction:column;gap:1px}
+.ia-pr-lista button b{font-size:15.5px}
+.ia-pr-lista button small{font-size:13px;color:var(--gris)}
+.ia-pr-lista button.nuevo{font-weight:800;color:var(--naranja-txt)}
+.ia-pr-extra{display:inline-flex;align-items:center;gap:6px}
+.ia-pr-litros{display:inline-flex;align-items:center;gap:4px;font-size:13.5px;color:var(--gris);font-weight:700}
+.ia-pr-litros input{width:64px;min-height:40px;padding:0 8px;border-radius:12px;border:1.5px solid rgba(20,17,17,.14);font:inherit;font-size:16px;text-align:right;background:#fff;color:var(--tinta)}
+.ia-pr-linea{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.ia-pr-linea textarea{width:100%;min-height:64px;padding:10px 12px;border-radius:14px;border:1.5px solid rgba(20,17,17,.14);background:#fff;font:inherit;font-size:15px;line-height:1.45;color:var(--tinta);resize:vertical;text-transform:uppercase}
+.ia-pr-linea textarea:focus{outline:0;border-color:var(--tinta)}
+.ia-pr-linea-pie{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.ia-pr-linea-pie>span{font-size:12.5px;color:var(--gris);font-weight:700}
+.ia-pr-partida{display:flex;align-items:center;gap:8px}
+.ia-pr-partida input{min-height:44px;padding:0 10px;border-radius:12px;border:1.5px solid rgba(20,17,17,.14);font:inherit;font-size:16px;background:#fff;color:var(--tinta);text-align:right;font-variant-numeric:tabular-nums}
+.ia-pr-partida input.c{width:64px}.ia-pr-partida input.p{width:120px}
+.ia-pr-partida label{font-size:12.5px;color:var(--gris);font-weight:700}
+.ia-pr-totales{display:flex;flex-direction:column;gap:4px;padding:16px 18px;border-radius:18px;background:var(--crema)}
+.ia-pr-totales .fila{display:flex;justify-content:space-between;gap:12px;font-size:15px;color:var(--gris);font-variant-numeric:tabular-nums}
+.ia-pr-totales .fila b{color:var(--tinta)}
+.ia-pr-totales .total{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin-top:6px;padding-top:10px;border-top:1.5px solid var(--tinta)}
+.ia-pr-totales .total span{font-size:13px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.ia-pr-totales .total b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:40px;line-height:1;font-variant-numeric:tabular-nums}
+.ia-pr-guardar{position:sticky;bottom:0;z-index:4;margin:0 -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));background:rgba(250,249,247,.96);border-top:1px solid var(--linea);display:flex;flex-direction:column;gap:8px;backdrop-filter:blur(6px)}
+.ia-pr-guardar .fila{display:flex;align-items:center;gap:10px}
+.ia-pr-guardar .fila .ia-btn{flex:1 1 auto}
+.ia-pr-ver{flex:none;min-height:56px;padding:0 14px;border-radius:16px;border:0;background:var(--tinta);color:#fff;font:inherit;font-size:14px;font-weight:700;cursor:pointer;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.15}
+.ia-pr-ver b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:16px;color:var(--lima)}
+.ia-pr-dos{display:block}
+.ia-pr-lado{display:none}
+.ia-app .fo-previa{background:#fff;border:1px solid var(--linea);border-radius:18px;overflow:hidden;position:relative;min-height:200px}
+.ia-app .fo-previa canvas{display:block;width:100%;height:auto}
+.ia-app .fo-previa .cargando{position:absolute;top:10px;right:10px;font-size:11.5px;font-weight:700;color:var(--gris);background:rgba(255,255,255,.92);border:1px solid var(--linea);border-radius:999px;padding:5px 10px}
+.ia-pr-hoja{max-width:640px;max-height:92vh;display:flex;flex-direction:column;padding:10px 12px calc(14px + env(safe-area-inset-bottom))}
+.ia-pr-hoja-cab{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 4px 10px}
+.ia-pr-hoja-cab b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:22px}
+.ia-pr-hoja-cuerpo{overflow:auto;-webkit-overflow-scrolling:touch;min-height:0}
+.ia-pr-copiar{display:flex;flex-direction:column;gap:10px;padding:14px 16px;border-radius:18px;background:var(--crema);border:1px solid var(--linea)}
+.ia-pr-copiar p{margin:0;white-space:pre-line;font-size:15px;line-height:1.5}
+.ia-pr-acciones{display:flex;flex-direction:column;gap:10px}
+.ia-pr-pdf{margin-top:14px}
+@media (min-width:1024px){
+  .ia-pr-pdf{margin-top:0;position:sticky;top:18px}
+  .ia-pr-dos{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}
+  .ia-pr-lado{display:block;position:sticky;top:18px}
+  .ia-pr-lado .fo-previa{display:flex;justify-content:center}
+  .ia-pr-lado .fo-previa canvas{width:auto;max-width:100%;max-height:calc(100vh - 120px)}
+  .ia-pr-ver{display:none}
+  .ia-pr-guardar{margin:0;padding:14px 0 18px}
+  .ia-pagina.ancha{max-width:1180px;margin:0}
+}
+
 @media (max-width:359px){
+  .ia-pr-totales .total b{font-size:34px}
+  .ia-pr-partida input.p{width:100px}
   .ia-eq-cab h1{font-size:30px}
   .ia-accion-cab h1{font-size:30px}
   .ia-hola h1{font-size:34px}.ia-titulo h1{font-size:32px}.ia-ficha-cab h1{font-size:30px}.ia-cifra{font-size:52px}

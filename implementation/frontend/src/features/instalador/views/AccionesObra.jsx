@@ -24,6 +24,7 @@ import { DocsManager } from '../../docs/DocsManager';
 import { API_DOCS_INSTALADOR } from '../../docs/docsApi';
 import { Icono, Esqueleto, AvisoError, eur } from '../ui/piezas';
 import { ElegirFotosView } from './ElegirFotosView';
+import { obraDelPresupuesto } from '../logic/presupuestoApp';
 
 const mensaje = (e, porDefecto) => e?.response?.data?.error || e?.response?.data?.message || porDefecto;
 
@@ -61,7 +62,7 @@ export function useEnvio() {
 // Nunca en otra pestaña ni con un enlace de Drive (regla 1): se piden los BYTES por
 // el proxy y los pinta pdf.js. pdf.js pesa: se carga al abrir. Una foto se enseña tal cual.
 const MAX_PAGINAS = 12;
-export function HojasPdf({ clave, cargar, nombre = 'documento.pdf' }) {
+export function HojasPdf({ clave, cargar, nombre = 'documento.pdf', conPie = true }) {
     const contRef = useRef(null);
     const bytesRef = useRef(null);
     const cargarRef = useRef(cargar);
@@ -130,7 +131,7 @@ export function HojasPdf({ clave, cargar, nombre = 'documento.pdf' }) {
                 {estado.fase === 'cargando' && <div className="ia-hojas-estado">Abriendo el documento…</div>}
                 {estado.fase === 'error' && <div className="ia-hojas-estado">Ahora mismo no podemos enseñarlo. Prueba otra vez en un momento.</div>}
             </div>
-            {estado.fase === 'listo' && (
+            {conPie && estado.fase === 'listo' && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
                     <span className="ia-pequeno">{estado.paginas > MAX_PAGINAS ? `Primeras ${MAX_PAGINAS} de ${estado.paginas} páginas` : estado.img ? 'Foto' : `${estado.paginas} ${estado.paginas === 1 ? 'página' : 'páginas'}`}</span>
                     <button type="button" className="ia-btn ia-btn-sec ia-btn-peq" onClick={descargar}>Descargar</button>
@@ -288,12 +289,19 @@ const ESTADO_PRESU = {
     estimado: { texto: 'Estimado', tono: 'tu' },
     falta: { texto: 'Falta', tono: 'tu' },
 };
-export function PresupuestoAccion({ obra, api, alSubir, onCambio }) {
+export function PresupuestoAccion({ obra, api, alSubir, onCambio, onHacerAqui, onAbrirHecho }) {
     const [p, setP] = useState(null);
     const [error, setError] = useState(false);
     const [n, setN] = useState(0);
     const [file, setFile] = useState(null);
     const [aviso, setAviso] = useState(null);
+    const [hechos, setHechos] = useState([]);
+    useEffect(() => {
+        let vivo = true;
+        if (!api.presupuestos || !onHacerAqui) return undefined;
+        api.presupuestos().then((r) => { if (vivo) setHechos((r?.presupuestos || []).filter((x) => obraDelPresupuesto(x) === obra.id && x.estado !== 'ANULADO')); }).catch(() => {});
+        return () => { vivo = false; };
+    }, [api, obra.id, n]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         let vivo = true;
         setError(false);
@@ -339,6 +347,22 @@ export function PresupuestoAccion({ obra, api, alSubir, onCambio }) {
                 </p>
                 {f && <HojasPdf clave={f.id} nombre={f.nombre} cargar={() => api.presupuestoPdf(obra.id, f.id)} />}
             </section>
+            {onHacerAqui && (
+                <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Hacer el presupuesto en la app">
+                    <p className="ia-eyebrow">{hechos.length ? 'Hecho en la app' : '¿No lo tienes hecho?'}</p>
+                    {hechos.map((h) => (
+                        <button key={h.id} type="button" className="ia-fila sin-pad primera" onClick={() => onAbrirHecho?.(h)}>
+                            <span className="ia-baldosa" aria-hidden="true"><Icono n="factura" size={20} /></span>
+                            <span className="ia-fila-txt"><b>Presupuesto {h.numero}</b><span className="corta">{h.resumen || 'Tu presupuesto'}</span></span>
+                            <span className="ia-pr-imp"><b>{eur(h.total)}</b><span>con IVA</span></span>
+                        </button>
+                    ))}
+                    {!hechos.length && <p className="ia-pequeno" style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5 }}>Hazlo aquí en un minuto, con tu plantilla: sale con los datos de esta obra y queda guardado en ella.</p>}
+                    <button type="button" className="ia-btn ia-btn-sec" onClick={onHacerAqui}>
+                        <Icono n="factura" size={20} /> {hechos.length ? 'Hacer otro aquí' : 'Hacerlo aquí'}
+                    </button>
+                </section>
+            )}
             <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="Subir el presupuesto">
                 <p className="ia-eyebrow">{f ? 'Cambiar el presupuesto' : 'Subir el presupuesto'}</p>
                 <ZonaFichero file={file} onPick={elegir} />

@@ -75,7 +75,7 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
     );
 }
 
-export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObra, onNueva }) {
+export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObra, onNueva, onPresupuesto }) {
     const nombre = nombreCliente(c);
     const tel = telHref(c.tlf);
     const wa = waHref(c.tlf);
@@ -117,6 +117,11 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
             <button type="button" className="ia-btn ia-btn-pri" onClick={onNueva}>
                 <Icono n="mas" size={22} grosor={2.4} /> Otra obra para {pila}
             </button>
+            {onPresupuesto && (
+                <button type="button" className="ia-btn ia-btn-sec" onClick={() => onPresupuesto(c)}>
+                    <Icono n="factura" size={20} /> Hacerle un presupuesto
+                </button>
+            )}
         </div>
     );
 }

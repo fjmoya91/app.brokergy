@@ -20,6 +20,7 @@ const NAV = [
     { key: 'obras', texto: 'Obras', icono: 'obras' },
     { key: 'clientes', texto: 'Clientes', icono: 'clientes' },
     { key: 'catalogo', texto: 'Catálogo', icono: 'catalogo' },
+    { key: 'presupuestos', texto: 'Presupuestos', icono: 'factura' }, // solo en el menú lateral (en el móvil, desde Inicio)
     { key: 'pagina', texto: 'Tu página web', icono: 'web' },   // solo en el menú lateral
 ];
 

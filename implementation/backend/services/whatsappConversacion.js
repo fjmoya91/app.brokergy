@@ -342,7 +342,19 @@ async function transcribir(msgId) {
     const id = String(msgId || '');
     if (transcritos.has(id)) return { texto: transcritos.get(id), cache: true };
     const { buffer, mimetype } = await descargarAdjunto(id);
-    if (!/^audio\//.test(mimetype)) throw error('Ese mensaje no es un audio.');
+    const texto = await transcribirBuffer(buffer, mimetype);
+    if (transcritos.size > 500) transcritos.delete(transcritos.keys().next().value);
+    transcritos.set(id, texto);
+    return { texto, cache: false };
+}
+
+/**
+ * La transcripción de un audio que ya se tiene en la mano (el agente de presupuestos del grupo
+ * del instalador lo baja con `msg.downloadMedia()` en el listener: esa conversación no se ha
+ * «leído» aquí, así que `transcribir(msgId)` no le vale). Mismo prompt y mismo modelo.
+ */
+async function transcribirBuffer(buffer, mimetype) {
+    if (!/^audio\//.test(String(mimetype || ''))) throw error('Ese mensaje no es un audio.');
     const { llamarGemini } = require('./placaOcrService');
     let r;
     try {
@@ -357,13 +369,11 @@ async function transcribir(msgId) {
     }
     const texto = String(r?.transcripcion || '').trim();
     if (!texto) throw error('La transcripción ha salido vacía.', 502);
-    if (transcritos.size > 500) transcritos.delete(transcritos.keys().next().value);
-    transcritos.set(id, texto);
-    return { texto, cache: false };
+    return texto;
 }
 
 module.exports = {
-    buscarChats, leerConversacion, descargarAdjunto, transcribir,
+    buscarChats, leerConversacion, descargarAdjunto, transcribir, transcribirBuffer,
     // Puros, para las pruebas:
     normaliza, leerVcard, normalizarMensajes, CONFIG,
 };

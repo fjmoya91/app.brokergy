@@ -10,18 +10,21 @@
 //   /?seccion=clientes&cliente=<id_cliente>
 //   /?seccion=catalogo&equipo=101
 //   /?seccion=pagina
+//   /?seccion=presupuestos&presupuesto=<uuid>   (o `presupuesto=nuevo`: el formulario vacío)
 //
 // El resto de la dirección (lo de quien nos aloja: `op`, o lo del banco de pruebas)
 // no se toca: se leen y escriben solo estas claves.
 
-export const CLAVES = ['seccion', 'obra', 'accion', 'cliente', 'equipo'];
-export const SECCIONES = ['inicio', 'obras', 'clientes', 'catalogo', 'pagina'];
+export const CLAVES = ['seccion', 'obra', 'accion', 'cliente', 'equipo', 'presupuesto'];
+export const SECCIONES = ['inicio', 'obras', 'clientes', 'catalogo', 'pagina', 'presupuestos'];
 export const ACCIONES = ['propuesta', 'presupuesto', 'factura', 'cifo', 'rite', 'fm_decl', 'docs'];
 
 const forma = {
     obra: /^[A-Za-z0-9_-]{1,60}$/,
     cliente: /^[A-Za-z0-9-]{1,64}$/,
     equipo: /^[A-Za-z0-9_-]{1,40}$/,
+    // El id del presupuesto (uuid) o «nuevo». Nunca su número ni su cliente.
+    presupuesto: /^(nuevo|[A-Za-z0-9-]{1,64})$/,
 };
 
 /** Lee el estado de una cadena `?…` (o de un URLSearchParams). */
@@ -34,6 +37,7 @@ export function leerDireccion(search) {
     const obra = v('obra');
     const cliente = obra ? null : v('cliente');
     const equipo = obra || cliente ? null : v('equipo');
+    const presupuesto = obra || cliente || equipo ? null : v('presupuesto');
     const accionRaw = (p.get('accion') || '').trim();
     const accion = obra && ACCIONES.includes(accionRaw) ? accionRaw : null;
     let seccion = SECCIONES.includes(p.get('seccion')) ? p.get('seccion') : null;
@@ -41,7 +45,8 @@ export function leerDireccion(search) {
     if (obra) seccion = 'obras';
     else if (cliente) seccion = 'clientes';
     else if (equipo) seccion = 'catalogo';
-    return { seccion: seccion || 'inicio', obra, accion, cliente, equipo };
+    else if (presupuesto) seccion = 'presupuestos';
+    return { seccion: seccion || 'inicio', obra, accion, cliente, equipo, presupuesto };
 }
 
 /** El estado de la app → sus claves (sin las vacías; «inicio» no se escribe). */
@@ -57,11 +62,16 @@ export function clavesDe({ seccion, ficha }) {
     } else if (ficha?.tipo === 'equipo' && ficha.equipo?.id != null) {
         out.seccion = 'catalogo';
         out.equipo = String(ficha.equipo.id);
+    } else if (ficha?.tipo === 'presupuesto' && ficha.id) {
+        // Cambiar uno o hacer otro igual se abre encima de su ficha: en la dirección,
+        // la ficha (al recargar se vuelve a ella). Lo tecleado no viaja nunca.
+        out.seccion = 'presupuestos';
+        out.presupuesto = String(ficha.id);
     } else if (seccion && seccion !== 'inicio' && SECCIONES.includes(seccion)) {
         out.seccion = seccion;
     }
     // Lo que no casa con su forma no se escribe (nunca un dato raro en la barra).
-    for (const k of ['obra', 'cliente', 'equipo']) if (out[k] && !forma[k].test(out[k])) delete out[k];
+    for (const k of ['obra', 'cliente', 'equipo', 'presupuesto']) if (out[k] && !forma[k].test(out[k])) delete out[k];
     return out;
 }
 

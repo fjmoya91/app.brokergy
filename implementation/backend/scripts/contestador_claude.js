@@ -86,11 +86,13 @@ function sacarJson(texto) {
  *   segundos: number, coste_usd: number|null, entrada: number|null, salida: number|null, error?: string }>}
  * Nunca lanza.
  */
-function pensar(prompt, { modelo = MODELO(), plazoMs = Number(process.env.CONTESTADOR_PLAZO_MS) || 150_000, topeUsd = 1 } = {}) {
+// `sistema`: otro prompt de sistema para la MISMA llamada sin herramientas (22/11/2026: el
+// extractor del agente de presupuestos del grupo del instalador, POST /extraer del vigilante).
+function pensar(prompt, { modelo = MODELO(), plazoMs = Number(process.env.CONTESTADOR_PLAZO_MS) || 150_000, topeUsd = 1, sistema = SISTEMA } = {}) {
     const win = process.platform === 'win32';
     const q = (x) => (win ? `"${String(x).replace(/"/g, '\\"')}"` : x);
     const args = ['-p', '--output-format', 'json', '--model', modelo, '--tools', win ? '""' : '',
-        '--system-prompt', q(SISTEMA), '--setting-sources', win ? '""' : '', '--strict-mcp-config',
+        '--system-prompt', q(sistema), '--setting-sources', win ? '""' : '', '--strict-mcp-config',
         '--no-session-persistence', '--max-budget-usd', String(topeUsd)];
     return lanzar(prompt, { args, modelo, plazoMs, cwd: CARPETA });
 }

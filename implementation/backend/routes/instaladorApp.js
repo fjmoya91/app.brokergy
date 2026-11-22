@@ -297,11 +297,17 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
                 if (!obra.caldera_retirada) obra.caldera_retirada = prev.caldera_retirada;
             }
             obra.propuesta = propuestaDe(op, { paso: p.paso, conExpediente: !!exp, entrega });
+            // El presupuesto que hizo EN LA APP para esta obra (si lo ligó): solo nº y total,
+            // y solo en la ficha — en el listado sería una consulta más por obra.
+            let presupuestoApp = null;
+            try { presupuestoApp = await require('../services/presupuestoInstaladorService').ligadoAObra(user.prescriptor_id, op.id); }
+            catch (e) { console.warn('[instalador-app] presupuesto de la app:', e.message); }
             // TODO lo de la obra en una lista, tenga o no expediente (`caminoDeObra`).
             const camino = A.caminoDeObra({
                 paso: p.paso, quien: p.quien, conExpediente: !!exp, esInstaladora,
                 presupuesto: obra.presupuesto, exp: expEsc, est,
                 fac: exp ? resumenFacturas(exp.facturas) : null, cobrado: !!exp?.cobro_at,
+                presupuestoApp,
             });
             obra.papeles = camino.filas;
             obra.papeles_listos = camino.listos;
@@ -1163,5 +1169,128 @@ router.delete('/catalogo/:id/precio', enforceAuth, soloBetaInstalador, async (re
     }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SUS PRESUPUESTOS (22/11/2026): el que el instalador hace para SU cliente, con la
+// plantilla de su factura. El emisor es SU empresa (`soloEmpresa`: la de la SESIÓN,
+// nunca la del navegador); lo ajeno, 404; con la BD caída, 503; todo sale por
+// `sanear`. La lógica, en services/presupuestoInstaladorService.js.
+// Van antes de cualquier `/:id` que las pudiera capturar (aquí no hay ninguno suelto).
+// ─────────────────────────────────────────────────────────────────────────────
+const PI = () => require('../services/presupuestoInstaladorService');
+
+/** El error del servicio → su respuesta (400/404/409/503 con su código; el resto, 500 sin detalles). */
+function errorPresupuesto(res, e, que) {
+    const s = Number(e?.status);
+    if ([400, 403, 404, 409, 502, 503].includes(s)) {
+        const extra = {};
+        if (e.code) extra.code = e.code;
+        if (Array.isArray(e.errores)) extra.errores = e.errores;
+        if (e.sugerido) extra.sugerido = e.sugerido;
+        if (Array.isArray(e.candidatos)) extra.candidatos = e.candidatos;
+        return res.status(s).json(sanear({ error: e.message, ...extra }));
+    }
+    console.warn(`[instalador-app] presupuesto (${que}):`, e?.message);
+    return res.status(500).json({ error: 'No hemos podido hacer eso con el presupuesto. Vuelve a intentarlo.', code: 'PRESUPUESTO_ERROR' });
+}
+
+/** Manda un PDF (inline salvo `?descargar=1`), sin caché: es un documento con datos del cliente. */
+function mandarPdf(res, buffer, nombre, descargar) {
+    const ascii = nombre.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7e]/g, '');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Disposition', `${descargar ? 'attachment' : 'inline'}; filename="${ascii.replace(/"/g, '')}"; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+    res.send(buffer);
+}
+
+router.get('/presupuestos', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try { res.json(sanear({ presupuestos: await PI().listar(empresa, { sinSimulacion: req.query.sin_simulacion === '1' }) })); }
+    catch (e) { errorPresupuesto(res, e, 'listar'); }
+});
+
+router.get('/presupuestos/nuevo', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        res.json(sanear(await PI().opcionesNuevo({
+            prescriptorId: empresa, usuarioId: req.user.id_usuario || null,
+            obra: typeof req.query.obra === 'string' && req.query.obra ? req.query.obra : null,
+            clienteId: typeof req.query.cliente === 'string' && req.query.cliente ? req.query.cliente : null,
+        })));
+    } catch (e) { errorPresupuesto(res, e, 'nuevo'); }
+});
+
+// La vista previa NO guarda, no gasta nº y no da de alta al cliente.
+router.post('/presupuestos/vista-previa', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const r = await PI().vistaPrevia({ prescriptorId: empresa, entrada: req.body || {} });
+        res.setHeader('X-Presupuesto-Desborda', r.desborda ? '1' : '0');
+        res.setHeader('X-Presupuesto-Numero-Largo', r.numeroLargo ? '1' : '0');
+        res.setHeader('Access-Control-Expose-Headers', 'X-Presupuesto-Desborda, X-Presupuesto-Numero-Largo');
+        mandarPdf(res, r.buffer, 'Presupuesto (vista previa).pdf', false);
+    } catch (e) { errorPresupuesto(res, e, 'vista previa'); }
+});
+
+router.post('/presupuestos', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        // Si viene de WhatsApp lo crea el servidor (origen 'whatsapp'); desde aquí, siempre 'app'.
+        const fila = await PI().crear({ prescriptorId: empresa, usuarioId: req.user.id_usuario || null, origen: 'app', entrada: req.body || {} });
+        res.status(201).json(sanear({ presupuesto: await PI().paraApp(empresa, fila) }));
+    } catch (e) { errorPresupuesto(res, e, 'crear'); }
+});
+
+router.get('/presupuestos/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const fila = await PI().obtener(empresa, req.params.id);
+        const presupuesto = await PI().paraApp(empresa, fila);
+        res.json(sanear({ presupuesto, entrada: PI().entradaDesdeFila(fila, { idOportunidad: presupuesto.obra?.oportunidad || null }) }));
+    } catch (e) { errorPresupuesto(res, e, 'ver'); }
+});
+
+router.put('/presupuestos/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const fila = await PI().actualizar({ prescriptorId: empresa, usuarioId: req.user.id_usuario || null, id: req.params.id, entrada: req.body || {} });
+        res.json(sanear({ presupuesto: await PI().paraApp(empresa, fila) }));
+    } catch (e) { errorPresupuesto(res, e, 'actualizar'); }
+});
+
+router.post('/presupuestos/:id/anular', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try { await PI().anular({ prescriptorId: empresa, id: req.params.id }); res.json({ ok: true }); }
+    catch (e) { errorPresupuesto(res, e, 'anular'); }
+});
+
+router.get('/presupuestos/:id/pdf', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const fila = await PI().obtener(empresa, req.params.id);
+        const { buffer, desborda, numeroLargo } = await PI().pdfDe(empresa, fila);
+        res.setHeader('X-Presupuesto-Desborda', desborda ? '1' : '0');
+        res.setHeader('X-Presupuesto-Numero-Largo', numeroLargo ? '1' : '0');
+        res.setHeader('Access-Control-Expose-Headers', 'X-Presupuesto-Desborda, X-Presupuesto-Numero-Largo');
+        mandarPdf(res, buffer, PI().nombreFichero(fila), req.query.descargar === '1');
+    } catch (e) { errorPresupuesto(res, e, 'pdf'); }
+});
+
+// A SU teléfono, el de su ficha: el cuerpo de la petición no se lee para el destino.
+router.post('/presupuestos/:id/whatsapp', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try { res.json(await PI().enviarAlInstaladorPorWhatsapp({ prescriptorId: empresa, usuario: req.user, id: req.params.id })); }
+    catch (e) { errorPresupuesto(res, e, 'whatsapp'); }
+});
+
+router.post('/presupuestos/:id/vincular', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    const obra = typeof req.body?.obra === 'string' ? req.body.obra.trim() : '';
+    if (!obra) return res.status(400).json({ error: 'Dinos a qué obra va.', code: 'FALTA_OBRA' });
+    try {
+        const fila = await PI().vincularOportunidad({ prescriptorId: empresa, usuarioId: req.user.id_usuario || null, id: req.params.id, obra });
+        res.json(sanear({ presupuesto: await PI().paraApp(empresa, fila) }));
+    } catch (e) { errorPresupuesto(res, e, 'vincular'); }
+});
+
 module.exports = router;
-module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe, miniaturaEsc, llaveDeEscaparate };
+module.exports._internos = { docDe, resumenFacturas, detalleExpediente, SEL_OP, SEL_EXP, sanear, presupuestoDe, miniaturaEsc, llaveDeEscaparate, equipoPrevisto, soloLoSuyo, UUID_RE };

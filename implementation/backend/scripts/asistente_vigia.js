@@ -555,6 +555,24 @@ function investigar(prompt) {
     return turno;
 }
 
+// Y el del EXTRACTOR del agente de presupuestos (POST /extraer, 22/11/2026): lee lo que un
+// instalador pide en su grupo y devuelve los datos en JSON. Sin herramientas, como /contestar;
+// su propia fila (es corto y no debe esperar a una respuesta del contestador).
+let colaExtraer = Promise.resolve();
+let esperandoExtraer = 0;
+function extraer(prompt) {
+    esperandoExtraer += 1;
+    const { SISTEMA_EXTRAER } = require('../services/presupuestoPedidoCerebro');
+    const turno = colaExtraer.then(() => contestadorClaude.pensar(prompt, {
+        sistema: SISTEMA_EXTRAER,
+        modelo: process.env.PRESUPUESTO_WA_MODELO_OAUTH || 'sonnet',
+        plazoMs: Number(process.env.PRESUPUESTO_WA_PLAZO_MS) || 90_000,
+        topeUsd: 0.5,
+    }));
+    colaExtraer = turno.then(() => {}, () => {}).then(() => { esperandoExtraer -= 1; });
+    return turno;
+}
+
 // Una vuelta pedida para dentro de `ms` (el aviso del backend, o esperar a que acabe la ráfaga).
 let temporizador = null;
 function programar(ms) {
@@ -674,6 +692,28 @@ function servidor() {
                 log(`Contestador: ${r.ok ? 'redactado' : `fallo (${r.error})`} en ${r.segundos} s.`);
                 res.writeHead(r.ok ? 200 : 502, json);
                 res.end(JSON.stringify(r));
+            });
+            return;
+        }
+        if (req.method === 'POST' && req.url === '/extraer') {       // el agente de PRESUPUESTOS: sacar los datos de lo que pide un instalador
+            let cuerpo = '';
+            req.on('data', d => { cuerpo += d; if (cuerpo.length > 100_000) req.destroy(); });
+            req.on('end', async () => {
+                const json = { 'Content-Type': 'application/json' };
+                let prompt = '';
+                try { prompt = String(JSON.parse(cuerpo || '{}').prompt || ''); } catch { /* cuerpo raro */ }
+                if (!prompt) { res.writeHead(400, json); res.end(JSON.stringify({ ok: false, error: 'sin prompt' })); return; }
+                if (esperandoExtraer >= 4) { res.writeHead(429, json); res.end(JSON.stringify({ ok: false, error: 'cola del extractor llena' })); return; }
+                const r = await extraer(prompt);
+                try {
+                    fs.appendFileSync(CONSUMO_CONTESTADOR, `${JSON.stringify({
+                        fecha: new Date().toISOString(), tipo: 'extraer', modelo: r.modelo, segundos: r.segundos, coste_usd: r.coste_usd,
+                        entrada: r.entrada, salida: r.salida, ok: r.ok,
+                    })}\n`);
+                } catch { /* no impide nada */ }
+                log(`Extractor de presupuestos: ${r.ok ? 'hecho' : `fallo (${r.error})`} en ${r.segundos} s.`);
+                res.writeHead(r.ok ? 200 : 502, json);
+                res.end(JSON.stringify({ ok: r.ok, json: r.json, modelo: r.modelo, segundos: r.segundos, error: r.error || null }));
             });
             return;
         }

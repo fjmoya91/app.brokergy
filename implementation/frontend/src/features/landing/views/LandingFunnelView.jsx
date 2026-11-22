@@ -40,7 +40,7 @@ import { Step7_Gasto } from '../steps/Step7_Gasto';
 import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
-import { ReformaSubFlow, AvisoEquipoInicial } from './ReformaSubFlow';
+import { ReformaSubFlow, AvisoEquipoInicial, AvisoPresupuestoInicial } from './ReformaSubFlow';
 import { aplicarEquipoInicial, totalConIvaEquipo } from '../data/equipoInicial';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
@@ -51,8 +51,10 @@ import { IconoFunnel } from '../components/IconosFunnel';
 
 const CATASTRO_API = '/api/catastro';
 
-export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, onBloque = null, initialCeeData = null, equipoInicial = null }) {
+export default function LandingFunnelView({ route, mode = 'public', variant = 'default', onCreated, onCancel, onBloque = null, initialCeeData = null, equipoInicial = null, presupuestoInicial = null }) {
     const isInternal = mode === 'internal';
+    // Un PRESUPUESTO de la app del instalador (App.jsx → `presupuestoInicial`): solo en el flujo interno.
+    const presuIni = isInternal && presupuestoInicial?.id ? presupuestoInicial : null;
     const isReformaVariant = variant === 'reforma';
     // Tras resolver el catastro, /reforma muestra primero "¿estado de la obra?".
     const FUNNEL_ENTRY_PHASE = isReformaVariant ? 'OBRA_ESTADO' : 'FUNNEL';
@@ -119,7 +121,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     // Equipo del Catálogo (app del instalador): en el camino «caldera» su precio + IVA
     // arranca como «Sí, hay un presupuesto» en el paso 8, editable. Una vez, al montar.
     useEffect(() => {
-        const total = isInternal ? totalConIvaEquipo(equipoInicial) : 0;
+        // Desde un PRESUPUESTO de la app del instalador, su total con IVA (es el de verdad, no estimado).
+        const total = !isInternal ? 0 : presuIni?.total_con_iva > 0 ? presuIni.total_con_iva : totalConIvaEquipo(equipoInicial);
         if (total > 0) updateFunnel({ presupuesto_modo: 'tengo', presupuesto_eur: total });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -143,8 +146,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     }, [phase, currentStep]);
 
     // ---- Contacto (separado del funnel persistido por RGPD) ----
+    // El cliente del presupuesto, ya escrito (el DNI no: este paso no lo pide).
     const [contacto, setContacto] = useState({
-        nombre: '', apellidos: '', email: '', tlf: '',
+        nombre: presuIni?.cliente?.nombre || '', apellidos: presuIni?.cliente?.apellidos || '',
+        email: presuIni?.cliente?.email || '', tlf: presuIni?.cliente?.tlf || '', referenciaCliente: [presuIni?.cliente?.nombre, presuIni?.cliente?.apellidos].filter(Boolean).join(' '),
         titular_type: null, num_propietarios: null,
         timeline: null, rgpd_aceptado: false,
         // Consents para recibir comunicaciones — pre-marcados (el cliente
@@ -626,7 +631,8 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                         </button>
                     </div>
                 )}
-                {isInternal && equipoInicial?.id && phase !== 'OBRA_ESTADO' && <AvisoEquipoInicial equipo={equipoInicial} />}
+                {presuIni ? (phase !== 'OBRA_ESTADO' && <AvisoPresupuestoInicial presupuesto={presuIni} />)
+                    : isInternal && equipoInicial?.id && phase !== 'OBRA_ESTADO' && <AvisoEquipoInicial equipo={equipoInicial} />}
                 {/* Header con branding — solo en HOME */}
                 {phase === 'HOME' && (
                     <header className="max-w-3xl mx-auto mb-5 md:mb-8 flex flex-col items-center gap-3">
@@ -733,6 +739,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     // LLM) y en la landing pública el botón daría un 403.
                                     permiteFotoRc={isInternal}
                                     initialQuery={rcDelCee}
+                                    direccionInicial={presuIni?.direccion || ''}
                                     // El cliente busca por dirección; la referencia catastral, en su pestaña.
                                     modoInicial={isInternal ? 'rc' : 'address'}
                                 />
@@ -826,6 +833,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             refEnlace={isInternal ? null : (route?.ref || null)}
                             initialCeeData={initialCeeData}
                             equipoInicial={isInternal ? equipoInicial : null}
+                            presupuestoInicial={presuIni}
                             onCreated={onCreated}
                             onNoEmpezada={() => { setCurrentStep(0); setPhase('FUNNEL'); }}
                             onRestart={() => { resetFunnel(); setCatastro(null); setPhase('HOME'); }}

@@ -194,7 +194,7 @@ const miles = (n) => `${String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})
  *   fac                    — { n, validadas } de sus facturas
  *   cobrado                — hay transferencia al cliente
  */
-function caminoDeObra({ paso, quien, conExpediente, esInstaladora, presupuesto, exp = null, est = null, fac = null, cobrado = false }) {
+function caminoDeObra({ paso, quien, conExpediente, esInstaladora, presupuesto, exp = null, est = null, fac = null, cobrado = false, presupuestoApp = null }) {
     const e = exp || {};
     const cifo = est?.cifo || {};
     const rite = est?.rite || {};
@@ -213,6 +213,14 @@ function caminoDeObra({ paso, quien, conExpediente, esInstaladora, presupuesto, 
     if (imp && !presupuesto.estimado) pon('presupuesto', 'Tu presupuesto', imp, 'ok', 'presupuesto');
     else if (imp) pon('presupuesto', 'Tu presupuesto', `${imp} · estimado: sube el tuyo`, 'tu', 'presupuesto');
     else pon('presupuesto', 'Tu presupuesto', 'Falta: súbelo cuando lo tengas', 'tu', 'presupuesto');
+    // El que hizo EN LA APP y ligó a esta obra: se dice cuál (nº y total con IVA). Es
+    // un añadido (`detalle`), no cambia el estado: el importe que manda es el del cálculo.
+    if (presupuestoApp?.numero) {
+        // A mano y no con toLocaleString: en «es-ES» 9200 sale «9200,00», sin el punto de miles.
+        const [ent, dec] = Math.abs(Number(presupuestoApp.total) || 0).toFixed(2).split('.');
+        const t = Number(presupuestoApp.total) > 0 ? ` · ${ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${dec} €` : '';
+        filas[filas.length - 1].detalle = `Presupuesto ${presupuestoApp.numero}${t}`;
+    }
 
     // 3 · El certificado energético de antes de la obra
     const iniOk = !!(e.fecha_reg_ini || e.seg_cee_ini === 'REGISTRADO');

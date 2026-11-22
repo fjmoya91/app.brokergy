@@ -32,6 +32,13 @@
 //   ?instalar=iphone|android → la invitación «Ponla en tu pantalla de inicio» en el PC
 //   ?sinred=1     → sin conexión (navigator.onLine = false); `__volverRed()` en la
 //                   consola la devuelve y la app vuelve a pedir todo sola
+// Presupuestos que hace el instalador (22/11/2026):
+//   ?seccion=presupuestos → la lista (con ?vacio=1, vacía)
+//   ?presupuesto=nuevo    → el formulario (la vista previa es un PDF de mentira)
+//   ?presupuesto=aaaaaaaa-0000-4000-8000-000000000040 → la ficha (…041 ligado a su obra, …039 anulado)
+//   ?fallo=1  → guardar da el 409 del número repetido con su `sugerido`; la vista previa y
+//               «Envíamelo por WhatsApp» (el 409 WHATSAPP_NO_DISPONIBLE) fallan
+//   «Calcular el bono CAE» no abre el embudo: enseña lo que le llegaría y simula que se creó.
 /* eslint-disable react-refresh/only-export-components -- es un punto de entrada, no un módulo */
 import React from 'react';
 import ReactDOM from 'react-dom/client';
@@ -39,6 +46,7 @@ import axios from 'axios';
 import { jsPDF } from 'jspdf';
 import '../index.css';
 import AppInstalador, { obraDeRespuesta } from '../features/instalador/AppInstalador';
+import { TIPOS_OBRA, EXTRAS, COMBUSTIBLES, calcularPresupuesto, conceptosDe, resumenObra, siguienteNumero } from '../features/instalador/logic/presupuesto';
 import { API_DOCS_INSTALADOR } from '../features/docs/docsApi';
 import { RevisionEscaparate } from '../features/admin/components/RevisionEscaparate';
 import { CargarTarifaModal } from '../features/aerotermia/components/CargarTarifaModal';
@@ -323,7 +331,114 @@ const SIN_MARCAS = p.get('catalogo') === 'sinmarcas';
 const catalogoDeMentira = () => (SIN_MARCAS ? { sin_marcas: true, marcas: [], equipos: [] } : { sin_marcas: false, marcas: ['MARCA A', 'MARCA B'], equipos: copia(CATALOGO) });
 const equipoDe = (id) => CATALOGO.find((x) => String(x.id) === String(id));
 
+// ── Los PRESUPUESTOS que hace en la app (22/11/2026), con la forma EXACTA del contrato ──
+// Ids de ejemplo: ?presupuesto=aaaaaaaa-0000-4000-8000-000000000040 (emitido, sin obra),
+// …041 (ligado a la obra 26RES060_OP902), …039 (anulado). Con ?fallo=1, guardar da el 409 del
+// número repetido (con su `sugerido`) y la vista previa / WhatsApp, su error.
+const ID_PR = (n) => `aaaaaaaa-0000-4000-8000-0000000000${n}`;
+const OPCIONES_PR = { tipos: TIPOS_OBRA, extras: EXTRAS.map(({ texto, ...x }) => { void texto; return x; }), combustibles: COMBUSTIBLES };
+const prDe = ({ id, numero, fecha, cliente_id = null, cliente, obra, conceptos, modo = 'total', total, con_iva = false, partidas = [], iva_pct = 21, estado = 'EMITIDO', id_oportunidad = null, simulacion = null, notas = 'El presupuesto no incluye la alimentación eléctrica.' }) => {
+    const c = calcularPresupuesto({ conceptos, modo, total, partidas, iva_pct, con_iva });
+    const entrada = { numero, fecha, ...(cliente_id ? { cliente_id } : { cliente }), obra, conceptos, modo, total, con_iva, partidas, iva_pct, notas, validez_dias: 30 };
+    return {
+        presupuesto: {
+            id, numero, fecha, estado, origen: 'app', cliente_id,
+            cliente: { nombre: [cliente.nombre, cliente.apellidos].filter(Boolean).join(' '), nif: cliente.dni || '', direccion: cliente.direccion || obra.direccion, codigo_postal: cliente.codigo_postal || obra.codigo_postal, municipio: cliente.municipio || obra.municipio, provincia: '', tlf: cliente.tlf || '' },
+            obra: { ...obra, ref_catastral: null }, lineas: c.lineas, modo, notas, validez_dias: 30,
+            base: c.base, iva_pct, iva: c.iva, total: c.total,
+            oportunidad_id: id_oportunidad ? `uuid-${id_oportunidad}` : null, id_oportunidad, simulacion,
+            created_at: `${fecha}T09:00:00Z`, updated_at: `${fecha}T09:00:00Z`,
+        },
+        entrada,
+    };
+};
+const obraPr = (extra) => ({ tipo: 'aerotermia', direccion: 'C/ Las Eras, 14', codigo_postal: '13000', municipio: 'Villanueva del Campo', provincia: 'Ciudad Real', equipo: { aerotermia_id: 101, marca: 'MARCA A', modelo: 'MA-U8-M1', potencia_kw: 8 }, caldera: { combustible: 'gasoleo' }, acs: true, emisor: 'radiadores', extras: [{ clave: 'deposito_acs', litros: 200 }], descripcion: '', oportunidad: null, ...extra });
+const PRS = VACIO ? [] : [
+    (() => { const o = obraPr(); return prDe({ id: ID_PR(40), numero: '40/26', fecha: '2026-11-20', cliente_id: 'c-1', cliente: { nombre: 'Lucía', apellidos: 'Prado Torres', tlf: '600000001', dni: '00000000T', direccion: 'C/ Las Eras, 14', codigo_postal: '13000', municipio: 'Villanueva del Campo' }, obra: o, conceptos: conceptosDe(o), total: '9200' }); })(),
+    (() => { const o = obraPr({ direccion: 'Avda. de la Constitución, 3', codigo_postal: '13100', municipio: 'Pozo Alto', acs: false, extras: [], oportunidad: '26RES060_OP902' }); return prDe({ id: ID_PR(41), numero: '41/26', fecha: '2026-11-21', cliente_id: 'c-2', cliente: { nombre: 'Andrés', apellidos: 'Molina Ruiz', tlf: '600000002' }, obra: o, conceptos: conceptosDe(o), total: '11132', con_iva: true, id_oportunidad: '26RES060_OP902', simulacion: { estado: 'CREADA', pedida_at: '2026-11-21T10:00:00Z', por: 'app' } }); })(),
+    (() => { const o = obraPr({ tipo: 'aire', equipo: { aerotermia_id: null, marca: 'MARCA B', modelo: 'Split 3,5', potencia_kw: 3.5 }, caldera: { combustible: null }, acs: false, emisor: null, extras: [] }); return prDe({ id: ID_PR(39), numero: '39/26', fecha: '2026-11-10', cliente: { nombre: 'Pilar', apellidos: 'Rubio Sanz', tlf: '600000009', direccion: 'C/ del Río, 9', municipio: 'Pozo Alto' }, obra: o, conceptos: conceptosDe(o), total: '1450', estado: 'ANULADO' }); })(),
+];
+const filaPr = ({ presupuesto: x }) => ({ id: x.id, numero: x.numero, fecha: x.fecha, estado: x.estado, origen: x.origen, cliente: x.cliente.nombre, municipio: x.obra.municipio, resumen: resumenObra(x.obra), base: x.base, total: x.total, obra: x.id_oportunidad, simulacion: x.simulacion?.estado || null });
+const prPorId = (id) => PRS.find((x) => x.presupuesto.id === id);
+const numerosPr = () => PRS.filter((x) => x.presupuesto.estado !== 'ANULADO').map((x) => x.presupuesto.numero);
+const sugeridoPr = () => siguienteNumero(PRS.map((x) => x.presupuesto.numero), '26');
+// Lo que el servidor haría con la entrada: cliente resuelto (de la ficha o el tecleado) y cuentas.
+const filaDeEntrada = (id, ent, previo = null) => {
+    const ficha = ent.cliente_id ? CLIENTES.find((c) => c.id_cliente === ent.cliente_id) : null;
+    const cliente = ficha ? { nombre: nombrePropioDemo(ficha.nombre_razon_social), apellidos: nombrePropioDemo(ficha.apellidos), tlf: ficha.tlf, dni: ficha.dni, direccion: ficha.direccion, codigo_postal: ficha.codigo_postal, municipio: nombrePropioDemo(ficha.municipio) } : (ent.cliente || {});
+    const r = prDe({ ...ent, id, cliente, cliente_id: ent.cliente_id || null, estado: previo?.estado || 'EMITIDO', id_oportunidad: previo?.id_oportunidad || ent.obra?.oportunidad || null, simulacion: previo?.simulacion || null });
+    return r;
+};
+const nombrePropioDemo = (s) => String(s || '').toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+const malPr = (status, data) => Promise.reject(Object.assign(new Error(String(status)), { response: { status, data } }));
+function validarPr(ent) {
+    const errores = [];
+    if (!ent.numero) errores.push('Falta el número del presupuesto.');
+    if (!ent.cliente_id && !String(ent.cliente?.nombre || '').trim()) errores.push('Falta el nombre del cliente.');
+    const c = calcularPresupuesto(ent);
+    errores.push(...(c.errores || []));
+    return errores;
+}
+const apiPresupuestos = {
+    presupuestos: () => espera({ presupuestos: PRS.map(filaPr).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))) }),
+    presupuestoNuevo: ({ obra = null, cliente = null } = {}) => {
+        const o = obra ? obraDe(obra) : null;
+        const ficha = cliente ? CLIENTES.find((c) => c.id_cliente === cliente) : o?.cliente_id ? CLIENTES.find((c) => c.id_cliente === o.cliente_id) : null;
+        const obraIni = { tipo: 'aerotermia', direccion: o?.direccion || '', codigo_postal: '', municipio: o?.municipio || '', provincia: o?.provincia || '', equipo: { aerotermia_id: null, marca: '', modelo: '', potencia_kw: null }, caldera: { combustible: 'gasoleo' }, acs: false, emisor: 'radiadores', extras: [], descripcion: '', oportunidad: o?.id || null };
+        return espera({
+            numero: sugeridoPr(), fecha: new Date().toISOString().slice(0, 10), iva_pct: 21, notas: 'El presupuesto no incluye la alimentación eléctrica.', validez_dias: 30, con_plantilla: true,
+            emisor: { nombre: 'Instalaciones de Prueba, S.L.' }, cliente: ficha ? copia(ficha) : null, obra: obraIni, conceptos: conceptosDe(obraIni), ...copia(OPCIONES_PR),
+        }, 300);
+    },
+    presupuestoVistaPrevia: (ent) => {
+        if (FALLO) return malPr(500, { error: 'En el banco, con ?fallo=1, la vista previa falla.' });
+        const c = calcularPresupuesto(ent);
+        const nombre = ent.cliente_id ? nombrePropioDemo(CLIENTES.find((x) => x.id_cliente === ent.cliente_id)?.nombre_razon_social || '') : [ent.cliente?.nombre, ent.cliente?.apellidos].filter(Boolean).join(' ');
+        const filas = [['Nº', ent.numero || '—'], ['Fecha', ent.fecha || '—'], ['Cliente', nombre || '—'], ...c.lineas.slice(0, 8).map((l) => [String(l.texto || '').slice(0, 48), l.importe != null ? milesD(l.importe) : '']), ['Importe', milesD(c.base || 0)], [`IVA ${ent.iva_pct} %`, milesD(c.iva || 0)], ['TOTAL PRESUPUESTO', milesD(c.total || 0)]];
+        return espera({ pdf: pdfDeMentira('PRESUPUESTO', filas), desborda: (ent.conceptos || []).join('').length > 2200, numeroLargo: String(ent.numero || '').length > 12 }, 400);
+    },
+    crearPresupuesto: (ent) => {
+        const errores = validarPr(ent);
+        if (errores.length) return malPr(400, { error: errores[0], errores });
+        if (FALLO || numerosPr().some((n) => n.toLowerCase() === String(ent.numero).toLowerCase())) {
+            return malPr(409, { code: 'NUMERO_REPETIDO', error: `Ya tienes un presupuesto con el número ${ent.numero}.`, sugerido: sugeridoPr() });
+        }
+        const nuevo = filaDeEntrada(`aaaaaaaa-0000-4000-8000-${String(Date.now()).slice(-12)}`, ent);
+        return envia(() => PRS.unshift(nuevo), 800).then(() => ({ presupuesto: copia(nuevo.presupuesto) }));
+    },
+    presupuestoHecho: (id) => (prPorId(id) ? espera(copia(prPorId(id)), 300) : espera(null, 200).then(() => malPr(404, { error: 'No existe' }))),
+    guardarPresupuesto: (id, ent) => {
+        const previo = prPorId(id);
+        if (!previo) return malPr(404, { error: 'No existe' });
+        const errores = validarPr(ent);
+        if (errores.length) return malPr(400, { error: errores[0], errores });
+        if (numerosPr().some((n) => n.toLowerCase() === String(ent.numero).toLowerCase() && n !== previo.presupuesto.numero)) {
+            return malPr(409, { code: 'NUMERO_REPETIDO', error: `Ya tienes un presupuesto con el número ${ent.numero}.`, sugerido: sugeridoPr() });
+        }
+        const nuevo = filaDeEntrada(id, ent, previo.presupuesto);
+        nuevo.presupuesto.updated_at = new Date().toISOString();
+        return envia(() => { previo.presupuesto = nuevo.presupuesto; previo.entrada = nuevo.entrada; }, 700).then(() => ({ presupuesto: copia(nuevo.presupuesto) }));
+    },
+    anularPresupuesto: (id) => envia(() => { const x = prPorId(id); if (x) x.presupuesto.estado = 'ANULADO'; }, 600).then(() => ({ ok: true })),
+    presupuestoHechoPdf: (id) => {
+        const x = prPorId(id)?.presupuesto;
+        return espera(pdfDeMentira(`PRESUPUESTO ${x?.numero || ''}`, [['Cliente', x?.cliente?.nombre || ''], ...(x?.lineas || []).slice(0, 8).map((l) => [String(l.texto || '').slice(0, 48), l.importe != null ? milesD(l.importe) : '']), ['TOTAL', milesD(x?.total || 0)]]));
+    },
+    presupuestoDescarga: (id) => apiPresupuestos.presupuestoHechoPdf(id).then((bytes) => {
+        const x = prPorId(id)?.presupuesto;
+        return { bytes, nombre: `Presupuesto ${String(x?.numero || '').replace(/\//g, '-')} - ${x?.cliente?.nombre || 'Cliente'}.pdf` };
+    }),
+    presupuestoWhatsapp: () => (FALLO
+        ? new Promise((ok, ko) => setTimeout(() => ko(Object.assign(new Error('409'), { response: { status: 409, data: { code: 'WHATSAPP_NO_DISPONIBLE', error: 'Ahora mismo no podemos mandarte el WhatsApp. Descárgalo y pásaselo tú.' } } })), 700))
+        : envia(null, 900).then(() => ({ ok: true, a: '···597' }))),
+    vincularPresupuesto: (id, obra) => envia(() => {
+        const x = prPorId(id);
+        if (x) { x.presupuesto.id_oportunidad = obra; x.presupuesto.oportunidad_id = `uuid-${obra}`; x.presupuesto.simulacion = { estado: 'CREADA', pedida_at: new Date().toISOString(), por: 'app' }; }
+    }, 400).then(() => ({ presupuesto: copia(prPorId(id)?.presupuesto || null) })),
+};
+
 const api = {
+    ...apiPresupuestos,
     // ── Fase 4 ──
     catalogo: () => espera(catalogoDeMentira()),
     equipo: (id) => (equipoDe(id) ? espera(copia(equipoDe(id)), 250) : Promise.reject(new Error('404'))),
@@ -609,9 +724,17 @@ function Demo() {
             logo={MARCA ? LOGO_DEMO : null}
             colorMarca={MARCA === 'claro' ? '#ffd400' : MARCA ? '#1565c0' : null}
             instalarComo={['iphone', 'android'].includes(p.get('instalar')) ? p.get('instalar') : null}
-            onNueva={(o) => window.alert(o?.equipo
-                ? `Banco de pruebas: «Nueva simulación» con ${o.equipo.marca} ${o.equipo.nombre} y ${o.equipo.precio_sin_iva ?? 'sin'} € sin IVA (${o.equipo.origen || 'sin precio'}) como presupuesto de la aerotermia.`
-                : 'Banco de pruebas: «Nueva simulación». En la app de verdad se abre lo de siempre.')}
+            onNueva={(o) => {
+                if (o?.presupuesto) {
+                    const { alCrear, ...lo } = o.presupuesto;
+                    window.alert(`Banco de pruebas: «Nueva simulación» desde el presupuesto ${lo.numero}.\n\nCliente: ${[lo.cliente.nombre, lo.cliente.apellidos].join(' ')} · ${lo.cliente.tlf || 'sin teléfono'}\nBuscador (dirección): ${lo.direccion}\nEquipo: ${[lo.equipo.marca, lo.equipo.modelo].filter(Boolean).join(' ') || '—'} (catálogo ${lo.equipo.aerotermia_id ?? 'no'})\nPresupuesto con IVA: ${lo.total_con_iva} €\n\nAl aceptar, se simula que se creó la oportunidad 26RES060_OP999 y se liga.`);
+                    alCrear?.({ id_oportunidad: '26RES060_OP999' });
+                    return;
+                }
+                window.alert(o?.equipo
+                    ? `Banco de pruebas: «Nueva simulación» con ${o.equipo.marca} ${o.equipo.nombre} y ${o.equipo.precio_sin_iva ?? 'sin'} € sin IVA (${o.equipo.origen || 'sin precio'}) como presupuesto de la aerotermia.`
+                    : 'Banco de pruebas: «Nueva simulación». En la app de verdad se abre lo de siempre.');
+            }}
             onAbrirOportunidad={(id) => setExterno(
                 <div style={{ padding: 32, textAlign: 'center' }}>
                     <p style={{ fontSize: 18, fontWeight: 700 }}>Aquí va la página de la oportunidad {id}</p>

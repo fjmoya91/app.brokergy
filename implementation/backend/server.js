@@ -321,6 +321,15 @@ if (require.main === module) {
     } catch (err) {
       console.warn('[seguimiento] no se pudo iniciar:', err.message);
     }
+    // El agente de PRESUPUESTOS del grupo de WhatsApp del instalador: pide un presupuesto (y el
+    // bono CAE) escribiendo o con un audio en su grupo con BROKERGY y se le contesta allí con el
+    // PDF. Nace APAGADO (PRESUPUESTO_WA_ENABLED) y, encendido, en modo copia
+    // (PRESUPUESTO_WA_MODO=real para escribir en el grupo y guardar).
+    try {
+      require('./services/presupuestoGrupoWhatsapp').start();
+    } catch (err) {
+      console.warn('[presupuesto-wa] no se pudo iniciar:', err.message);
+    }
     // A quien escribe por PRIMERA VEZ, una vez y sola: el formulario «Calcula tu ayuda»
     // y el vídeo de las ayudas. Nace APAGADA (WA_BIENVENIDA_ENABLED) y, encendida, en
     // modo copia (WA_BIENVENIDA_MODO=real para escribir): local es la misma cuenta.

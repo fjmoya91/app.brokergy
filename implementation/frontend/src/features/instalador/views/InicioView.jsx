@@ -4,7 +4,7 @@ import { Icono, iconoDeTarea, Esqueleto, AvisoError } from '../ui/piezas';
 import { Destino } from './Tarea';
 import { InvitacionInstalar } from '../ui/Instalar';
 
-export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina, instalarComo = null }) {
+export function InicioView({ saludo, datos, cargando, error, onReintentar, onNueva, onVerObras, onAbrirOportunidad, onAbrirAccion, onMiPagina, onPresupuesto = null, onVerPresupuestos = null, instalarComo = null }) {
     const obras = datos?.obras || [];
     const r = datos?.resumen || { total: 0, en_marcha: 0, te_toca: 0, cobradas: 0 };
     // Todas las tareas de todas las obras, en una lista (las de cada obra, en su orden).
@@ -28,6 +28,14 @@ export function InicioView({ saludo, datos, cargando, error, onReintentar, onNue
             <button type="button" className="ia-btn ia-btn-pri ia-entra" onClick={onNueva}>
                 <Icono n="mas" size={22} grosor={2.4} /> Calcular la ayuda de una obra
             </button>
+            {onPresupuesto && (
+                <button type="button" className="ia-btn ia-btn-sec ia-entra" onClick={onPresupuesto}>
+                    <Icono n="factura" size={20} /> Hacer un presupuesto
+                </button>
+            )}
+            {onVerPresupuestos && (
+                <button type="button" className="ia-link" style={{ alignSelf: 'center' }} onClick={onVerPresupuestos}>Ver los presupuestos que has hecho</button>
+            )}
 
             {cargando ? <Esqueleto alto={140} n={2} /> : error ? <AvisoError onReintentar={onReintentar} /> : (
                 <>

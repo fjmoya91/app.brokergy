@@ -24,7 +24,8 @@ de punta a punta medido en el banco y el teclado en el PC. La hoja para publicar
 
 ### 1. La dirección dice dónde estás
 
-**REGLA — en la dirección viajan SOLO `seccion`, `obra`, `accion`, `cliente` y `equipo`, cada uno con su
+**REGLA — en la dirección viajan SOLO `seccion`, `obra`, `accion`, `cliente`, `equipo` y `presupuesto`
+(este último desde el 22/11/2026: un uuid o `nuevo`; ver «El PRESUPUESTO del instalador»), cada uno con su
 forma; nunca un nombre, una dirección, un DNI ni un token.** El nº de la obra es el que ya sale en la app
 y en los papeles; el cliente va por su id interno. Lo que no casa con su forma se ignora al leer y no se
 escribe (el test lo prueba con nombres, correos, ids largos y `<script>`). El resto de la dirección (lo

@@ -62,6 +62,12 @@ const srv = app.listen(0, async () => {
       ['POST', '/fotos/00000000-0000-4000-8000-000000000000/aprobar'], ['POST', '/fotos/00000000-0000-4000-8000-000000000000/rechazar'],
       ['POST', '/textos/00000000-0000-4000-8000-000000000000/aprobar'], ['POST', '/textos/00000000-0000-4000-8000-000000000000/rechazar'],
     ].map(([m, r]) => [m, `/api/escaparate-revision${r}`]),
+    // Sus presupuestos (22/11/2026): nada sin sesión, tampoco la vista previa ni el WhatsApp.
+    ...[['GET', ''], ['GET', '/nuevo'], ['POST', '/vista-previa'], ['POST', ''],
+      ['GET', '/00000000-0000-4000-8000-000000000000'], ['PUT', '/00000000-0000-4000-8000-000000000000'],
+      ['POST', '/00000000-0000-4000-8000-000000000000/anular'], ['GET', '/00000000-0000-4000-8000-000000000000/pdf'],
+      ['POST', '/00000000-0000-4000-8000-000000000000/whatsapp'], ['POST', '/00000000-0000-4000-8000-000000000000/vincular'],
+    ].map(([m, r]) => [m, `/api/instalador-app/presupuestos${r}`]),
   ];
   // Las miniaturas y ficheros de la app van SIN sesión, con LLAVE: sin ella, 403 (ver test_app_instalador.js).
   q('anónimo', 'GET', '/api/instalador-app/thumb/26RES060_OP217/abcdefghij123', 403, {});

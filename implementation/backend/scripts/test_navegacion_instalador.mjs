@@ -5,7 +5,7 @@
  *
  * Vigila `features/instalador/ui/direccion.js`:
  *   - recargar o abrir un enlace directo deja al instalador donde estaba (pantalla, obra, acción);
- *   - en la dirección viajan SOLO cinco claves y nunca un dato personal: lo que no casa con su
+ *   - en la dirección viajan SOLO seis claves (la sexta, presupuesto, 22/11/2026) y nunca un dato personal: lo que no casa con su
  *     forma (un nombre con espacios, un correo, un DNI con letras raras, un token largo) se ignora
  *     al leer y no se escribe;
  *   - lo de quien nos aloja (`op`, los parámetros del banco) no se toca.
@@ -33,10 +33,10 @@ const igual = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // ── leerDireccion ────────────────────────────────────────────────────────────
 const L = dir.leerDireccion;
-t('vacía → inicio', igual(L(''), { seccion: 'inicio', obra: null, accion: null, cliente: null, equipo: null }));
+t('vacía → inicio', igual(L(''), { seccion: 'inicio', obra: null, accion: null, cliente: null, equipo: null, presupuesto: null }));
 t('sección válida', L('?seccion=clientes').seccion === 'clientes');
 t('sección desconocida → inicio', L('?seccion=ajustes').seccion === 'inicio');
-t('obra manda sobre la sección', igual(L('?seccion=clientes&obra=26RES060_OP901'), { seccion: 'obras', obra: '26RES060_OP901', accion: null, cliente: null, equipo: null }));
+t('obra manda sobre la sección', igual(L('?seccion=clientes&obra=26RES060_OP901'), { seccion: 'obras', obra: '26RES060_OP901', accion: null, cliente: null, equipo: null, presupuesto: null }));
 t('obra + acción válida', L('?obra=26RES060_187&accion=cifo').accion === 'cifo');
 t('la propuesta es una acción de la obra (también sin expediente)', L('?obra=26RES060_OP279&accion=propuesta').accion === 'propuesta');
 t('acción desconocida se ignora', L('?obra=26RES060_187&accion=borrar').accion === null);
@@ -78,6 +78,65 @@ for (const estado of [
     const leido = L(`?${new URLSearchParams(claves)}`);
     t(`ida y vuelta ${claves.seccion}`, Object.entries(claves).every(([k, v]) => leido[k] === v));
 }
+
+// ── Los PRESUPUESTOS que hace el instalador (22/11/2026) ─────────────────────
+const UUID = 'aaaaaaaa-0000-4000-8000-000000000040';
+t('sección presupuestos', L('?seccion=presupuestos').seccion === 'presupuestos');
+t('presupuesto → su sección', igual(L(`?presupuesto=${UUID}`), { seccion: 'presupuestos', obra: null, accion: null, cliente: null, equipo: null, presupuesto: UUID }));
+t('presupuesto=nuevo (el formulario)', L('?presupuesto=nuevo').presupuesto === 'nuevo');
+t('obra gana a presupuesto', L(`?obra=A1&presupuesto=${UUID}`).presupuesto === null);
+for (const v of ['Juan Pérez', 'juan@correo.es', '12345678Z;x', 'C/ Mayor 3', 'a'.repeat(65)]) {
+    const r = L(`?presupuesto=${encodeURIComponent(v)}`);
+    t(`presupuesto=«${v.slice(0, 20)}» se ignora`, r.presupuesto === null && r.seccion === 'inicio');
+}
+t('ficha presupuesto: solo el id', igual(C({ seccion: 'presupuestos', ficha: { tipo: 'presupuesto', id: UUID, desde: { cliente: { nombre: 'Ana', dni: '1234Z' } } } }), { seccion: 'presupuestos', presupuesto: UUID }));
+t('ficha presupuesto nuevo', igual(C({ seccion: 'inicio', ficha: { tipo: 'presupuesto', id: 'nuevo', desde: { obra: '26RES060_OP901' } } }), { seccion: 'presupuestos', presupuesto: 'nuevo' }));
+t('cambiándolo, la misma dirección (la entrada no viaja)', igual(C({ seccion: 'presupuestos', ficha: { tipo: 'presupuesto', id: UUID, accion: { accion: 'editar', entrada: { cliente: { nombre: 'Ana' } } } } }), { seccion: 'presupuestos', presupuesto: UUID }));
+for (const estado of [
+    { seccion: 'presupuestos', ficha: null },
+    { seccion: 'presupuestos', ficha: { tipo: 'presupuesto', id: UUID } },
+    { seccion: 'inicio', ficha: { tipo: 'presupuesto', id: 'nuevo' } },
+]) {
+    const claves = C(estado);
+    const leido = L(`?${new URLSearchParams(claves)}`);
+    t(`ida y vuelta presupuesto ${claves.presupuesto || claves.seccion}`, Object.entries(claves).every(([k, v]) => leido[k] === v));
+}
+
+// ── presupuestoApp.js: formulario ↔ API, errores junto al campo, simulación ──
+const pa = await import(front('features/instalador/logic/presupuestoApp.js'));
+const cliFicha = { id_cliente: 'c-1', nombre_razon_social: 'LUCÍA', apellidos: 'PRADO', tlf: '600000001', dni: '00000000T', direccion: 'C/ Las Eras, 14', codigo_postal: '13000', municipio: 'VILLANUEVA' };
+const opciones = { numero: '42/26', fecha: '2026-11-22', iva_pct: 21, notas: 'Nota', validez_dias: 30, obra: { tipo: 'aerotermia', equipo: { marca: 'M', modelo: 'X1' }, caldera: { combustible: 'gasoleo' } } };
+const f0 = pa.estadoInicial({ opciones, cliente: cliFicha });
+t('desde un cliente: elegido, con su id', f0.clienteModo === 'elegido' && f0.cliente_id === 'c-1');
+t('número y fecha del servidor', f0.numero === '42/26' && f0.fecha === '2026-11-22');
+const e0 = pa.entradaDe({ ...f0, total: '9.200,00' });
+t('entrada con cliente_id (no el cliente entero)', e0.cliente_id === 'c-1' && !('cliente' in e0));
+t('misma dirección: la obra lleva la del cliente', e0.obra.direccion === 'C/ Las Eras, 14' && e0.obra.codigo_postal === '13000');
+t('las líneas salen solas', Array.isArray(e0.conceptos) && e0.conceptos.length > 0);
+const fNuevo = { ...pa.estadoInicial({ opciones }), clienteModo: 'nuevo', cliente: { ...pa.CLIENTE_VACIO, nombre: 'Ana', tlf: '600' } };
+const e1 = pa.entradaDe(fNuevo);
+t('cliente nuevo: va el cliente, sin id', !('cliente_id' in e1) && e1.cliente.nombre === 'Ana');
+const f2 = pa.estadoInicial({ entrada: { ...e0, conceptos: ['A MANO'] } });
+t('líneas tocadas a mano se conservan al reabrir', igual(pa.conceptosVisibles(f2), ['A MANO']) && f2.conceptosMano !== null);
+const err = (status, data) => ({ response: { status, data } });
+const r409 = pa.erroresPorCampo(err(409, { code: 'NUMERO_REPETIDO', error: 'Ya tienes el 40/26', sugerido: '43/26' }));
+t('409 número repetido → junto al número, con el sugerido', !!r409.numero && r409.sugerido === '43/26');
+const r400 = pa.erroresPorCampo(err(400, { error: 'x', errores: ['Falta el nombre del cliente.', 'Falta el precio.'] }));
+t('400 con errores → cada uno a su campo', !!r400.cliente && !!r400.precio);
+t('sin respuesta → sin conexión (general)', pa.erroresPorCampo(new Error('net')).general.length === 1);
+const sim = pa.simulacionDesde({ presupuesto: { id: 'p1', numero: '40/26', fecha: '2026-11-20', total: 11132, base: 9200, iva_pct: 21, cliente: { nombre: 'Lucía Prado', nif: '00000000T', tlf: '600000001' }, obra: { direccion: 'C/ Las Eras, 14', codigo_postal: '13000', municipio: 'Villanueva', equipo: { aerotermia_id: 101, marca: 'M', modelo: 'X1' } } }, entrada: e0 });
+t('simulación: total con IVA, dirección y equipo', sim.total_con_iva === 11132 && sim.direccion === 'C/ Las Eras, 14, 13000 Villanueva' && sim.equipo.aerotermia_id === 101);
+t('simulación: el cliente impreso (con DNI)', sim.cliente.nombre === 'Lucía Prado' && sim.cliente.dni === '00000000T');
+t('simulación: sin funciones (viaja limpia)', !Object.values(sim).some((v) => typeof v === 'function'));
+t('obra ligada: la del listado', pa.obraDelPresupuesto({ obra: '26RES060_OP902' }) === '26RES060_OP902');
+t('obra ligada: el uuid no se toma por id de obra', pa.obraDelPresupuesto({ oportunidad_id: 'uuid-x' }) === null && pa.estaLigado({ oportunidad_id: 'uuid-x' }));
+
+// ── «atrás» desde un presupuesto abierto desde otra ficha ────────────────────
+const appSrc = fs.readFileSync(path.join(raizFront, 'src/features/instalador/AppInstalador.jsx'), 'utf8');
+t('AppInstalador: la sección y las fichas de presupuesto', /seccion === 'presupuestos'/.test(appSrc) && /ficha\?\.tipo === 'presupuesto'/.test(appSrc));
+t('AppInstalador: al crear la oportunidad se liga el presupuesto', /vincularPresupuesto\(/.test(appSrc));
+const menu = fs.readFileSync(path.join(raizFront, 'src/features/instalador/MarcoInstalador.jsx'), 'utf8');
+t('menú lateral con «Presupuestos»', /key: 'presupuestos'/.test(menu));
 
 // ── urlCon ───────────────────────────────────────────────────────────────────
 const U = dir.urlCon;

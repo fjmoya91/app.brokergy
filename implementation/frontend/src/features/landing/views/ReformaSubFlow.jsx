@@ -32,7 +32,7 @@ import { StepDocsObra } from '../steps/StepDocsObra';
 import { LandingResultView } from './LandingResultView';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { funnelToCalculatorInputs } from '../data/funnelToInputs';
-import { aplicarEquipoInicial, docDelEquipo } from '../data/equipoInicial';
+import { aplicarEquipoInicial, docDelEquipo, docDelPresupuesto } from '../data/equipoInicial';
 import { PRESUPUESTO_ESTIMADO_EUR } from '../../calculator/logic/presupuestoEstimado';
 import { efficiencyFor, sugerirEdadDesdeRendimiento } from '../data/boilerMapping';
 import { seedInputsFromCees, ceeCombustibleToFunnel } from '../../calculator/logic/ceeSeed';
@@ -71,7 +71,7 @@ const MONEY_MILESTONES = [
     { emoji: '🤑', label: 'Propuesta',  threshold: 0.92 },
 ];
 
-export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', obra = null, refEnlace = null, initialCeeData = null, equipoInicial = null, onCreated, onNoEmpezada, onRestart }) {
+export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding, mode = 'public', obra = null, refEnlace = null, initialCeeData = null, equipoInicial = null, presupuestoInicial = null, onCreated, onNoEmpezada, onRestart }) {
     // Modo internal (partner/admin "nueva simulación"): mismas pantallas que el
     // flujo público pero con textos neutros (el partner pregunta por su cliente),
     // sin elementos comerciales y terminando en la pantalla de identificación de
@@ -123,7 +123,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // Con un equipo del Catálogo (app del instalador), su precio + IVA entra ya como
     // «importe a mano»: se cambia o se quita como cualquier otro (data/equipoInicial.js).
     const [docsObra, setDocsObra] = useState(() => {
-        const d = isInternal ? docDelEquipo(equipoInicial) : null;
+        // Desde un PRESUPUESTO de la app del instalador, ese documento con sus importes de verdad.
+        const d = !isInternal ? null : presupuestoInicial?.id ? docDelPresupuesto(presupuestoInicial) : docDelEquipo(equipoInicial);
         return d ? [d] : [];
     });
     const [noTieneState, setNoTieneState] = useState(null); // null | 'warning' | 'dead_end'
@@ -133,7 +134,8 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
     // deja de poder deducirse del propio funnel.
     const [trasPlacas, setTrasPlacas] = useState(null);
     const [contacto, setContacto] = useState({
-        nombre: '', email: '', tlf: '',
+        nombre: presupuestoInicial?.cliente?.nombre || '', apellidos: presupuestoInicial?.cliente?.apellidos || '',
+        email: presupuestoInicial?.cliente?.email || '', tlf: presupuestoInicial?.cliente?.tlf || '', referenciaCliente: [presupuestoInicial?.cliente?.nombre, presupuestoInicial?.cliente?.apellidos].filter(Boolean).join(' '),
         titular_type: null, num_propietarios: null,
         timeline: null, rgpd_aceptado: false,
         consent_email: true, consent_whatsapp: true
@@ -985,7 +987,7 @@ export function ReformaSubFlow({ catastro, funnel, updateFunnel, partnerBranding
             }
             push('identificacion');
         };
-        return (<><BackBtn />{equipoInicial?.id && <AvisoEquipoInicial equipo={equipoInicial} />}<StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
+        return (<><BackBtn />{presupuestoInicial?.id ? <AvisoPresupuestoInicial presupuesto={presupuestoInicial} /> : equipoInicial?.id && <AvisoEquipoInicial equipo={equipoInicial} />}<StepDocsObra docs={docsObra} setDocs={setDocsObra} onNext={alTerminar} /></>);
     }
 
     if (screen === 'estado') {
@@ -1619,6 +1621,19 @@ export function AvisoEquipoInicial({ equipo }) {
             <b className="text-amber-300">Equipo del catálogo:</b> {[equipo.marca, equipo.nombre].filter(Boolean).join(' ')}.
             {precio ? <> Su precio ({precio}{equipo.origen === 'tarifa' ? ', el de la tarifa' : ', el tuyo'}) va como presupuesto con el IVA al 21 %: cámbialo si la obra lleva más cosas.</>
                 : <> Aún no tiene precio: pon el presupuesto de la obra.</>}
+        </div>
+    );
+}
+
+/** El PRESUPUESTO hecho en la app del instalador, a la vista: de dónde salen el cliente, el equipo y el importe. */
+export function AvisoPresupuestoInicial({ presupuesto: p }) {
+    const total = Number(p?.total_con_iva);
+    const equipo = [p?.equipo?.marca, p?.equipo?.modelo].filter(Boolean).join(' ');
+    return (
+        <div className="max-w-xl mx-auto mb-4 rounded-2xl border border-amber-400/30 bg-amber-400/[0.06] px-4 py-3 text-sm text-white/80 leading-relaxed">
+            <b className="text-amber-300">Desde tu presupuesto {p?.numero || ''}:</b>{' '}
+            {[equipo || null, Number.isFinite(total) && total > 0 ? `${total.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € con IVA` : null].filter(Boolean).join(' · ')}.
+            {' '}Elige la vivienda de verdad en el Catastro: la dirección que da el cliente suele bailar de número.
         </div>
     );
 }

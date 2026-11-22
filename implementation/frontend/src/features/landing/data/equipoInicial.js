@@ -87,3 +87,33 @@ export function docDelEquipo(equipo) {
         files: [],
     };
 }
+
+/**
+ * Documento para `docs_obra` desde un PRESUPUESTO hecho en la app del instalador (22/11/2026):
+ * su número, su fecha y sus importes DE VERDAD (`iva_estimado: false`: el IVA lo puso él).
+ * `presupuesto` = lo que arma `simulacionDesde` (logic/presupuestoApp.js).
+ */
+export function docDelPresupuesto(presupuesto) {
+    const total = positivo(presupuesto?.total_con_iva);
+    if (!total) return null;
+    const pct = positivo(presupuesto.iva_pct) || IVA_EQUIPO_PCT;
+    const base = positivo(presupuesto.base) || Math.round((total / (1 + pct / 100)) * 100) / 100;
+    return {
+        id: `presupuesto-app-${presupuesto.id}`,
+        tipo: 'presupuesto',
+        slot: 'DOC_PRESUPUESTO',
+        doc: {
+            tipo: 'presupuesto',
+            numero_factura: presupuesto.numero || '',
+            fecha_factura: presupuesto.fecha || null,
+            importe_total: total,
+            importe_sin_iva: base,
+            iva_pct: pct,
+            iva_estimado: false,
+            partidas: [],
+            origen: 'manual',
+        },
+        equipos: [],
+        files: [],
+    };
+}

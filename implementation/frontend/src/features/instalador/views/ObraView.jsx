@@ -83,7 +83,7 @@ const TITULO_ACCION = {
 };
 const grupoDe = (a) => (a === 'rite' || a === 'fm_decl' ? 'cifo' : a);
 
-export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion = null, onAccion, onCambio, onVolver, onAbrirOportunidad, onMiPagina }) {
+export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion = null, onAccion, onCambio, onVolver, onAbrirOportunidad, onMiPagina, onHacerPresupuesto, onAbrirPresupuesto }) {
     const [det, setDet] = useState(null);
     const [error, setError] = useState(false);
     const [intento, setIntento] = useState(0);
@@ -107,7 +107,8 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
         else if (g === 'propuesta') cuerpo = <PropuestaAccion obra={o} api={api} onCambio={onCambio} waBrokergy={WA_BROKERGY} />;
         else if (g === 'factura' && !o.con_expediente) cuerpo = <div className="ia-aviso">La factura se hace cuando la obra esté terminada. Te avisamos aquí cuando toque.</div>;
         else if (g === 'cifo' && !o.con_expediente) cuerpo = <div className="ia-aviso">El certificado de la instalación y el RITE se firman y se suben al terminar la obra. Te avisamos aquí cuando toque.</div>;
-        else if (g === 'presupuesto') cuerpo = <PresupuestoAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} />;
+        else if (g === 'presupuesto') cuerpo = <PresupuestoAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio}
+            onHacerAqui={onHacerPresupuesto ? () => onHacerPresupuesto(o) : null} onAbrirHecho={onAbrirPresupuesto} />;
         else if (g === 'factura') cuerpo = <FacturaAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} />;
         else if (g === 'cifo') cuerpo = o.es_instaladora
             ? <TramitesAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} foco={accion.accion} />

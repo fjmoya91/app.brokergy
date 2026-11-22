@@ -4,7 +4,7 @@
 import React, { useEffect, useState } from 'react';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 import { Icono, ChipQuien, BarraPasos, Buscador, Esqueleto, AvisoError, eur, iconoDeTarea } from '../ui/piezas';
-import { FILTROS, filtrarObras, textoPaso, TEXTO_QUIEN } from '../logic/obras';
+import { ETAPAS, QUIENES, ORDENES, filtrosIniciales, filtrarObras, cuentasFiltros, hayFiltros, TEXTO_QUIEN } from '../logic/obras';
 import { Destino, VERBO } from './Tarea';
 import { CuentasCliente } from './ObraView';
 
@@ -20,6 +20,22 @@ export function useEsPC() {
         return () => mq.removeEventListener?.('change', f);
     }, []);
     return pc;
+}
+
+/** Un desplegable con forma de botón de filtro: se ve lo elegido, no la palabra «Seleccionar». */
+function Desplegable({ etiqueta, valor, opciones, onCambio }) {
+    const actual = opciones.find((o) => o.v === valor) || opciones[0];
+    const puesto = valor && opciones[0]?.v === '' ? true : false;
+    return (
+        <label className={`ia-desple${puesto ? ' puesto' : ''}`}>
+            <span className="sr">{etiqueta}</span>
+            <span aria-hidden="true">{puesto ? actual.t.replace(/ · \d+$/, '') : etiqueta === 'Ordenar' ? actual.t : etiqueta}</span>
+            <Icono n="chevron" size={16} />
+            <select value={valor} onChange={(e) => onCambio(e.target.value)} aria-label={etiqueta}>
+                {opciones.map((o) => <option key={o.v} value={o.v}>{o.t}</option>)}
+            </select>
+        </label>
+    );
 }
 
 /** La tarjeta de una obra (también en la ficha del cliente). */
@@ -54,16 +70,23 @@ export function TarjetaObra({ obra: o, onClick, seleccionada, conAccion = true }
 export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle, onAbrirObra, onAbrirOportunidad, onAbrirAccion, onNueva }) {
     const memoria = useVistaGuardada('instalador-obras');
     const [q, setQ] = useState(memoria.q ?? '');
-    const [filtro, setFiltro] = useState(FILTROS.some((f) => f.key === memoria.filtro) ? memoria.filtro : 'todas');
+    const [f0] = useState(() => filtrosIniciales(memoria));
+    const [etapa, setEtapa] = useState(f0.etapa);
+    const [quien, setQuien] = useState(f0.quien);
+    const [pueblo, setPueblo] = useState(f0.pueblo);
+    const [tipo, setTipo] = useState(f0.tipo);
+    const [orden, setOrden] = useState(f0.orden);
     const [sel, setSel] = useState(memoria.sel ?? null);
-    useGuardarVista('instalador-obras', { q, filtro, sel });
+    useGuardarVista('instalador-obras', { q, etapa, quien, pueblo, tipo, orden, sel });
     const pc = useEsPC();
 
     const obras = datos?.obras || [];
-    const vistas = filtrarObras(obras, filtro, q);
+    const f = { q, etapa, quien, pueblo, tipo, orden };
+    const vistas = filtrarObras(obras, f);
+    const cuentas = cuentasFiltros(obras, f);
     const lista = useScrollLista('instalador-obras', false, !cargando && vistas.length > 0);
     const r = datos?.resumen;
-    const cuenta = (k) => (k === 'tu' ? r?.te_toca : k === 'marcha' ? r?.en_marcha : k === 'cobradas' ? r?.cobradas : r?.total);
+    const quitar = () => { setEtapa('todas'); setQuien(null); setPueblo(null); setTipo(null); setQ(''); };
 
     // En el ordenador siempre hay una obra a la derecha: la elegida, o la primera.
     const elegida = pc ? (vistas.find((o) => o.id === sel) || vistas[0] || null) : null;
@@ -75,12 +98,36 @@ export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle,
     };
 
     const filtros = (
-        <div className="ia-filtros" role="group" aria-label="Filtrar las obras">
-            {FILTROS.map((f) => (
-                <button key={f.key} type="button" className="ia-filtro" aria-pressed={filtro === f.key} onClick={() => setFiltro(f.key)}>
-                    {f.texto}{cuenta(f.key) ? ` · ${cuenta(f.key)}` : ''}
-                </button>
-            ))}
+        <div className="ia-filtros-todo">
+            <div className="ia-filtros" role="group" aria-label="Qué obras ver">
+                {ETAPAS.map((e) => (
+                    <button key={e.key} type="button" className="ia-filtro" aria-pressed={etapa === e.key} title={e.ayuda}
+                        onClick={() => setEtapa(e.key)}>
+                        {e.texto} <span className="n">{cuentas.etapa[e.key] ?? 0}</span>
+                    </button>
+                ))}
+            </div>
+            <div className="ia-filtros ia-filtros-2" role="group" aria-label="Quién la tiene">
+                {QUIENES.filter((x) => cuentas.quien[x.key] || quien === x.key).map((x) => (
+                    <button key={x.key} type="button" className={`ia-filtro peq ${x.key}`} aria-pressed={quien === x.key}
+                        onClick={() => setQuien(quien === x.key ? null : x.key)}>
+                        {x.texto} <span className="n">{cuentas.quien[x.key]}</span>
+                    </button>
+                ))}
+                {(cuentas.pueblos.length > 1 || pueblo) && (
+                    <Desplegable etiqueta="Pueblo" valor={pueblo || ''} onCambio={(v) => setPueblo(v || null)}
+                        opciones={[{ v: '', t: 'Todos los pueblos' }, ...cuentas.pueblos.map((p) => ({ v: p.v, t: `${p.v} · ${p.n}` }))]} />
+                )}
+                {(cuentas.tipos.length > 1 || tipo) && (
+                    <Desplegable etiqueta="Tipo" valor={tipo || ''} onCambio={(v) => setTipo(v || null)}
+                        opciones={[{ v: '', t: 'Todos los tipos' }, ...cuentas.tipos.map((p) => ({ v: p.v, t: `${p.v} · ${p.n}` }))]} />
+                )}
+                <Desplegable etiqueta="Ordenar" valor={orden} onCambio={setOrden}
+                    opciones={ORDENES.map((o) => ({ v: o.key, t: o.texto }))} />
+                {hayFiltros(f) && (
+                    <button type="button" className="ia-quitar" onClick={quitar}>Quitar filtros</button>
+                )}
+            </div>
         </div>
     );
     const buscador = <Buscador valor={q} onCambio={setQ} placeholder="Busca por cliente o pueblo" etiqueta="Buscar obra" />;
@@ -116,7 +163,12 @@ export function ObrasView({ datos, cargando, error, onReintentar, cargarDetalle,
                 ) : (
                     <div className="ia-split">
                         <div className="ia-obras">
-                            {vistas.length === 0 && <p className="ia-nada">No hay ninguna obra con eso. Prueba con otro nombre o quita el filtro.</p>}
+                            {vistas.length === 0 && (
+                                <div className="ia-nada">
+                                    <p>No hay ninguna obra con eso.</p>
+                                    <button type="button" className="ia-btn ia-btn-sec ia-btn-peq" onClick={quitar}>Quitar filtros y búsqueda</button>
+                                </div>
+                            )}
                             {vistas.map((o) => (
                                 <TarjetaObra key={o.id} obra={o} onClick={() => pulsar(o)} seleccionada={pc ? elegida?.id === o.id : undefined} />
                             ))}

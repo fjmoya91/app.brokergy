@@ -263,8 +263,10 @@ function Firma() {
     );
 }
 
-/** La primera página del PDF, pintada con pdf.js (se carga solo aquí). */
-function VistaPrevia({ pdf, cargando }) {
+/** La primera página del PDF, pintada con pdf.js (se carga solo aquí).
+ *  La reutiliza el presupuesto de la app del instalador (PresupuestoForm), con su
+ *  propio CSS `.fo-previa` dentro de `.ia-app`: la factura no cambia. */
+export function VistaPrevia({ pdf, cargando, etiqueta = 'Vista previa de la factura' }) {
     const ref = useRef(null);
     useEffect(() => {
         if (!pdf) return undefined;
@@ -292,7 +294,7 @@ function VistaPrevia({ pdf, cargando }) {
         return () => { vivo = false; try { tarea?.cancel(); } catch { /* ya terminó */ } };
     }, [pdf]);
     return (
-        <div className="fo-previa" aria-label="Vista previa de la factura">
+        <div className="fo-previa" aria-label={etiqueta}>
             <canvas ref={ref} />
             {cargando && <span className="cargando">Actualizando…</span>}
         </div>

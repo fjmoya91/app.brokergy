@@ -530,8 +530,21 @@ function App() {
   // este equipo»): el embudo arranca con ese modelo y su precio. Un clic normal pasa
   // el EVENTO, que no trae `equipo`, y abre la simulación de siempre.
   const [equipoInicial, setEquipoInicial] = useState(null);
-  const openNewSimulation = (opts) => { newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null); setEquipoInicial(opts?.equipo?.id ? opts.equipo : null); setShowSearchModal(true); };
-  const closeNewSimulation = () => { newSimulationOpen = false; setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); setEquipoInicial(null); };
+  // Desde un PRESUPUESTO de la app del instalador (22/11/2026): el cliente, la dirección de la
+  // obra, el equipo y el importe ya vienen; al crearse, `alCrear` lo liga y se vuelve a su ficha.
+  // Sin `opts.presupuesto` todo sigue exactamente igual.
+  const [presupuestoInicial, setPresupuestoInicial] = useState(null);
+  const openNewSimulation = (opts) => {
+    newSimulationOpen = true; setCeeResolved(false); setCeePrevioData(null);
+    const presu = opts?.presupuesto?.id ? opts.presupuesto : null;
+    const eqPresu = presu?.equipo?.aerotermia_id
+      ? { id: presu.equipo.aerotermia_id, marca: presu.equipo.marca || '', nombre: presu.equipo.modelo || '', precio_sin_iva: null, origen: 'presupuesto' }
+      : null;
+    setEquipoInicial(opts?.equipo?.id ? opts.equipo : eqPresu);
+    setPresupuestoInicial(presu);
+    setShowSearchModal(true);
+  };
+  const closeNewSimulation = () => { newSimulationOpen = false; setShowSearchModal(false); setCeeResolved(false); setCeePrevioData(null); setEquipoInicial(null); setPresupuestoInicial(null); };
 
   // Si la recarga vino de un chunk obsoleto mientras el usuario abría "Nueva
   // simulación", la reabrimos por él: se consume una sola vez por sesión.
@@ -1713,6 +1726,7 @@ function App() {
               variant="reforma"
               initialCeeData={ceePrevioData}
               equipoInicial={equipoInicial}
+              presupuestoInicial={presupuestoInicial}
               onCancel={closeNewSimulation}
               // La referencia buscada era la de un EDIFICIO y se ha elegido simularlo
               // entero: el funnel de preguntas (caldera, emisores, habitaciones) es de
@@ -1723,6 +1737,10 @@ function App() {
                 newSimulationOpen = false;
                 setShowSearchModal(false);
                 setEquipoInicial(null);
+                const presu = presupuestoInicial;
+                setPresupuestoInicial(null);
+                // Desde un presupuesto: se liga a la oportunidad y se vuelve a su ficha.
+                if (presu?.alCrear) { try { await presu.alCrear(opResult); } catch (err) { console.error('[App] Ligando el presupuesto:', err); } return; }
                 if (!opResult?.id_oportunidad) return;
                 // Obtener el objeto completo de la oportunidad recién creada
                 // (con ref_catastral y datos_calculo) y delegar en
