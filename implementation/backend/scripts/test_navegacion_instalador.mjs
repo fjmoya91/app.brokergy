@@ -215,6 +215,9 @@ const wav = await import(front('features/instalador/logic/audioWav.js'));
 const vistaAsi = fs.readFileSync(path.join(raizFront, 'src/features/instalador/views/AsistenteView.jsx'), 'utf8');
 t('asistente: la charla NO va al navegador (ni localStorage ni sessionStorage)', !/localStorage|sessionStorage/.test(vistaAsi));
 t('asistente: «Envíamelo por WhatsApp» es la MISMA llamada de la ficha', /api\.presupuestoWhatsapp\(p\.id\)/.test(vistaAsi));
+// /me trae asistente_instalador, pero AuthContext copia sus campos uno a uno: sin él, el asistente no salía (22/11/2026).
+const authCtx = fs.readFileSync(path.join(raizFront, 'src/context/AuthContext.jsx'), 'utf8');
+t('asistente: AuthContext copia asistente_instalador de /me', /asistente_instalador:\s*res\.data\.asistente_instalador === true/.test(authCtx));
 
 console.log(`\n${mal ? '✗' : '✓'} test_navegacion_instalador: ${ok}/${ok + mal}`);
 process.exit(mal ? 1 : 0);

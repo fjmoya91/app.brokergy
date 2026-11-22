@@ -103,7 +103,10 @@ guarda. Sin permiso de micrófono, la pantalla lo dice y deja escribir.
 
 **REGLA — tiene asistente quien está en la beta de la app, si `ASISTENTE_INSTALADOR_ENABLED` no es `false`
 y el servidor tiene `ANTHROPIC_API_KEY`; lo decide UN sitio (`asistenteEncendido`), que leen `/api/usuarios/me`
-(`asistente_instalador`, para pintar o no las entradas) y la ruta (**403 `ASISTENTE_OFF`**).** Las tres
+(`asistente_instalador`, para pintar o no las entradas) y la ruta (**403 `ASISTENTE_OFF`**).**
+⚠️ [AuthContext.jsx](implementation/frontend/src/context/AuthContext.jsx) copia los campos de `/me` UNO A
+UNO: el primer deploy (22/11/2026) no copiaba `asistente_instalador` y a RCA no le salía el asistente; el
+banco no lo vio porque le pasa la prop directamente. Lo vigila `test_navegacion_instalador.mjs`. Las tres
 rutas van con `enforceAuth` + `soloBetaInstalador` + ese guardián (401 sin sesión, 403 fuera de la beta) y
 cada evento del NDJSON pasa por `sanear` (fuera enlaces, `*url`, tokens); las tarjetas son listas blancas
 (`tarjetaObra`, `tarjetaPresupuesto`: nunca margen, comisión ni Drive, reglas 1 y 230). Con la BD caída,

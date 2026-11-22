@@ -188,6 +188,9 @@ export const AuthProvider = ({ children }) => {
                 // App nueva del INSTALADOR (fase 1, beta): lo decide el backend
                 // (`enBetaInstalador`, utils/appInstalador.js) con APP_INSTALADOR_BETA.
                 app_instalador: res.data.app_instalador === true,
+                // Fase 6: «Tu asistente» (`asistenteEncendido`, regla 241). Sin copiarlo aquí,
+                // HostInstalador lo leía siempre como false y el asistente no salía (22/11/2026).
+                asistente_instalador: res.data.asistente_instalador === true,
             };
 
             hasRichProfile.current = true;
