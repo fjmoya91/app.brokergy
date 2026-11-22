@@ -36,7 +36,7 @@
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 12,8 KB | 3 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 17,3 KB | 7 |
-| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 42,0 KB | 19 |
+| `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 43,1 KB | 22 |
 
 ## Reglas numeradas → dónde están
 
@@ -749,6 +749,7 @@
 - `docs/conocimiento/whatsapp/bot-de-whatsapp-contesta-a-los-chats-etiquetados.md` — Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25)
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25)
+- `docs/conocimiento/whatsapp/el-agente-de-whatsapp-y-el-director-comercial.md` — El AGENTE de WhatsApp y el DIRECTOR comercial — diseño (PROPUESTA, 17/11/2026, sin construir)
 - `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10)
 - `docs/conocimiento/whatsapp/el-seguimiento-que-no-se-quede-nada-pendiente.md` — El SEGUIMIENTO: que no se quede nada pendiente — propuestas y material del CEE inicial (2026-11-15)
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado
@@ -756,6 +757,7 @@
 - `docs/conocimiento/whatsapp/la-agenda-de-whatsapp-como-origen-del-alta-de-clientes.md` — La agenda de WhatsApp como origen del alta de clientes (2026-10-13)
 - `docs/conocimiento/whatsapp/la-bienvenida-a-quien-escribe-por-primera-vez.md` — La BIENVENIDA: a quien escribe por primera vez, el formulario y el vídeo, solos (2026-11-09)
 - `docs/conocimiento/whatsapp/la-cartera-de-instaladores-etiquetada-sola-en-whatsapp.md` — La cartera de instaladores, etiquetada sola en WhatsApp (2026-09-09)
+- `docs/conocimiento/whatsapp/la-noche-del-18-11-lo-que-el-contestador-dejo-sin-contestar.md` — La noche del 18/11/2026: lo que el contestador dejó sin contestar (y cómo se recogió)
 - `docs/conocimiento/whatsapp/la-ronda-nocturna-de-whatsapp.md` — La RONDA NOCTURNA de WhatsApp — fase 1, en seco (2026-10-19)
 - `docs/conocimiento/whatsapp/las-esperas-lo-que-se-pide-y-se-recuerda.md` — Las ESPERAS: lo que se le pide a alguien por WhatsApp, si contesta y cuándo se le recuerda (2026-11-09)
 - `docs/conocimiento/whatsapp/lo-que-llega-con-el-backend-parado-recuperarperdidos.md` — Lo que llega con el backend PARADO — `recuperarPerdidos()`
@@ -764,4 +766,5 @@
 - `docs/conocimiento/whatsapp/rutas-y-esquema.md` — Rutas y esquema
 - `docs/conocimiento/whatsapp/tras-un-despliegue-el-whatsapp-vuelve-solo.md` — Tras un despliegue el WhatsApp vuelve SOLO: el supervisor y sus plazos (2026-07-23 · 2026-10-19)
 - `docs/conocimiento/whatsapp/un-mensaje-con-el-reloj-no-esta-enviado.md` — Un mensaje con el RELOJ no está enviado (2026-09-08)
+- `docs/conocimiento/whatsapp/voz-de-fran.md` — La VOZ DE FRAN: respuestas reales elegidas, para que el agente de WhatsApp las copie (2026-11-18)
 - `docs/conocimiento/whatsapp/whatsapp-en-el-dia-a-dia-nombre-bandeja-mensajes-y-altas.md` — WhatsApp en el día a día: nombre, bandeja, mensajes, audios y altas (2026-10-13)

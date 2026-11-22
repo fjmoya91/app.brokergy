@@ -187,6 +187,12 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
         // Lo que acaba de llegar no se vuelve a pedir, aunque la app aún no lo tenga.
         dossier.pendientes = (dossier.pendientes || []).filter(p => !llegado.slots.has(p.clave));
     }
+    // Lo que dice que su instalación no lleva tampoco se le pide (22/11/2026).
+    if (dossier?.pendientes?.length) {
+        const { pendientes, quitados } = sinLoQueNoLleva(dossier.pendientes, ch.texto);
+        dossier.pendientes = pendientes;
+        extra.noLleva = quitados;
+    }
     const { texto: dossierTexto, enlaces, propuesta } = IA.dossierParaBorrador(ch, obra, dossier);
     const sinObra = extra.sinObra || null;
     if (sinObra) enlaces['{ENLACE_VIDEO_INSTALADORES}'] = VIDEO_INSTALADORES();
@@ -234,7 +240,9 @@ ${llegado?.lineas?.length ? llegado.lineas.map(l => `- ${l}`).join('\n') : '(nad
 
 Lo marcado «YA GUARDADO» estará en el expediente cuando le llegue tu respuesta: díselo así. Lo demás también lo
 hemos recibido aunque no esté colocado (lo mira Fran). Nada de esto se le vuelve a pedir, aunque el dossier lo
-diera por pendiente.
+diera por pendiente.${extra.noLleva?.length ? `
+Ha dicho que su instalación NO LLEVA ${[...new Set(extra.noLleva.map(q => q.cosa))].join(' ni ')}: esa foto ya no está en el dossier y NO se
+le pide; acúsalo en una frase («Lo del depósito, apuntado.»).` : ''}
 Lo marcado «NO es de ninguna obra» (publicidad, un cartel, un curso, un meme, un reenvío, una felicitación) NO se
 trata como de una obra: nunca le preguntes de qué obra es. Si no pide nada con ello → CALLAR (como mucho, si lo
 pide el tono, RESPONDER con una línea natural: «Gracias, lo he visto»). Si a Fran le interesa saberlo (un curso o
@@ -272,9 +280,12 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
   los enlaces. Nada de «Estimado cliente». Las plantillas de arriba (las de los recordatorios, con su
   📸 y su lista de lo que falta) NO valen aquí: esto es una respuesta, no un recordatorio.
 - Si le falta más de una cosa, pídele solo lo de la fase activa y como mucho DOS, con UN enlace (el de
-  subirlo); el resto se le pedirá después. Nunca la lista entera del dossier.
+  subirlo); el resto se le pedirá después. Nunca la lista entera del dossier. La excepción son las FOTOS: si
+  lo que falta de la fase son fotos, pídelas TODAS en el mismo mensaje (es un solo paseo por la casa), aunque
+  sean tres o cuatro. Lo que no pidas ahora no lo saques en el mensaje siguiente como si fuera nuevo.
 - Sigue el hilo de la conversación. NO te presentes («soy Fran, de BROKERGY»): ya nos conoce, nos ha
-  escrito él. Si hoy ya os habéis saludado, ve al grano sin saludo.
+  escrito él. Si hoy ya os habéis saludado, ve al grano sin saludo.${extra.sinSaludo ? `
+- YA LE HEMOS ESCRITO HACE UN RATO en esta conversación: esta respuesta va SIN saludo, directa al grano.` : ''}
 - Saluda con «${saludo}» y su NOMBRE DE PILA: ${nombrePila ? `«${saludoCon}.» (así le llamamos en la conversación)` : `el que le damos nosotros en la conversación, o el de la ficha o la agenda si es claramente el de una persona${agenda ? ` (en la agenda: «${agenda}»)` : ''}; si no hay, «${saludo}.» a secas`}. Nunca el nombre de una empresa ni «Hola,» a secas.
 - SIN emojis. Sin firma ni «un saludo». Sin disculparte («lo siento», «perdona», «disculpa»): se
   explica y se dice qué sigue. *Negrita* solo para lo que se le pide.${tarde ? `
@@ -293,6 +304,22 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
   presupuesto o de la factura. Basta con «perfecto, ya lo tengo» o nombrar el asunto en dos palabras.
 - Si dice que la obra YA ESTÁ HECHA o te pide que mires lo que ha mandado, eso SÍ se contesta (caso D/E o
   el acuse de lo recibido): no es cortesía.
+- Lo que te CUENTA se contesta, no se pasa por encima: si dice que algo YA está colocado (la máquina, el
+  depósito), pídele YA las fotos de eso, nunca «cuando esté colocado»; lo que aún no esté, «según vaya
+  avanzando». Si dice que su instalación NO LLEVA algo (un depósito, una unidad), esa foto NO se le pide en
+  esta respuesta aunque el dossier la tenga pendiente: «Lo del depósito, apuntado.» y en "aviso" que Fran
+  confirme si hace falta. Pide solo lo demás que falte.
+- «Por tu parte no falta nada» SOLO si es verdad: el dossier no tiene nada pendiente suyo en la fase, todo lo
+  que ha mandado está «YA GUARDADO» (nada «sin guardar» ni «NO se ha podido ver») y no dejas nada en "aviso"
+  para que Fran lo mire o lo decida. Si algo de eso falla, acusa lo recibido y di lo que sí sabes, sin
+  afirmar que está todo.
+- Las fotos que ha mandado ya vienen MIRADAS arriba (qué es cada una y dónde se ha guardado): si una vale
+  para lo que faltaba, dilo y no la pidas; nunca pidas algo «por si no está entre las que has mandado».
+- Si antes en la conversación mandó algo que nadie le acusó (unos anexos firmados, un documento), acúsalo
+  ahora en dos palabras junto a lo de hoy.
+- Sin coletillas: lo de que «los anexos para firmar los preparamos nosotros y te llegan con un enlace» se dice
+  SOLO si pregunta por la firma o si firmar es lo siguiente que le toca según el dossier; no al final de
+  cualquier respuesta. Y de tu trabajo, sin «yo»: «lo reviso», nunca «los reviso yo» ni «a mano».
 
 ASÍ CONTESTA FRAN (respuestas suyas reales: copia el TONO; lo que se dice sale del dossier):
 - «Buenos días, Fran. Lo vamos a revisar y te pasamos la propuesta.»
@@ -452,6 +479,106 @@ function sinColetillaOtraObra(s) {
         const quedan = frases.filter(f => !esColetilla(f));
         return quedan.length === frases.length ? linea : quedan.join(' ');
     }).join('\n');
+}
+
+// «Los reviso yo», «lo miro yo mismo», «a mano», «personalmente»: así no habla Fran de su trabajo
+// (C792, 22/11/2026: «…también los tengo. Los reviso yo.»). En una RESPUESTA se quita la coletilla
+// y se queda el verbo (solo en `rematar`, sobre el mensaje); en un acuse ya lo cambia ACUSE_NO.
+function sinYo(s) {
+    // Solo detrás del verbo de mirar: «la caldera se quita a mano» es de la obra y no se toca.
+    return String(s || '').replace(/\b(reviso|miro|repaso|compruebo|veo)(?:(?:\s+yo)?(?:\s+mism[oa])?(?:\s+a\s+mano|\s+personalmente)?)(?=[\s.,;:!]|$)/gi, '$1');
+}
+
+// El saludo del principio («Buenos días, María.», «Hola Juan,»): se quita cuando ya le hemos escrito
+// hace un rato (C795–C800, 22/11/2026: cuatro «Buenos días, María» en dos horas). Solo el saludo
+// del principio y solo si detrás queda respuesta. Pura.
+const SALUDO_INICIAL = /^\s*¡?\s*(hola|buenos\s+d[ií]as|buenas\s+tardes|buenas\s+noches|buenas)\b!?(?:[ ,]+[A-ZÁÉÍÓÚÑ][A-Za-zÁÉÍÓÚÑáéíóúñü]+(?: [A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)?)?\s*(?:[.!]+|,)\s*/i;
+function sinSaludoInicial(texto) {
+    const s = String(texto || '');
+    const resto = s.replace(SALUDO_INICIAL, '');
+    if (resto === s || resto.trim().length < 12) return s;
+    return resto.charAt(0).toUpperCase() + resto.slice(1);
+}
+
+// «Por tu parte no falta nada más», «ya está todo»: solo se puede decir si es verdad. Se quita la
+// FRASE cuando lo recibido no se ha podido leer o guardar, o cuando el propio aviso a Fran dice que
+// hay algo por mirar o decidir (C803: el PDF del CIFO era demasiado grande para leerlo; C792: «decidir
+// si hace falta algo más»; 22/11/2026). Pura.
+const NO_FALTA_NADA = /\b(ya\s+)?no\s+(te\s+|os\s+|nos\s+)?(hace\s+)?falta\s+nada\b|\b(ya\s+)?(est[aá]|lo\s+tenemos|lo\s+tengo)\s+todo\b|\bcon\s+esto\s+(ya\s+)?est[aá]\s+(todo|completo)\b/i;
+function sinNoFaltaNada(texto) {
+    const out = String(texto || '').split('\n').map((linea) => {
+        const frases = linea.split(/(?<=[.!?])\s+/);
+        const quedan = frases.filter(f => !NO_FALTA_NADA.test(f));
+        return quedan.length === frases.length ? linea : quedan.join(' ');
+    }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    return out.length >= 12 ? out : String(texto || '');
+}
+
+/**
+ * ¿Se puede afirmar que no le falta nada? No, si algo de lo que ha mandado no se ha podido leer o
+ * se queda sin guardar para que lo mire Fran, o si el aviso a Fran deja algo por mirar o decidir. Pura.
+ */
+function quedaAlgoPorMirar(llegado, aviso) {
+    const lineas = (llegado?.lineas || []).join('\n');
+    if (/NO se ha podido ver|sin guardar \(lo mira Fran|demasiado grande/i.test(lineas)) return true;
+    return /\b(decidir|decide|confirma(r)?|mira(r)?|comprobar|comprueba|revisar|revisa|abrir(lo)?|hay que|falta(n)? por)\b/i.test(String(aviso || ''));
+}
+
+/**
+ * Lo último que hace el código con una RESPUESTA, con lo que sabe del chat y de lo recibido
+ * (22/11/2026): sin el saludo si ya le hemos escrito hace un rato (`extra.sinSaludo`) y sin el
+ * «no falta nada» si queda algo por mirar. Pura.
+ */
+/**
+ * Lo que ELLOS dicen que su instalación NO LLEVA («mi instalación no tiene depósito abajo por ser
+ * planta baja», 22/11/2026, 26RES093_15): esa foto no se le vuelve a pedir. Con el prompt solo, el
+ * modelo la seguía pidiendo porque el dossier la daba por pendiente. «Aún no tengo el depósito»
+ * (todavía no está puesto) NO cuenta: eso es que falta, no que no lo lleve. Pura.
+ */
+const COSAS_QUE_NO_LLEVA = [
+    { nombre: 'depósito', en: /deposito|acumulador|inercia/ },
+    { nombre: 'unidad interior', en: /unidad interior|maquina interior|maquina de dentro|hidrokit|modulo hidraulico/ },
+];
+const sinTildes = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+function loQueNoLleva(textoChat) {
+    const ellos = String(textoChat || '').split('\n').filter(l => /\]\s*ELLOS:/.test(l)).map(sinTildes).join('\n');
+    const NO = /\bno\s+(?:la\s+|lo\s+|le\s+)?(?:tiene|tengo|lleva|llevo|hay|tenemos|lleve|necesit\w*|hace\s+falta)\b([^.,;:!?\n]{0,60})/g;
+    const fuera = new Set();
+    let m;
+    while ((m = NO.exec(ellos))) {
+        const antes = ellos.slice(Math.max(0, m.index - 20), m.index);
+        if (/\b(aun|todavia|de momento|por ahora|ya)\s*$/.test(antes) || /\b(aun|todavia|puesto|colocad|instalad|montad)/.test(m[1])
+            || /^\s*(la |las |el |los |una |un )?fotos?\b/.test(m[1])) continue;
+        for (const c of COSAS_QUE_NO_LLEVA) if (c.en.test(m[1])) fuera.add(c.nombre);
+    }
+    return [...fuera];
+}
+function sinLoQueNoLleva(pendientes, textoChat) {
+    const fuera = loQueNoLleva(textoChat);
+    if (!fuera.length) return { pendientes, quitados: [] };
+    const quitados = [];
+    const quedan = (pendientes || []).filter(p => {
+        const que = sinTildes(p.que);
+        const c = COSAS_QUE_NO_LLEVA.find(x => fuera.includes(x.nombre) && x.en.test(que));
+        if (c) { quitados.push({ clave: p.clave, que: p.que, cosa: c.nombre }); return false; }
+        return true;
+    });
+    return { pendientes: quedan, quitados };
+}
+
+function ajustarRespuesta(r, llegado, extra = {}) {
+    if (!r || r.accion !== 'RESPONDER' || !r.mensaje) return r;
+    let mensaje = r.mensaje;
+    const ajustes = [];
+    // Lo que dijo que no lleva y se le quitó de lo pendiente: que Fran lo confirme.
+    const noLleva = [...new Set((extra.noLleva || []).map(q => q.cosa))];
+    if (noLleva.length && !noLleva.every(c => sinTildes(r.aviso).includes(sinTildes(c)))) {
+        r = { ...r, aviso: [r.aviso, `Dice que su instalación no lleva ${noLleva.join(' ni ')}: no se le ha pedido esa foto; confirmar si hace falta.`].filter(Boolean).join(' ') };
+        ajustes.push('no_lleva');
+    }
+    if (extra.sinSaludo) { const s = sinSaludoInicial(mensaje); if (s !== mensaje) { mensaje = s; ajustes.push('saludo'); } }
+    if (quedaAlgoPorMirar(llegado, r.aviso)) { const s = sinNoFaltaNada(mensaje); if (s !== mensaje) { mensaje = s; ajustes.push('no_falta_nada'); } }
+    return ajustes.length ? { ...r, mensaje, ajustes } : r;
 }
 
 function limpiar(texto) {
@@ -636,7 +763,7 @@ function decisionTrasInvestigar(json, primera) {
 function rematar(r, enlaces) {
     const accion = ACCIONES.has(String(r?.accion || '').toUpperCase()) ? String(r.accion).toUpperCase() : 'ESCALAR';
     const { texto, usados, problemas } = IA.sustituirEnlaces(IA.juntarParrafos(r), enlaces);
-    const mensaje = accion === 'RESPONDER' ? limpiar(texto) : '';
+    const mensaje = accion === 'RESPONDER' ? sinYo(limpiar(texto)) : '';
     // El acuse es una frase y sin enlaces: si trae una URL o es largo, fuera. Y en la voz de
     // Fran: sin «un compañero», sin hablar de asistentes ni de programas y sin plazos (casos
     // inventados del 10/11/2026: «te paso con un compañero», «lo miro ahora mismo»); si los
@@ -719,8 +846,7 @@ async function conGemini(prompt, cuenta) {
  * El `redactar` que se le pasa a la ronda. Nunca devuelve sin `accion`.
  */
 async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
-    const { prompt, enlaces, propuesta } = construirPrompt(ch, obra, dossier, llegado, extra);
-    let json = null;
+    const { prompt, enlaces, propuesta } = construirPrompt(ch, obra, dossier, llegado, extra);    let json = null;
     let cerebro = null;
     let fallo = null;
     if (CEREBRO() === 'claude') {
@@ -735,7 +861,7 @@ async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
         cerebro = `gemini${fallo ? ` (respaldo: ${fallo.slice(0, 120)})` : ''}`;
     }
     const primera = { ...rematar(json, enlaces), con_dossier: !!dossier, propuesta, cerebro, prompt_chars: prompt.length };
-    if (!debeInvestigar(primera, extra)) return primera;
+    if (!debeInvestigar(primera, extra)) return ajustarRespuesta(primera, llegado, extra);
     // Lo que iba a escalar: antes de llegar a Fran, se INVESTIGA con herramientas (16/11/2026).
     const segPropuesta = (extra.seguimientos || []).some(s => s?.tipo === 'PROPUESTA');
     const inv = await investigar(prompt, primera, { enlaces, segPropuesta });
@@ -745,7 +871,7 @@ async function redactar(ch, obra, dossier, llegado, cuenta, extra = {}) {
     }
     // Lo investigado SE ENVÍA: solo se queda en Fran lo suyo de verdad (decisionTrasInvestigar).
     const decidido = decisionTrasInvestigar(inv.json, primera);
-    const r = rematar(decidido, enlaces);
+    const r = ajustarRespuesta(rematar(decidido, enlaces), llegado, extra);
     return {
         ...r,
         para_fran: r.accion === 'ESCALAR' && (primera.para_fran || r.para_fran),
@@ -815,4 +941,5 @@ module.exports = {
     redactar, construirPrompt, construirInvestigacion, debeInvestigar, acuseConcreto,
     bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES,
     saludoDeLaHora, sinColetillaOtraObra, decisionTrasInvestigar, soloDeFran, POR_FRAN,
+    sinSaludoInicial, sinNoFaltaNada, quedaAlgoPorMirar, ajustarRespuesta, sinYo, loQueNoLleva, sinLoQueNoLleva,
 };

@@ -172,8 +172,10 @@ function transcripcion(ms, numeros, envios) {
         if (m.tipo === 'chat') txt = corta(m.texto, auto ? 350 : (m.de_mi ? 600 : 1500));
         else if (numeros.has(m.id)) txt = `[ADJUNTO #${numeros.get(m.id)} · ${m.tipo === 'image' ? 'foto' : `documento ${m.nombre_archivo || m.filename || ''}`}]${m.texto ? ` ${corta(m.texto, 300)}` : ''}`;
         else if (m._transcripcion) txt = `[NOTA DE VOZ] «${corta(m._transcripcion, 1500)}»`;
-        else if (m._video) txt = '[VÍDEO]';
-        else if (m._colocada) txt = `[ADJUNTO ya colocado antes en la app: ${m._colocada.slot || 'sin apartado'}]`;
+        // El pie de un vídeo o de una foto ya colocada TAMBIÉN es lo que dice: se perdía y el modelo no
+        // leía «mi instalación no tiene depósito» escrito en la foto (22/11/2026, 26RES093_15).
+        else if (m._video) txt = `[VÍDEO]${m.texto ? ` ${corta(m.texto, 300)}` : ''}`;
+        else if (m._colocada) txt = `[ADJUNTO ya colocado antes en la app: ${m._colocada.slot || 'sin apartado'}]${m.texto ? ` ${corta(m.texto, 300)}` : ''}`;
         else if (MEDIA.has(m.tipo)) txt = `[${m.tipo}${m.de_mi ? '' : ' no leído'}]${m.texto ? ` ${corta(m.texto, 200)}` : ''}`;
         else if (m.tipo === 'vcard' || m.tipo === 'multi_vcard') txt = `[CONTACTO] ${(m.contactos || []).map(c => c.nombre).join(', ')}`;
         else if (m.tipo === 'location') txt = '[UBICACIÓN]';

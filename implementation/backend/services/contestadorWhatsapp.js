@@ -69,6 +69,9 @@ const CFG = {
     // Con algo ya escalado y su acuse mandado, lo nuevo del chat no lleva otro acuse durante
     // este tiempo (17/11/2026, 26RES060_OP376: cuatro «lo miro y te digo» en una hora).
     acuseHoras: num(process.env.CONTESTADOR_ACUSE_HORAS, 6),
+    // Si le hemos escrito en estas horas, la respuesta va sin saludo (C795–C800, 22/11/2026: cuatro
+    // «Buenos días, María» en dos horas).
+    saludoHoras: num(process.env.CONTESTADOR_SALUDO_HORAS, 4),
     // Altas que se encargan solas al asistente en 24 h (cada una es un trabajo de Claude con la
     // suscripción, dentro de su tope de 40). Pasado el tope, a Fran.
     altasDia: num(process.env.CONTESTADOR_ALTAS_DIA, 10),
@@ -343,6 +346,7 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
         // «Buenos días, Fran.»: el nombre con el que le saludamos nosotros, y si no, la agenda.
         extra.nombrePila = nombrePilaDe(ms) || nombreDeAgenda(conv.nombre, personas);
         extra.agenda = conv.nombre || null;
+        extra.sinSaludo = yaLeEscribimos(ms);
         // Lo que le hemos preguntado en el SEGUIMIENTO (propuestas, CEE inicial): para que entienda
         // a qué contesta y diga qué ha contestado (services/seguimientoWhatsapp.js; nunca lanza).
         extra.seguimientos = await require('./seguimientoWhatsapp').paraContestador(tel9);
@@ -448,6 +452,12 @@ const NO_ES_NOMBRE = new Set(['buenos', 'buenas', 'muy', 'te', 'ya', 'perfecto',
  * El nombre de pila con el que le saludamos NOSOTROS en este chat («Hola Fran! Necesito…» → 'Fran'),
  * lo más reciente primero. Así le llama Fran; el de la ficha suele ser el de la empresa. Puro.
  */
+/** ¿Le hemos escrito NOSOTROS en las últimas `horas`? Entonces la respuesta va sin saludo. Pura. */
+function yaLeEscribimos(ms, { ahoraSeg = Date.now() / 1000, horas = CFG.saludoHoras } = {}) {
+    const desde = ahoraSeg - horas * 3600;
+    return (ms || []).some(m => m.de_mi && Number(m.t) >= desde && Number(m.t) <= ahoraSeg);
+}
+
 function nombrePilaDe(ms) {
     for (let i = (ms || []).length - 1; i >= 0; i -= 1) {
         const m = ms[i];
@@ -1031,5 +1041,5 @@ module.exports = {
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
-    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid,
+    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid, yaLeEscribimos,
 };

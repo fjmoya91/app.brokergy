@@ -672,6 +672,73 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     } finally {
         supabase.from = orig.from; supabase.rpc = orig.rpc; RU.checklistForOportunidad = orig.checklist;
     }
+    // ── Lo que el código remata con lo que sabe del chat (22/11/2026, C792–C803) ──
+    {
+        console.log('\nSin saludo repetido, sin «no falta nada» por comprobar, sin «los reviso yo»');
+        // El saludo: fuera si ya le hemos escrito hace un rato (cuatro «Buenos días, María» en dos horas).
+        ok(cerebro.sinSaludoInicial('Buenos días, María. Sí, eran esas: ya están en el expediente.') === 'Sí, eran esas: ya están en el expediente.'
+            && cerebro.sinSaludoInicial('Buenas tardes, Juanma.\n\nPerfecto, ya me ha llegado el CIFO.') === 'Perfecto, ya me ha llegado el CIFO.'
+            && cerebro.sinSaludoInicial('Hola Miguel Angel, sí, el certificado ya lo tenemos.') === 'Sí, el certificado ya lo tenemos.',
+            'el saludo del principio se quita, con su nombre, y lo que sigue empieza en mayúscula');
+        ok(cerebro.sinSaludoInicial('Perfecto, Tomás, vas por buen camino.') === 'Perfecto, Tomás, vas por buen camino.'
+            && cerebro.sinSaludoInicial('Buenos días.') === 'Buenos días.' && cerebro.sinSaludoInicial('Buenas noticias: ya está registrado el certificado.').startsWith('Buenas noticias'),
+            'lo que no es un saludo no se toca, y un saludo a secas no se deja vacío');
+        const ahoraSeg = 1_800_000_000;
+        ok(C.yaLeEscribimos([{ de_mi: true, t: ahoraSeg - 3600 }, { de_mi: false, t: ahoraSeg - 60 }], { ahoraSeg, horas: 4 })
+            && !C.yaLeEscribimos([{ de_mi: true, t: ahoraSeg - 6 * 3600 }, { de_mi: false, t: ahoraSeg - 60 }], { ahoraSeg, horas: 4 })
+            && !C.yaLeEscribimos([{ de_mi: false, t: ahoraSeg - 60 }], { ahoraSeg, horas: 4 }),
+            'ya le hemos escrito = un mensaje NUESTRO en las últimas 4 h; lo suyo o lo de ayer no cuenta');
+        // «No falta nada»: solo si es verdad.
+        const cifo = 'Perfecto, ya me ha llegado el CIFO de lo de Francis, en Munera. Por tu parte no falta nada más: ahora seguimos nosotros con el certificado energético final.';
+        ok(cerebro.sinNoFaltaNada(cifo) === 'Perfecto, ya me ha llegado el CIFO de lo de Francis, en Munera.', '«por tu parte no falta nada más…»: se quita la frase entera');
+        ok(cerebro.sinNoFaltaNada('Recibidas las fotos.\n\nPor tu parte, con esto, no falta nada más de la obra.') === 'Recibidas las fotos.'
+            && cerebro.sinNoFaltaNada('Ahora falta la foto de la caldera.') === 'Ahora falta la foto de la caldera.' && cerebro.sinNoFaltaNada('Ya no falta nada.') === 'Ya no falta nada.',
+            'lo que le falta no se toca, y una respuesta no se deja vacía');
+        ok(cerebro.quedaAlgoPorMirar({ lineas: ['[documento] CIFO firmado.pdf — NO se ha podido ver qué es: no le preguntes…'] }, '')
+            && cerebro.quedaAlgoPorMirar({ lineas: ['DNI — sin guardar (lo mira Fran: no se guarda solo)'] }, '')
+            && cerebro.quedaAlgoPorMirar({ lineas: [] }, '26RES060_238: decidir si hace falta algo más')
+            && !cerebro.quedaAlgoPorMirar({ lineas: ['foto de la caldera — YA GUARDADO en el expediente'] }, '')
+            && !cerebro.quedaAlgoPorMirar({ lineas: [] }, 'pide que le llames'),
+            'queda algo por mirar: lo no leído, lo sin guardar o un aviso que deja algo por decidir');
+        const base = { accion: 'RESPONDER', mensaje: `Buenas tardes, Juanma.\n\n${cifo}`, aviso: '' };
+        const a1 = cerebro.ajustarRespuesta(base, { lineas: ['[documento] x.pdf — NO se ha podido ver qué es'] }, { sinSaludo: true });
+        ok(a1.mensaje === 'Perfecto, ya me ha llegado el CIFO de lo de Francis, en Munera.' && a1.ajustes.join() === 'saludo,no_falta_nada', 'C803: sin saludo y sin afirmar que está todo');
+        const a2 = cerebro.ajustarRespuesta(base, { lineas: ['CIFO firmado — YA GUARDADO en el expediente'] }, {});
+        ok(a2 === base, 'con todo guardado, sin aviso y sin habernos escrito antes, la respuesta sale como estaba');
+        ok(cerebro.ajustarRespuesta({ accion: 'ESCALAR', mensaje: '', acuse: 'Buenos días, Ana. Lo de la factura lo miro.' }, { lineas: [] }, { sinSaludo: true }).acuse.startsWith('Buenos días'), 'solo se ajusta una RESPUESTA');
+        // «Los reviso yo» (C792): así no habla Fran de su trabajo.
+        ok(cerebro.rematar({ accion: 'RESPONDER', parrafos: ['Los catálogos también los tengo. Los reviso yo.'] }, ENLACES).mensaje === 'Los catálogos también los tengo. Los reviso.'
+            && cerebro.sinYo('Lo miro yo mismo a mano y te digo.') === 'Lo miro y te digo.' && cerebro.sinYo('La caldera se quita a mano, con cuidado.') === 'La caldera se quita a mano, con cuidado.'
+            && cerebro.sinYo('La memoria la preparo yo y te la paso.') === 'La memoria la preparo yo y te la paso.',
+            '«los reviso yo», «lo miro yo mismo a mano»: se queda el verbo; «a mano» de la obra y «la preparo yo» no se tocan');
+        const chS = { texto: 'ELLOS: ahí van las fotos', rol: 'cliente', personas: [], obras: [] };
+        const conS = cerebro.construirPrompt(chS, null, null, { lineas: [], slots: new Set() }, { sinSaludo: true }).prompt;
+        const sinS = cerebro.construirPrompt(chS, null, null, { lineas: [], slots: new Set() }, {}).prompt;
+        ok(conS.includes('YA LE HEMOS ESCRITO HACE UN RATO') && !sinS.includes('YA LE HEMOS ESCRITO HACE UN RATO'), 'el prompt lo dice solo cuando ya le hemos escrito');
+        ok(sinS.includes('«Por tu parte no falta nada» SOLO si es verdad') && sinS.includes('pídelas TODAS en el mismo mensaje') && sinS.includes('Sin coletillas') && sinS.includes('por si no está entre las que has mandado'),
+            'el prompt: «no falta nada» solo si es verdad, las fotos de una vez, sin coletillas y sin pedir «por si no está»');
+        // Lo que dice que NO LLEVA no se le vuelve a pedir (26RES093_15: «no tiene deposito abajo por ser planta baja»).
+        const chatJ = '[20/11 10:00] NOSOTROS: Nos faltan las fotos del depósito.\n[22/11 11:43] ELLOS: [ADJUNTO #1 · foto] Buenos dias mi instalación no tiene deposito abajo por ser planta baja me dijeron que no la necesito';
+        ok(cerebro.loQueNoLleva(chatJ).join() === 'depósito', '«no tiene deposito»: no lleva depósito');
+        ok(!cerebro.loQueNoLleva('[22/11 11:43] ELLOS: aún no tengo el depósito, lo ponen el lunes').length
+            && !cerebro.loQueNoLleva('[22/11 11:43] ELLOS: no tengo el depósito puesto todavía').length
+            && !cerebro.loQueNoLleva('[22/11 11:43] NOSOTROS: si no tiene depósito, no pasa nada').length
+            && !cerebro.loQueNoLleva('[22/11 11:43] ELLOS: no tengo la foto, el depósito está detrás').length,
+            '«aún no tengo el depósito», «no tengo el depósito puesto», lo que decimos NOSOTROS o «no tengo la foto»: no cuentan');
+        const pend = [{ clave: 'foto_deposito', que: 'foto del depósito nuevo junto a tu caldera de siempre' }, { clave: 'foto_conexion', que: 'foto de tu caldera y la máquina nueva, conectadas' }];
+        const q = cerebro.sinLoQueNoLleva(pend, chatJ);
+        ok(q.pendientes.map(p => p.clave).join() === 'foto_conexion' && q.quitados[0].cosa === 'depósito', 'se quita del dossier la foto del depósito; la de la conexión se sigue pidiendo');
+        const aJ = cerebro.ajustarRespuesta({ accion: 'RESPONDER', mensaje: 'Recibidas las fotos. Lo del depósito, apuntado.', aviso: '' }, { lineas: [] }, { noLleva: q.quitados });
+        ok(/no lleva depósito/.test(aJ.aviso) && aJ.ajustes.includes('no_lleva'), 'y a Fran se le dice en el aviso, para que confirme');
+        const pJ = cerebro.construirPrompt({ texto: chatJ, rol: 'cliente', personas: [], obras: [] }, null, { pendientes: pend.slice() }, { lineas: [], slots: new Set() }, {}).prompt;
+        ok(pJ.includes('NO LLEVA depósito'), 'el prompt le dice que no lo pida');
+        const IAr = require('../services/rondaWhatsappIA');
+        const tr = IAr.transcripcion([{ id: 'f1', de_mi: false, tipo: 'image', t: 1_800_000_000, texto: 'mi instalación no tiene deposito abajo', _colocada: { slot: 'FOTO_UNIDAD_INTERIOR' } },
+            { id: 'v1', de_mi: false, tipo: 'video', t: 1_800_000_010, texto: 'así va la obra', _video: true }], new Map(), []);
+        ok(tr.includes('FOTO_UNIDAD_INTERIOR] mi instalación no tiene deposito abajo') && tr.includes('[VÍDEO] así va la obra')
+            && cerebro.loQueNoLleva(tr).join() === 'depósito',
+            'el pie de una foto ya colocada o de un vídeo llega a la conversación (antes se perdía)');
+    }
     // ── El LISTADO para repasar las respuestas (21/11/2026) ──
     {
         console.log('\nEl listado para repasar las respuestas');

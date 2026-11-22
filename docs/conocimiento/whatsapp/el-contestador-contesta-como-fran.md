@@ -203,7 +203,8 @@ titular se cambia sin más).
 desbocado), no el ritmo normal: la demanda medida es de unas 35 respuestas al día. Los acuses también cuentan.
 
 **Y el cerebro rápido, cuando acusa algo recibido y no le falta nada suyo, dice QUÉ VIENE AHORA** («por tu parte
-ya no falta nada: ahora seguimos nosotros con el certificado»), no «lo reviso y si falta algo te digo».
+ya no falta nada: ahora seguimos nosotros con el certificado»), no «lo reviso y si falta algo te digo». Solo si es
+VERDAD: con algo aún por mirar, el código quita esa frase (2026-11-22, abajo).
 
 **Lo que NO cambia**: el investigador sigue siendo de SOLO LECTURA por construcción, con el mismo modelo, plazo y
 tope (Sonnet, 5 min, 3 $); la propuesta sigue saliendo solo con el «sí» de Fran (regla 113); en modo copia no le
@@ -212,6 +213,55 @@ firmado o un justificante que manda el cliente está BIEN (eso lo sigue mirando 
 
 Tras tocarlo: `node implementation/backend/scripts/test_contestador_whatsapp.js` y un seco sobre chats ya
 contestados (`contestador.js seco --antes --tel …`).
+
+## Lo que sonaba a máquina, quitado por el CÓDIGO (2026-11-22)
+
+Repasado el primer día con las respuestas saliendo solas (13 turnos del 21/11 19:15 al 22/11 17:00: 9 enviados,
+4 callados, ninguno a Fran, ningún tope), lo que no habría escrito Fran:
+
+- **«No falta nada» sin haberlo mirado**: C792 (26RES060_238) decía «por tu parte no falta nada» y el aviso a Fran,
+  «decidir si hace falta algo más»; C803 (26RES060_273) lo decía de un CIFO que pesaba demasiado para abrirlo.
+- **El saludo repetido**: cuatro «Buenos días» en dos horas en el mismo chat (C795–C800, 26RES060_187).
+- **«Los reviso yo»**: en un WhatsApp de Fran, «yo» sobra (ya es él quien escribe).
+- **«Por si no está entre las que has mandado»** de una foto que ya se había mirado (C798, 26RES093_15), y sin
+  acusar recibo de unos anexos que había mandado dos días antes.
+- **Coletillas**: lo de los anexos añadido al final sin que viniera a cuento (C799, C800).
+- **Las fotos, de una en una**: el armario del suelo radiante se pidió en el tercer mensaje, no en el primero.
+
+**REGLA — el código remata la VOZ además de los enlaces**: lo que se pide en el prompt se vuelve a asegurar en
+`ajustarRespuesta` ([contestadorCerebro.js](../../../implementation/backend/services/contestadorCerebro.js)), solo en
+RESPONDER y venga del cerebro rápido o del investigador, y deja en `ajustes` lo que quitó:
+
+- `sinSaludoInicial`: si ya le escribimos en ese chat en las últimas 4 h (`yaLeEscribimos`, en
+  `contestadorWhatsapp.js`; `CONTESTADOR_SALUDO_HORAS`), se quita el «Hola / Buenos días, {nombre}» del principio
+  (y el prompt ya lo pide así: `extra.sinSaludo`). Si lo que queda es muy corto, se deja como estaba.
+- `sinNoFaltaNada`: si queda algo por mirar —un adjunto que NO se ha podido ver o es demasiado grande, o el aviso a
+  Fran dice decidir, confirmar, mirar, revisar o «hay que»— se quita la frase de «no falta nada / ya está todo»
+  (`quedaAlgoPorMirar`). Lo demás del mensaje se queda.
+- `sinYo`: «lo reviso yo», «lo miro yo mismo», «lo compruebo personalmente» → «lo reviso». Solo detrás de un
+  verbo de mirar: «la caldera la quita el instalador» o «la memoria la preparo yo» no se tocan (lo segundo es un
+  compromiso real del acuse).
+
+- `sinLoQueNoLleva` (en `construirPrompt`): lo que ELLOS dicen que su instalación NO LLEVA («mi instalación no
+  tiene depósito abajo por ser planta baja», 26RES093_15) se quita de lo pendiente del dossier antes de que lo
+  lea el modelo, y el aviso a Fran lo dice para que confirme si hace falta. Con el prompt solo, se lo seguía
+  pidiendo tres veces de tres. «Aún no tengo el depósito», «no tengo el depósito puesto» o «no tengo la foto»
+  NO cuentan (es que falta, no que no lo lleve). Hoy entiende el depósito y la unidad interior
+  (`COSAS_QUE_NO_LLEVA`).
+
+**Y el pie de una foto ya colocada se perdía** (`transcripcion`, [rondaWhatsappIA.js](../../../implementation/backend/services/rondaWhatsappIA.js)):
+una foto que la app ya había guardado salía en la conversación como «[ADJUNTO ya colocado antes en la app: …]»
+SIN su texto, y lo de «no tiene depósito» iba escrito justo ahí. Ahora va detrás, como en los demás adjuntos
+(también en los vídeos). Vale para la ronda y para el contestador.
+
+En el prompt, además: lo que CUENTA se contesta («ya está colocada la máquina y el depósito» → pídele ya esas
+fotos, nunca «cuando estén colocadas»: 26RES080_67); pedir de una vez TODAS las fotos que faltan de esa fase; lo que ya se miró no se pone en duda;
+acusar lo que mandó antes y nadie le acusó; sin coletillas (lo de los anexos, solo si viene a cuento).
+
+Aplicado a los textos reales: el de C803 queda en «Perfecto, ya me ha llegado el CIFO de lo de {obra}.»
+y los de 26RES060_187 pierden el saludo a partir del segundo. Tras tocarlo: `test_contestador_whatsapp.js` (bloque
+«Sin saludo repetido, sin «no falta nada» por comprobar, sin «los reviso yo»») y el seco
+`contestador.js seco --antes --horas 720 --sin-relevo --tel …` sobre esos chats.
 
 ## El LISTADO para repasar las respuestas (2026-11-21)
 
