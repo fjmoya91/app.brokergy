@@ -320,6 +320,11 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
 - Sin coletillas: lo de que «los anexos para firmar los preparamos nosotros y te llegan con un enlace» se dice
   SOLO si pregunta por la firma o si firmar es lo siguiente que le toca según el dossier; no al final de
   cualquier respuesta. Y de tu trabajo, sin «yo»: «lo reviso», nunca «los reviso yo» ni «a mano».
+- Lo que manda y no se guarda solo (un justificante de pago, uno de la cuenta, una ficha del banco) se ACUSA:
+  «Recibido el justificante de la cuenta, gracias.» Nunca «lo estoy revisando» ni «lo reviso y te confirmo»
+  dentro de una respuesta: si hay que decidir algo, va en "aviso" para Fran y al cliente no se le dice.
+- Llámale por el nombre de quien ESCRIBE en este chat (el saludo de arriba); si escribe otra persona que el
+  titular (su marido, su hija), no le pongas el nombre del titular.
 
 ASÍ CONTESTA FRAN (respuestas suyas reales: copia el TONO; lo que se dice sale del dossier):
 - «Buenos días, Fran. Lo vamos a revisar y te pasamos la propuesta.»
@@ -501,6 +506,18 @@ function sinColetillaOtraObra(s) {
 function sinYo(s) {
     // Solo detrás del verbo de mirar: «la caldera se quita a mano» es de la obra y no se toca.
     return String(s || '').replace(/\b(reviso|miro|repaso|compruebo|veo)(?:(?:\s+yo)?(?:\s+mism[oa])?(?:\s+a\s+mano|\s+personalmente)?)(?=[\s.,;:!]|$)/gi, '$1');
+}
+
+/**
+ * «Tengo el justificante de la cuenta, lo estoy revisando.» / «…; lo reviso y te confirmo.»: dentro de una
+ * RESPUESTA es el «lo miro y te digo» que Fran no quiere (barrido del 22/11/2026: tres de doce). Se quita la
+ * coletilla cuando va detrás de una coma o un punto y coma (lo de antes ya es el acuse); sin coma, no se toca
+ * (lo pide el prompt). Si queda casi nada, se deja como estaba. Pura.
+ */
+function sinLoReviso(s) {
+    const t = String(s || '');
+    const r = t.replace(/\s*[,;]\s*(?:y\s+)?(?:lo|la|los|las|te\s+lo|te\s+la)\s+(?:estoy\s+(?:revisando|mirando|comprobando)|reviso|miro|compruebo|repaso)(?:\s+y\s+te\s+(?:confirmo|digo|aviso|comento)(?:\s+algo)?)?(?=\s*[.!]|\s*$)/gi, '');
+    return r.replace(/\s+/g, ' ').trim().length >= 12 ? r : t;
 }
 
 // El saludo del principio («Buenos días, María.», «Hola Juan,»): se quita cuando ya le hemos escrito
@@ -777,7 +794,7 @@ function decisionTrasInvestigar(json, primera) {
 function rematar(r, enlaces) {
     const accion = ACCIONES.has(String(r?.accion || '').toUpperCase()) ? String(r.accion).toUpperCase() : 'ESCALAR';
     const { texto, usados, problemas } = IA.sustituirEnlaces(IA.juntarParrafos(r), enlaces);
-    const mensaje = accion === 'RESPONDER' ? sinYo(limpiar(texto)) : '';
+    const mensaje = accion === 'RESPONDER' ? sinLoReviso(sinYo(limpiar(texto))) : '';
     // El acuse es una frase y sin enlaces: si trae una URL o es largo, fuera. Y en la voz de
     // Fran: sin «un compañero», sin hablar de asistentes ni de programas y sin plazos (casos
     // inventados del 10/11/2026: «te paso con un compañero», «lo miro ahora mismo»); si los
@@ -955,5 +972,5 @@ module.exports = {
     redactar, construirPrompt, construirInvestigacion, debeInvestigar, acuseConcreto,
     bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES,
     saludoDeLaHora, sinColetillaOtraObra, decisionTrasInvestigar, soloDeFran, POR_FRAN,
-    sinSaludoInicial, sinNoFaltaNada, quedaAlgoPorMirar, ajustarRespuesta, sinYo, loQueNoLleva, sinLoQueNoLleva,
+    sinSaludoInicial, sinNoFaltaNada, quedaAlgoPorMirar, ajustarRespuesta, sinYo, sinLoReviso, loQueNoLleva, sinLoQueNoLleva,
 };

@@ -242,6 +242,10 @@ RESPONDER y venga del cerebro rápido o del investigador, y deja en `ajustes` lo
   verbo de mirar: «la caldera la quita el instalador» o «la memoria la preparo yo» no se tocan (lo segundo es un
   compromiso real del acuse).
 
+- `sinLoReviso`: «Tengo el justificante de la cuenta, lo estoy revisando.» o «…; lo reviso y te confirmo» dentro
+  de una RESPUESTA es el «lo miro y te digo» de siempre (tres de doce en el repaso de los chats atrasados del
+  22/11). Detrás de una coma o un punto y coma se quita; el prompt pide acusarlo («Recibido el justificante de
+  la cuenta, gracias.») y dejar lo que haya que decidir en el aviso a Fran.
 - `sinLoQueNoLleva` (en `construirPrompt`): lo que ELLOS dicen que su instalación NO LLEVA («mi instalación no
   tiene depósito abajo por ser planta baja», 26RES093_15) se quita de lo pendiente del dossier antes de que lo
   lea el modelo, y el aviso a Fran lo dice para que confirme si hace falta. Con el prompt solo, se lo seguía

@@ -720,6 +720,13 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         ok(sinS.includes('LO QUE FRAN YA HA CORREGIDO') && sinS.includes('esperando a que los auditores') && sinS.includes('la casa COMO ESTÁ')
             && sinS.includes('SOLO si el dossier dice que el certificado inicial está REGISTRADO'),
             'el prompt lleva la voz de Fran: la FM sin afirmar, el CEE inicial es la casa de antes, «ya podéis empezar» solo registrado');
+        // «…, lo estoy revisando» dentro de una respuesta (barrido 22/11: tres de doce).
+        ok(cerebro.sinLoReviso('Tengo el justificante de la cuenta, lo estoy revisando.') === 'Tengo el justificante de la cuenta.'
+            && cerebro.sinLoReviso('La ficha de terceros es lo que necesitábamos del banco; lo reviso y te confirmo. También tengo la foto.') === 'La ficha de terceros es lo que necesitábamos del banco. También tengo la foto.'
+            && cerebro.sinLoReviso('El justificante lo estoy revisando.') === 'El justificante lo estoy revisando.'
+            && cerebro.sinLoReviso('Lo reviso, lo miro.') === 'Lo reviso, lo miro.',
+            '«, lo estoy revisando» / «; lo reviso y te confirmo» fuera; sin coma no se toca, y no se deja casi vacío');
+        ok(cerebro.rematar({ accion: 'RESPONDER', parrafos: ['Tengo el justificante de la cuenta, lo estoy revisando.'] }, ENLACES).mensaje === 'Tengo el justificante de la cuenta.', 'rematar lo aplica a la respuesta');
         // Lo que dice que NO LLEVA no se le vuelve a pedir (26RES093_15: «no tiene deposito abajo por ser planta baja»).
         const chatJ = '[20/11 10:00] NOSOTROS: Nos faltan las fotos del depósito.\n[22/11 11:43] ELLOS: [ADJUNTO #1 · foto] Buenos dias mi instalación no tiene deposito abajo por ser planta baja me dijeron que no la necesito';
         ok(cerebro.loQueNoLleva(chatJ).join() === 'depósito', '«no tiene deposito»: no lleva depósito');
