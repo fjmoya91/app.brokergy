@@ -174,7 +174,14 @@ de ese autor en la última hora, o el mensaje habla de presupuesto / simulación
 Fran lo que habría contestado.** `real` cuando las copias están bien. Franja de la casa, tope diario por
 grupo (`PRESUPUESTO_WA_TOPE_DIA`, 20), cada mensaje una vez, y con un fallo del modelo o de la BD un
 único «ahora mismo no puedo hacerlo, te lo hacemos nosotros en un rato» y aviso al equipo: nunca un
-presupuesto a medias. **En el `.env` local, apagado** (local = datos de producción).
+presupuesto a medias. **En el `.env` local, apagado** (local = datos de producción). En copia, a Fran
+le llegan también el PDF y la foto de la fachada (solo a su chat de copias), no solo su nombre.
+
+**REGLA — el AUDIO se baja con `whatsappMedia._BAJAR`, nunca con `msg.downloadMedia()`** (22/11/2026):
+el de la librería pasa por el `serialize()` que WhatsApp rompió (regla 68.b) y el primer audio de Fran en
+el grupo murió ahí («audio sin transcribir: r», con la sesión sana). `_BAJAR` va en la fila de las
+demás lecturas y con plazo; la transcripción, la de siempre (`transcribirBuffer`, Gemini). Un audio que
+no se puede escuchar **no se calla**: se pide que lo repita o lo escriba (en copia, a Fran).
 
 Encenderlo para probar (el `.env` del VPS, tras el deploy):
 

@@ -78,6 +78,7 @@ const MSG = {
     noEncuentro: 'No encuentro esa dirección en el Catastro. Pásame la referencia catastral o la dirección completa con el municipio.',
     numeroCorrecto: 'Dime el número correcto de la calle o pásame la referencia catastral.',
     caldera: '¿Qué caldera tiene ahora la casa: gasóleo, gas natural, propano, eléctrica, leña, pellets o no tiene?',
+    audio: 'No he podido escuchar el audio. ¿Me lo mandas otra vez o me lo escribes?',
     confirmada: 'Vivienda confirmada. Ya lo tenemos en BROKERGY para calcular el bono; en cuanto esté te pasamos la propuesta para tu cliente.',
 };
 
@@ -300,6 +301,10 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             console.log('[presupuesto-wa]', t);
             out.copias.push(t);
             if (deps.copiar) await deps.copiar(t).catch(e => console.warn('[presupuesto-wa] copia a Fran:', e.message));
+            // El PDF y la foto también le llegan a Fran (solo a SU chat de copias), para verlos de verdad.
+            if (registro.archivo && deps.copiarArchivo) {
+                await deps.copiarArchivo(tipo, contenido, opts).catch(e => console.warn('[presupuesto-wa] copia del archivo a Fran:', e.message));
+            }
             return;
         }
         if (tipo === 'texto') await deps.enviar.texto(chatId, contenido);
@@ -738,6 +743,9 @@ function depsReales(cfg = config()) {
                 { caption, asDocument: false, splitCaption: false }),
         },
         copiar: cfg.copiaA ? (t) => wa.sendText(cfg.copiaA, t) : null,
+        copiarArchivo: cfg.copiaA ? (tipo, f, { caption } = {}) => wa.sendMedia(cfg.copiaA,
+            { base64: f.buffer.toString('base64'), mimetype: f.mimetype, filename: f.filename },
+            { caption, asDocument: tipo === 'documento', splitCaption: false }) : null,
         avisarEquipo: cfg.avisosA ? (t) => wa.sendText(cfg.avisosA, t) : null,
         pedidos: pedidosSupabase(supabase),
         vistos,
@@ -788,13 +796,31 @@ async function autorizado(prescriptorId, tel9, cfg) {
     return (await telefonosDeLaFicha(prescriptorId)).has(tel9);
 }
 
-async function textoDe(msg) {
+const esAudio = (msg) => ['ptt', 'audio'].includes(String(msg?.type || ''));
+
+/**
+ * Baja el audio de la sesión con `whatsappMedia._BAJAR` (WhatsApp Web DIRECTO, en la fila de las
+ * demás lecturas y con plazo). NUNCA `msg.downloadMedia()` de la librería: pasa por el `serialize()`
+ * que WhatsApp rompió (regla 68.b) — el 22/11/2026 el primer audio de Fran en el grupo murió ahí.
+ */
+async function bajarAudio(msgId) {
+    const wm = require('./whatsappMedia');
+    const client = wm._clienteWa();
+    if (!client) throw new Error('WhatsApp no conectado');
+    const r = await wm._enSerie(() => Promise.race([
+        client.pupPage.evaluate(wm._BAJAR, msgId, 16 * 1024 * 1024),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('plazo al bajar el audio')), 90_000)),
+    ]));
+    if (!r || r.error) throw new Error(`no se pudo bajar (${r?.error || 'sin respuesta'}${r?.detalle ? `: ${r.detalle}` : ''})`);
+    return { buffer: Buffer.from(r.data, 'base64'), mimetype: String(r.mimetype || '').split(';')[0].trim() };
+}
+
+async function textoDe(msg, id) {
     const tipo = String(msg.type || '');
     if (tipo === 'chat') return String(msg.body || '');
-    if ((tipo === 'ptt' || tipo === 'audio') && msg.hasMedia) {
-        const m = await Promise.race([msg.downloadMedia(), new Promise((_, rej) => setTimeout(() => rej(new Error('plazo')), 60_000))]);
-        if (!m?.data) return '';
-        return require('./whatsappConversacion').transcribirBuffer(Buffer.from(m.data, 'base64'), String(m.mimetype || '').split(';')[0]);
+    if (esAudio(msg)) {
+        const { buffer, mimetype } = await bajarAudio(id);
+        return require('./whatsappConversacion').transcribirBuffer(buffer, mimetype || 'audio/ogg');
     }
     return String(msg.body || '');        // el pie de una foto o un documento, si lo lleva
 }
@@ -817,8 +843,19 @@ async function alMensaje(msg) {
         if (!id || vistos.has(id)) return;
         const tel = await telefonoDelAutor(msg.author);
         if (!tel || !(await autorizado(prescriptorId, tel, cfg))) return;      // otros miembros: silencio
-        const texto = limpio(await textoDe(msg).catch((e) => { console.warn('[presupuesto-wa] audio sin transcribir:', e.message); return ''; }));
-        if (!texto) return;
+        let fallo = null;
+        const texto = limpio(await textoDe(msg, id).catch((e) => { fallo = e; return ''; }));
+        if (!texto) {
+            if (fallo && esAudio(msg)) {
+                // Un audio que no se puede escuchar no se calla: se le pide por escrito (en copia, a Fran).
+                console.warn(`[presupuesto-wa] audio ${id} sin transcribir: ${fallo.message}`);
+                recordarVisto(id);
+                const t = MSG.audio;
+                if (cfg.modo === 'real') await require('./whatsappService').sendText(chatId, t).catch(e => console.warn('[presupuesto-wa] aviso de audio:', e.message));
+                else if (cfg.copiaA) await require('./whatsappService').sendText(cfg.copiaA, `*Presupuesto por WhatsApp (modo copia) · grupo ${chatId}*\nEl audio no se ha podido escuchar (${fallo.message}). Le diría:\n> ${t}`).catch(() => {});
+            }
+            return;
+        }
         const clave = `${chatId}|${tel}`;
         const r = rafagas.get(clave) || { mensajes: [] };
         r.mensajes.push({ id, texto });

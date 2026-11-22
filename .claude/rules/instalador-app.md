@@ -57,7 +57,7 @@ paths:
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 15,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 11,7 KB
-- `docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md` — El PRESUPUESTO del instalador: en su plantilla, desde la app o pidiéndolo por WhatsApp (2026-11-22) · 14,6 KB
+- `docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md` — El PRESUPUESTO del instalador: en su plantilla, desde la app o pidiéndolo por WhatsApp (2026-11-22) · 15,2 KB
 - `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21) · 9,2 KB
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 12,8 KB
 
@@ -113,6 +113,7 @@ configurado, jamás a un número sacado de un mensaje.**
   - **REGLA — nace APAGADO (`PRESUPUESTO_WA_ENABLED`) y, encendido, en modo COPIA
 (`PRESUPUESTO_WA_MODO=copia`): no escribe en el grupo ni guarda nada; calcula sin guardar y le copia a
 Fran lo que habría contestado.**
+  - **REGLA — el AUDIO se baja con `whatsappMedia._BAJAR`, nunca con `msg.downloadMedia()`**
 - `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md`
   - **REGLA — TODA obra se abre en su ficha; la calculadora solo queda detrás de «Corrige el cálculo».**
   - **REGLA — «Todo lo de esta obra» es UNA lista, de la propuesta al cobro, y la arma el SERVIDOR.**
