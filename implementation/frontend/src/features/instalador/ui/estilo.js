@@ -400,6 +400,41 @@ export const CSS = `
 .ia-eq-papel b{font-size:15.5px}
 .ia-eq-papel small{font-size:13px;color:var(--gris);line-height:1.35}
 .ia-eq-papel>span.ver{flex:none;font-size:14.5px;font-weight:700;text-decoration:underline;text-underline-offset:3px}
+/* ── 22/11/2026: marcas por LOGO, precio por distribuidor y el pedido ── */
+.ia-mc-rejilla{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media (min-width:560px){.ia-mc-rejilla{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (min-width:1024px){.ia-mc-rejilla{grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}.ia-mc-logo{height:88px}}
+.ia-mc{display:flex;flex-direction:column;gap:10px;background:#fff;border:1px solid var(--linea);border-radius:22px;padding:14px;box-shadow:var(--sombra);cursor:pointer;text-align:left;color:var(--tinta);font:inherit;min-width:0}
+.ia-mc-logo{display:flex;align-items:center;justify-content:center;height:72px;border-radius:14px;background:var(--crema);padding:10px;overflow:hidden}
+.ia-mc-logo img{max-width:100%;max-height:100%;object-fit:contain}
+.ia-mc-logo>span{font-family:'Antonio','Inter',Impact,sans-serif;font-weight:700;font-size:20px;letter-spacing:.02em;text-align:center;overflow-wrap:anywhere;line-height:1.1}
+.ia-mc-logo.g{flex:none;width:64px;height:48px;padding:6px;border-radius:12px;background:#fff;border:1px solid var(--linea)}
+.ia-mc-logo.g>span{font-size:13px}
+.ia-mc-pie{display:flex;flex-direction:column;gap:1px;min-width:0}
+.ia-mc-pie b{font-size:15.5px;line-height:1.25;overflow-wrap:anywhere}
+.ia-mc-pie small{font-size:13px;color:var(--gris)}
+.ia-mc-cab{display:flex;align-items:center;gap:12px;min-width:0}
+.ia-mc-cab h1{min-width:0;overflow-wrap:anywhere}
+.ia-dist{display:flex;flex-direction:column;margin-top:4px}
+.ia-dist-f{display:flex;align-items:center;gap:12px;min-height:64px;width:100%;padding:8px 2px;background:none;border:0;border-top:1px solid var(--linea);text-align:left;cursor:pointer;color:var(--tinta);font:inherit}
+.ia-dist-f.primera{border-top-color:transparent}
+.ia-dist-f:disabled{cursor:progress}
+.ia-dist-o{flex:none;width:26px;height:26px;border-radius:999px;border:2px solid rgba(20,17,17,.28);display:flex;align-items:center;justify-content:center;color:#fff}
+.ia-dist-f.si .ia-dist-o{background:var(--tinta);border-color:var(--tinta)}
+.ia-dist-n{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1px}
+.ia-dist-n b{font-size:16px;line-height:1.25;overflow-wrap:anywhere}
+.ia-dist-n small{font-size:13px;color:var(--gris);line-height:1.35}
+.ia-dist-f.si .ia-dist-n small{color:var(--verde-txt);font-weight:700}
+.ia-dist-p{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.ia-dist-p b{font-family:'Antonio','Inter',Impact,sans-serif;font-size:24px;line-height:1.1;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ia-dist-p .sin{font-size:15px;color:var(--gris2)}
+.ia-hoja-alta{max-height:calc(100dvh - 24px);overflow-y:auto}
+.ia-cant{display:flex;align-items:center;gap:12px}
+.ia-cant .ia-btn{flex:none;width:56px;min-height:52px;padding:0;font-size:24px}
+.ia-cant .ia-btn:disabled{opacity:.4;cursor:default}
+.ia-cant output{min-width:48px;text-align:center;font-family:'Antonio','Inter',Impact,sans-serif;font-size:30px;font-variant-numeric:tabular-nums}
+.ia-wa{background:#e7f6dc;border-radius:16px 16px 16px 4px;padding:12px 14px;font-size:14.5px;line-height:1.45;color:#141111;overflow-wrap:anywhere;max-height:44vh;overflow-y:auto}
+.ia-wa p{margin:0}
 .ia-campo input[type=text].ia-precio{font-family:'Antonio','Inter',Impact,sans-serif;font-size:30px!important;font-variant-numeric:tabular-nums;min-height:60px}
 
 /* ── Presupuestos que hace el instalador (22/11/2026) ── */

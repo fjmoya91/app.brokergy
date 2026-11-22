@@ -20,8 +20,9 @@ reabren:
 | El popup «Cargar tarifa (Excel)» del CRM (oscuro) | [CargarTarifaModal.jsx](implementation/frontend/src/features/aerotermia/components/CargarTarifaModal.jsx), botón en [AerotermiaView.jsx](implementation/frontend/src/features/aerotermia/views/AerotermiaView.jsx) |
 | Las pantallas «Catálogo» y la ficha del equipo | [CatalogoView.jsx](implementation/frontend/src/features/instalador/views/CatalogoView.jsx) |
 | «Calcular una obra con este equipo» | [equipoInicial.js](implementation/frontend/src/features/landing/data/equipoInicial.js), usado por [LandingFunnelView.jsx](implementation/frontend/src/features/landing/views/LandingFunnelView.jsx) y [ReformaSubFlow.jsx](implementation/frontend/src/features/landing/views/ReformaSubFlow.jsx) |
-| Banco sin API | `/instalador-demo.html`: `?seccion=catalogo`, `&catalogo=sinmarcas`, `?equipo=101\|102\|103\|104`, `?tarifa=1` (`&fallo=1` → el 409 del plan cambiado) |
-| Pruebas | `test_catalogo_instalador.js` (74) y `test_equipo_inicial_catalogo.mjs` (22), más `test_rutas_sin_sesion.js` y `auditar_rutas_sin_guardian.js` |
+| Banco sin API | `/instalador-demo.html`: `?seccion=catalogo`, `&catalogo=sinmarcas`, `?equipo=101\|102\|103\|104`, `?tarifa=1` (`&fallo=1` → el 409 del plan cambiado); los de distribuidores (`&proveedores=0`, `&pedido=seco`), en «El CATÁLOGO por DISTRIBUIDOR» |
+| Pruebas | `test_catalogo_instalador.js` (121 desde el 22/11/2026) y `test_equipo_inicial_catalogo.mjs` (22), más `test_rutas_sin_sesion.js` y `auditar_rutas_sin_guardian.js` |
+| Distribuidores, «Le compra a…» y el pedido (22/11/2026) | [catalogo-por-distribuidor.md](docs/conocimiento/instalador-app/catalogo-por-distribuidor.md) |
 
 ### El esquema (aditivo, sin tocar `aerotermia`)
 
@@ -60,18 +61,23 @@ reabren:
 
 ### Lo que ve el instalador
 
-**REGLA — el instalador ve SOLO sus marcas, la tarifa vigente y SU precio; nunca el distribuidor, el margen,
-la comisión, otro instalador ni un enlace de Drive.**
+**REGLA — el instalador ve SOLO sus marcas, la tarifa vigente y SU precio; nunca el margen, la comisión,
+otro instalador ni un enlace de Drive.** (Hasta el 22/11/2026 decía también «nunca el distribuidor»: desde
+«El CATÁLOGO por DISTRIBUIDOR» ve el NOMBRE de los distribuidores a los que él compra y la tarifa de cada
+uno; nunca la de otro distribuidor ni el contacto del comercial.)
 
 - Rutas con `enforceAuth` + la beta (regla 230): `GET /catalogo` · `GET /catalogo/:id` (404 si no es de sus
   marcas) · `GET /catalogo/:id/ficha` (la ficha técnica **por proxy**, nunca el enlace) · `PUT` y `DELETE
-  /catalogo/:id/precio` (siempre con SU `prescriptor_id`; 400 `PRECIO_NO_VALIDO`).
-- Sus marcas: `marcas_autorizadas`, el MISMO filtro que `routes/aerotermia.js`. **Sin marcas no ve NINGÚN
-  equipo** (`sin_marcas: true` y la tarjeta «Aún no tienes marcas en tu catálogo»): lo más conservador; nunca
-  el catálogo entero.
+  /catalogo/:id/precio` (siempre con SU `prescriptor_id`; 400 `PRECIO_NO_VALIDO`) y, desde el 22/11/2026,
+  `PUT /catalogo/:id/compra` y `POST /catalogo/:id/pedido` (regla 240).
+- Sus marcas: `marcas_autorizadas`, el MISMO filtro que `routes/aerotermia.js`, **leídas frescas de su
+  ficha en cada petición** (desde el 22/11/2026: la sesión las cachea 5 minutos y el Catálogo seguía vacío
+  después de marcárselas). **Sin marcas no ve NINGÚN equipo** (`sin_marcas: true` y la tarjeta «Aún no
+  tienes marcas en tu catálogo»): lo más conservador; nunca el catálogo entero.
 - El equipo va en LISTA BLANCA (`equipoParaInstalador`): marca, nombre, referencias, uso, montaje, potencias,
   **SCOP con 2 decimales** (cálido; si no hay, medio, y se dice), ACS, refrigerante, `tarifa {precio, desde}`
-  o `null`, `tu_precio` y `papeles` (solo «Ficha técnica», y qué trae dentro).
+  o `null` (desde el 22/11/2026 también `tarifas[]` por distribuidor, `compro_a` y `tarifa.distribuidor`),
+  `tu_precio` y `papeles` (solo «Ficha técnica», y qué trae dentro).
 - Pantallas (estilo «carta de pago», `.ia-`): **Catálogo** con buscador sin tildes (también sin espacios ni
   guiones), chips de marca y tarjetas con la tarifa; la **ficha** con la tarifa como cifra protagonista
   («Sin IVA · desde {mes}»), «Tu precio en los presupuestos» con **Cambiar**, «Lo que hace» en lenguaje
@@ -98,6 +104,7 @@ preseleccionado y su precio (el suyo o, si no tiene, la tarifa) como presupuesto
 El orden completo, con las comprobaciones de cada paso, está en «Publicar la app del INSTALADOR» (fase 5);
 esto es lo de la fase 4:
 
-1. `aerotermia_tarifas_schema.sql` (fase 4) y, si no se aplicó, `escaparate_revision_schema.sql` (fase 3):
-   los dos **ANTES** del deploy. Son aditivos e idempotentes.
+1. `aerotermia_tarifas_schema.sql` (fase 4), después `catalogo_distribuidores_schema.sql` (22/11/2026) y,
+   si no se aplicó, `escaparate_revision_schema.sql` (fase 3): todos **ANTES** del deploy. Son aditivos e
+   idempotentes.
 2. Deploy. 3. Subir la primera tarifa desde Aerotermia → «Cargar tarifa (Excel)».

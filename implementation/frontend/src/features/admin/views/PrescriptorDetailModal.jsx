@@ -6,6 +6,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { CertificadorResumenModal } from './CertificadorResumenModal';
 import TarifasVerificacionPanel from './TarifasVerificacionPanel';
 import { RevisionEscaparate } from '../components/RevisionEscaparate';
+import { LeCompraA } from '../components/LeCompraA';
 import { nombrePartner } from '../../../utils/tiposEmpresa';
 import { CAE_PRECIO_CLIENTE_NUEVAS } from '../../calculator/logic/calculation';
 import { pctDeComision, comisionDePct } from '../../calculator/logic/comisionPartner';
@@ -1941,6 +1942,17 @@ export function PrescriptorDetailModal({ isOpen, onClose, prescriptor: prescProp
                                         </button>
                                         <span className="text-[10px] text-white/25">Las cifras (instalaciones, ayuda media) se recalculan solas cada 6 h.</span>
                                     </div>
+                                </Section>
+                            )}
+
+                            {/* A qué distribuidores le COMPRA (catálogo y pedidos de su app). Solo ADMIN;
+                                se guarda al momento. No es la red del distribuidor. */}
+                            {isAdmin && p.tipo_empresa === 'INSTALADOR' && p.id_empresa && (
+                                <Section
+                                    title="Le compra a…"
+                                    iconPath="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                                >
+                                    <LeCompraA instaladorId={p.id_empresa} />
                                 </Section>
                             )}
 

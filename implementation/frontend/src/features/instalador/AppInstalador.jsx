@@ -21,8 +21,9 @@
 // la hoja del Perfil (que ahora se abre siempre: «Mis datos de empresa», «Tu página
 // web» y «Cerrar sesión»); y, desde «Fotos y papeles» de una obra, a elegir fotos.
 //
-// Fase 4: «Catálogo» (CatalogoView): la aerotermia de sus marcas con la tarifa del
-// distribuidor y SU precio. Es la 5.ª casilla de la barra de abajo (el Perfil queda
+// Fase 4: «Catálogo» (CatalogoView): la aerotermia de sus marcas (por logo) con la
+// tarifa de CADA distribuidor al que compra, a quién se lo compra, el pedido al
+// comercial (22/11/2026, catalogo-por-distribuidor.md) y SU precio. Es la 5.ª casilla de la barra de abajo (el Perfil queda
 // en el avatar de la cabecera y en el pie del menú lateral). «Calcular una obra con
 // este equipo» llama a `onNueva({ equipo })`: quien nos aloja abre la Nueva
 // simulación con el equipo y su precio ya puestos.
@@ -109,6 +110,8 @@ export function apiReal(axios) {
         fichaEquipo: (id) => axios.get(`${B}/catalogo/${e(id)}/ficha`, { responseType: 'arraybuffer' }).then((r) => r.data),
         guardarPrecio: (id, precio) => axios.put(`${B}/catalogo/${e(id)}/precio`, { precio }).then((r) => r.data),
         quitarPrecio: (id) => axios.delete(`${B}/catalogo/${e(id)}/precio`).then((r) => r.data),
+        compra: (id, distribuidor_id) => axios.put(`${B}/catalogo/${e(id)}/compra`, { distribuidor_id }).then((r) => r.data),
+        pedido: (id, body) => axios.post(`${B}/catalogo/${e(id)}/pedido`, body).then((r) => r.data),
         // ── Los presupuestos que el instalador HACE en la app (22/11/2026) ──
         // Ojo: `presupuesto(id)` de arriba es el presupuesto SUBIDO de una obra (fase 2);
         // los hechos aquí van con nombre propio para no pisarlo.
@@ -455,7 +458,7 @@ export default function AppInstalador({
             onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva}
             onPresupuesto={(c) => nuevoPresupuesto({ cliente: c }, { tipo: 'cliente', cliente: c })} />;
     } else if (ficha?.tipo === 'equipo') {
-        contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} api={api}
+        contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} proveedores={catalogo.datos?.proveedores} api={api}
             onVolver={cerrarFicha} onCalcular={onNueva ? calcularCon : null} onCambio={onCambio} />;
     } else if (seccion === 'catalogo') {
         contenido = <CatalogoView datos={catalogo.datos} cargando={catalogo.cargando} error={catalogo.error} onReintentar={catalogo.reintentar}

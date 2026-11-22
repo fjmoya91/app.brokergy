@@ -4,6 +4,14 @@
 //   POST /api/aerotermia/tarifas/leer        → lectura EN SECO: no escribe NADA
 //   POST /api/aerotermia/tarifas/confirmar   → guarda lo que se enseñó en seco
 //   GET  /api/aerotermia/tarifas/cargas      → las últimas cargas (quién, cuándo, cuántas)
+//   GET  /api/aerotermia/tarifas/distribuidores           → las empresas DISTRIBUIDOR (para elegir)
+//   GET  /api/aerotermia/tarifas/proveedores/:instalador  → a quién le COMPRA ese instalador
+//   PUT  /api/aerotermia/tarifas/proveedores/:instalador  → { distribuidores: [id…] }
+//
+// Desde el 22/11/2026 la tarifa es DE UN DISTRIBUIDOR (`distribuidor_id`, una empresa
+// DISTRIBUIDOR de `prescriptores`) y el instalador ve las de los distribuidores a los
+// que compra (`instalador_proveedores`, que NO es la «red» de `distribuidor_instalador`).
+// Ver docs/conocimiento/instalador-app/catalogo-por-distribuidor.md.
 //
 // SIEMPRE en dos pasos. El Excel NO se guarda en ningún sitio: «leer» devuelve lo
 // que casa, lo que no y lo que cambia, más la huella del fichero y la FIRMA del plan;
@@ -40,18 +48,28 @@ async function todo(construir) {
 }
 
 const leerCatalogo = () => todo(() => supabase.from('aerotermia').select('id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior').order('id'));
-const leerTarifas = () => todo(() => supabase.from('aerotermia_tarifas').select('aerotermia_id, precio_sin_iva, vigente_desde, cargada_at').order('id'));
+const leerTarifas = (distribuidorId) => todo(() => supabase.from('aerotermia_tarifas').select('aerotermia_id, precio_sin_iva, vigente_desde, cargada_at').eq('distribuidor_id', distribuidorId).order('id'));
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const nombreEmpresa = (p) => p?.acronimo || p?.razon_social || 'Distribuidor';
+
+/** La empresa DISTRIBUIDOR de ese id, o null. */
+async function distribuidorDe(id) {
+    if (!UUID_RE.test(String(id || ''))) return null;
+    const { data, error } = await supabase.from('prescriptores').select('id_empresa, acronimo, razon_social, tipo_empresa').eq('id_empresa', id).maybeSingle();
+    if (error) throw new BdCaida(error.message);
+    return data && String(data.tipo_empresa).toUpperCase() === 'DISTRIBUIDOR' ? data : null;
+}
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 function datosDelForm(body) {
-    const distribuidor = String(body?.distribuidor || '').trim().replace(/\s+/g, ' ');
+    const distribuidor_id = String(body?.distribuidor_id || '').trim();
     const vigente_desde = String(body?.vigente_desde || '').trim();
-    if (distribuidor.length < 2 || distribuidor.length > 120) return { error: 'Escribe de qué distribuidor es la tarifa.', code: 'FALTA_DISTRIBUIDOR' };
+    if (!UUID_RE.test(distribuidor_id)) return { error: 'Elige de qué distribuidor es la tarifa.', code: 'FALTA_DISTRIBUIDOR' };
     if (!FECHA_RE.test(vigente_desde) || Number.isNaN(Date.parse(vigente_desde))) return { error: 'Pon desde qué fecha vale la tarifa.', code: 'FALTA_FECHA' };
     let elecciones = {};
     try { elecciones = body?.elecciones ? JSON.parse(body.elecciones) : {}; } catch { return { error: 'Las elecciones no son válidas.', code: 'ENVIO_NO_VALIDO' }; }
     if (!elecciones || typeof elecciones !== 'object' || Array.isArray(elecciones)) elecciones = {};
-    return { distribuidor, vigente_desde, elecciones };
+    return { distribuidor_id, vigente_desde, elecciones };
 }
 
 /** Lee y casa: lo comparten «leer» y «confirmar», para que confirmen EXACTAMENTE lo mismo. */
@@ -59,16 +77,19 @@ async function analizar(req) {
     const f = datosDelForm(req.body);
     if (f.error) return { status: 400, body: { error: f.error, code: f.code } };
     if (!req.file) return { status: 400, body: { error: 'Elige el Excel de la tarifa.', code: 'SIN_FICHERO' } };
+    const dist = await distribuidorDe(f.distribuidor_id);
+    if (!dist) return { status: 400, body: { error: 'Ese distribuidor no existe o no es una empresa DISTRIBUIDOR.', code: 'DISTRIBUIDOR_NO_VALIDO' } };
+    f.distribuidor = nombreEmpresa(dist);
     let filas;
     try { filas = await T.leerExcel(req.file.buffer); } catch (e) {
         if (e instanceof T.ErrorExcel) return { status: e.code === 'EXCEL_GRANDE' ? 413 : 400, body: { error: e.message, code: e.code } };
         throw e;
     }
-    const [catalogo, tarifas] = await Promise.all([leerCatalogo(), leerTarifas()]);
+    const [catalogo, tarifas] = await Promise.all([leerCatalogo(), leerTarifas(f.distribuidor_id)]);
     const r = T.casar(filas, catalogo, T.vigentes(tarifas), f.elecciones);
     const sha256 = T.sha256(req.file.buffer);
     const fichero = String(req.file.originalname || 'tarifa.xlsx').replace(/[\\/\0]/g, '_').slice(0, 255);
-    return { ok: true, f, r, sha256, fichero, firma: T.firmaDelPlan(r.plan, { distribuidor: f.distribuidor, vigente_desde: f.vigente_desde, sha256 }) };
+    return { ok: true, f, r, sha256, fichero, firma: T.firmaDelPlan(r.plan, { distribuidor_id: f.distribuidor_id, vigente_desde: f.vigente_desde, sha256 }) };
 }
 
 router.get('/plantilla', adminOnly, async (req, res) => {
@@ -83,7 +104,7 @@ router.post('/leer', adminOnly, unFichero, async (req, res) => {
     try {
         const a = await analizar(req);
         if (!a.ok) return res.status(a.status).json(a.body);
-        res.json({ en_seco: true, fichero: a.fichero, sha256: a.sha256, firma: a.firma, distribuidor: a.f.distribuidor, vigente_desde: a.f.vigente_desde, resumen: a.r.resumen, filas: a.r.filas });
+        res.json({ en_seco: true, fichero: a.fichero, sha256: a.sha256, firma: a.firma, distribuidor: a.f.distribuidor, distribuidor_id: a.f.distribuidor_id, vigente_desde: a.f.vigente_desde, resumen: a.r.resumen, filas: a.r.filas });
     } catch (e) {
         console.error('[tarifas] leer:', e.message);
         res.status(e instanceof BdCaida ? 503 : 500).json(e instanceof BdCaida ? NO_DISPONIBLE : { error: 'No se ha podido leer el Excel.' });
@@ -101,7 +122,7 @@ router.post('/confirmar', adminOnly, unFichero, async (req, res) => {
         if (!plan.length) return res.status(400).json({ error: 'No hay ningún precio nuevo que guardar.', code: 'NADA_QUE_GUARDAR' });
         const quien = req.user?.id_usuario || null;
         const { data: carga, error: eC } = await supabase.from('aerotermia_tarifas_cargas').insert({
-            distribuidor: a.f.distribuidor, vigente_desde: a.f.vigente_desde, fichero_nombre: a.fichero, fichero_sha256: a.sha256,
+            distribuidor: a.f.distribuidor, distribuidor_id: a.f.distribuidor_id, vigente_desde: a.f.vigente_desde, fichero_nombre: a.fichero, fichero_sha256: a.sha256,
             filas_leidas: resumen.leidas, filas_cargadas: plan.length,
             filas_fuera: resumen.ambiguas + resumen.sin_pareja + resumen.errores + resumen.duplicadas,
             cargada_por: quien,
@@ -109,7 +130,7 @@ router.post('/confirmar', adminOnly, unFichero, async (req, res) => {
         if (eC || !carga?.id) throw new BdCaida(eC?.message || 'sin id de carga');
         // Todas las tarifas en UN insert (una sola sentencia: o entran todas o ninguna).
         const { error: eT } = await supabase.from('aerotermia_tarifas').insert(plan.map((p) => ({
-            aerotermia_id: p.aerotermia_id, precio_sin_iva: p.precio, vigente_desde: a.f.vigente_desde, distribuidor: a.f.distribuidor,
+            aerotermia_id: p.aerotermia_id, precio_sin_iva: p.precio, vigente_desde: a.f.vigente_desde, distribuidor: a.f.distribuidor, distribuidor_id: a.f.distribuidor_id,
             carga_id: carga.id, fila_excel: p.fila, ref_excel: String(p.ref).slice(0, 120), cargada_por: quien,
         })));
         if (eT) {
@@ -126,11 +147,69 @@ router.post('/confirmar', adminOnly, unFichero, async (req, res) => {
 router.get('/cargas', adminOnly, async (req, res) => {
     try {
         const { data, error } = await supabase.from('aerotermia_tarifas_cargas')
-            .select('id, distribuidor, vigente_desde, fichero_nombre, filas_leidas, filas_cargadas, filas_fuera, cargada_at')
+            .select('id, distribuidor, distribuidor_id, vigente_desde, fichero_nombre, filas_leidas, filas_cargadas, filas_fuera, cargada_at')
             .order('cargada_at', { ascending: false }).limit(10);
         if (error) throw new BdCaida(error.message);
         res.json({ cargas: data || [] });
     } catch (e) { res.status(503).json(NO_DISPONIBLE); }
+});
+
+// ── Distribuidores y a quién compra cada instalador (ficha del instalador, CRM) ──
+router.get('/distribuidores', adminOnly, async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('prescriptores').select('id_empresa, acronimo, razon_social')
+            .eq('tipo_empresa', 'DISTRIBUIDOR').order('acronimo', { ascending: true });
+        if (error) throw new BdCaida(error.message);
+        res.json({ distribuidores: (data || []).map((p) => ({ id: p.id_empresa, nombre: nombreEmpresa(p), razon_social: p.razon_social || null })) });
+    } catch (e) { res.status(503).json(NO_DISPONIBLE); }
+});
+
+async function instaladorDe(id) {
+    if (!UUID_RE.test(String(id || ''))) return null;
+    const { data, error } = await supabase.from('prescriptores').select('id_empresa, tipo_empresa').eq('id_empresa', id).maybeSingle();
+    if (error) throw new BdCaida(error.message);
+    return data && String(data.tipo_empresa).toUpperCase() === 'INSTALADOR' ? data : null;
+}
+
+router.get('/proveedores/:instalador', adminOnly, async (req, res) => {
+    try {
+        if (!(await instaladorDe(req.params.instalador))) return res.status(404).json({ error: 'Ese instalador no existe.', code: 'INSTALADOR_NO_ENCONTRADO' });
+        const { data, error } = await supabase.from('instalador_proveedores').select('distribuidor_id').eq('instalador_id', req.params.instalador);
+        if (error) throw new BdCaida(error.message);
+        res.json({ distribuidores: (data || []).map((r) => r.distribuidor_id) });
+    } catch (e) { res.status(503).json(NO_DISPONIBLE); }
+});
+
+/** Deja EXACTAMENTE esa lista: añade lo nuevo y quita lo que sobra (nunca toca la red del distribuidor). */
+router.put('/proveedores/:instalador', adminOnly, async (req, res) => {
+    try {
+        const inst = req.params.instalador;
+        if (!(await instaladorDe(inst))) return res.status(404).json({ error: 'Ese instalador no existe.', code: 'INSTALADOR_NO_ENCONTRADO' });
+        const lista = Array.isArray(req.body?.distribuidores) ? [...new Set(req.body.distribuidores.map(String))] : null;
+        if (!lista || lista.length > 30 || lista.some((id) => !UUID_RE.test(id))) return res.status(400).json({ error: 'La lista de distribuidores no es válida.', code: 'LISTA_NO_VALIDA' });
+        if (lista.length) {
+            const { data: ok, error } = await supabase.from('prescriptores').select('id_empresa').in('id_empresa', lista).eq('tipo_empresa', 'DISTRIBUIDOR');
+            if (error) throw new BdCaida(error.message);
+            if ((ok || []).length !== lista.length) return res.status(400).json({ error: 'Alguno no es una empresa DISTRIBUIDOR.', code: 'DISTRIBUIDOR_NO_VALIDO' });
+        }
+        const { data: hay, error: eH } = await supabase.from('instalador_proveedores').select('distribuidor_id').eq('instalador_id', inst);
+        if (eH) throw new BdCaida(eH.message);
+        const ya = new Set((hay || []).map((r) => r.distribuidor_id));
+        const nuevos = lista.filter((id) => !ya.has(id));
+        const sobran = [...ya].filter((id) => !lista.includes(id));
+        if (nuevos.length) {
+            const { error } = await supabase.from('instalador_proveedores').insert(nuevos.map((d) => ({ instalador_id: inst, distribuidor_id: d, creado_por: req.user?.id_usuario || null })));
+            if (error) throw new BdCaida(error.message);
+        }
+        if (sobran.length) {
+            const { error } = await supabase.from('instalador_proveedores').delete().eq('instalador_id', inst).in('distribuidor_id', sobran);
+            if (error) throw new BdCaida(error.message);
+        }
+        res.json({ ok: true, distribuidores: lista, anadidos: nuevos.length, quitados: sobran.length });
+    } catch (e) {
+        console.error('[tarifas] proveedores:', e.message);
+        res.status(503).json({ error: 'No se ha podido guardar a quién compra. Vuelve a intentarlo.', code: 'PROVEEDORES_UNAVAILABLE' });
+    }
 });
 
 module.exports = router;

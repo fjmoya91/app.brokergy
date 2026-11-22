@@ -115,7 +115,12 @@ async function leerExcel(buffer) {
 
 const nombreEquipo = (e) => e.modelo_comercial || e.modelo_conjunto || e.modelo_ud_exterior || `Equipo ${e.id}`;
 
-/** La tarifa VIGENTE de cada modelo: la de `vigente_desde` más reciente que ya ha empezado; a igualdad, la cargada después. */
+/**
+ * La tarifa VIGENTE de cada modelo: la de `vigente_desde` más reciente que ya ha empezado;
+ * a igualdad, la cargada después. Desde el 22/11/2026 la tarifa es DE UN DISTRIBUIDOR:
+ * a la carga se le pasan solo las de ESE distribuidor; para el instalador se usa
+ * `vigentesPorDistribuidor`.
+ */
 function vigentes(tarifas, hoy = new Date().toISOString().slice(0, 10)) {
     const m = new Map();
     for (const t of tarifas || []) {
@@ -125,6 +130,24 @@ function vigentes(tarifas, hoy = new Date().toISOString().slice(0, 10)) {
         if (!prev || clave > prev._clave) m.set(t.aerotermia_id, { ...t, _clave: clave });
     }
     return m;
+}
+
+/** aerotermia_id → Map(distribuidor_id → tarifa vigente). Sin `distribuidor_id` no cuenta. */
+function vigentesPorDistribuidor(tarifas, hoy) {
+    const porDist = new Map();
+    for (const t of tarifas || []) {
+        if (!t?.distribuidor_id) continue;
+        if (!porDist.has(t.distribuidor_id)) porDist.set(t.distribuidor_id, []);
+        porDist.get(t.distribuidor_id).push(t);
+    }
+    const out = new Map();
+    for (const [dist, lista] of porDist) {
+        for (const [aid, t] of vigentes(lista, hoy)) {
+            if (!out.has(aid)) out.set(aid, new Map());
+            out.get(aid).set(dist, t);
+        }
+    }
+    return out;
 }
 
 /**
@@ -206,8 +229,8 @@ function casar(filas, catalogo, tarifasVigentes = new Map(), elecciones = {}) {
 }
 
 /** La FIRMA de lo que se va a guardar: confirmar solo escribe si el plan es el mismo que se enseñó. */
-function firmaDelPlan(plan, { distribuidor, vigente_desde, sha256 }) {
-    return crypto.createHash('sha256').update(JSON.stringify({ plan, distribuidor, vigente_desde, sha256 })).digest('hex');
+function firmaDelPlan(plan, { distribuidor_id, vigente_desde, sha256 }) {
+    return crypto.createHash('sha256').update(JSON.stringify({ plan, distribuidor_id, vigente_desde, sha256 })).digest('hex');
 }
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -236,6 +259,7 @@ async function plantilla() {
         'MODELO: la referencia del modelo — el nombre comercial, la del conjunto o la de la unidad exterior. Da igual con o sin guiones o espacios.',
         'PRECIO SIN IVA: en euros. Vale 4650, 4.650 o 4.650,00 €.',
         'Una fila que casa con varios modelos se enseña para elegir a mano; una que no casa con ninguno NO se carga (el Excel nunca crea un modelo).',
+        'Un Excel por DISTRIBUIDOR: el distribuidor se elige en la app al subirlo.',
         'La tarifa nueva no borra la anterior: se guarda con su fecha y se usa desde esa fecha.',
     ].forEach((t) => a.addRow([t]));
     return Buffer.from(await wb.xlsx.writeBuffer());
@@ -297,12 +321,25 @@ function driveIdDe(url) {
     return m ? m[1] : null;
 }
 
-function equipoParaInstalador(e, { tarifa = null, propio = null } = {}) {
+/**
+ * `tarifas` = [{ distribuidor_id, distribuidor, precio_sin_iva, vigente_desde }] de los
+ * distribuidores a los que COMPRA ese instalador (nunca de otros); `compro_a` = el
+ * distribuidor que ha marcado para ese modelo. La `tarifa` de referencia (la que usa
+ * «Calcular una obra» si no tiene precio propio) es la de `compro_a` y, si no ha
+ * marcado ninguno o ese ya no tiene tarifa, la más barata.
+ */
+function equipoParaInstalador(e, { tarifas = [], compro_a = null, propio = null } = {}) {
     const uso = usoDe(e);
     const acs = acsDe(e, uso);
     const scop = scopDe(e);
     const nombre = nombreEquipo(e);
     const ref = [e.modelo_ud_exterior, e.modelo_conjunto].find((r) => r && norm(r) !== norm(nombre)) || null;
+    const lista = (tarifas || [])
+        .map((t) => ({ distribuidor_id: t.distribuidor_id, distribuidor: t.distribuidor, precio: Number(t.precio_sin_iva), desde: String(t.vigente_desde).slice(0, 10) }))
+        .filter((t) => t.distribuidor_id && Number.isFinite(t.precio) && t.precio > 0)
+        .sort((a, b) => a.precio - b.precio || String(a.distribuidor).localeCompare(String(b.distribuidor), 'es'));
+    const elegida = lista.find((t) => t.distribuidor_id === compro_a) || null;
+    const ref_tarifa = elegida || lista[0] || null;
     return {
         id: e.id,
         marca: e.marca,
@@ -319,18 +356,33 @@ function equipoParaInstalador(e, { tarifa = null, propio = null } = {}) {
         acs_corto: acs.corto,
         acs: acs.largo,
         refrigerante: e.refrigerante || null,
-        tarifa: tarifa ? { precio: Number(tarifa.precio_sin_iva), desde: String(tarifa.vigente_desde).slice(0, 10) } : null,
+        tarifas: lista,
+        compro_a: elegida ? elegida.distribuidor_id : (compro_a || null),
+        tarifa: ref_tarifa ? { precio: ref_tarifa.precio, desde: ref_tarifa.desde, distribuidor_id: ref_tarifa.distribuidor_id, distribuidor: ref_tarifa.distribuidor, elegida: !!elegida } : null,
         tu_precio: propio ? Number(propio.precio_sin_iva) : null,
         papeles: papelesDe(e),
     };
 }
 
-/** Las marcas que ve el instalador: el MISMO filtro que routes/aerotermia.js (`marcas_autorizadas`). */
+/**
+ * Las marcas del instalador, LEÍDAS de su ficha (no de la sesión, que vive 5 min en
+ * caché: RCA no veía las marcas que le acababan de poner, 22/11/2026). Junta
+ * `marca_referencia`, `marca_secundaria` y la tabla `instalador_marcas`.
+ */
+function marcasDeFicha(ficha, filasInstaladorMarcas = []) {
+    const todas = [ficha?.marca_referencia, ficha?.marca_secundaria, ...(filasInstaladorMarcas || []).map((f) => f?.marca_nombre)]
+        .flatMap((v) => String(v || '').split(','))
+        .map((m) => m.trim().toUpperCase())
+        .filter(Boolean);
+    return [...new Set(todas)];
+}
+
+/** Compatibilidad: las marcas de la SESIÓN (routes/aerotermia.js sigue con esto). */
 function marcasDelUsuario(user) {
     return String(user?.marcas_autorizadas || '').split(',').map((m) => m.trim().toUpperCase()).filter(Boolean);
 }
 
 module.exports = {
-    MAX_BYTES, ErrorExcel, norm, precioDe, pareceXlsx, leerExcel, casar, vigentes, firmaDelPlan, sha256, plantilla,
-    equipoParaInstalador, marcasDelUsuario, driveIdDe, nombreEquipo,
+    MAX_BYTES, ErrorExcel, norm, precioDe, pareceXlsx, leerExcel, casar, vigentes, vigentesPorDistribuidor, firmaDelPlan, sha256, plantilla,
+    equipoParaInstalador, marcasDeFicha, marcasDelUsuario, driveIdDe, nombreEquipo,
 };

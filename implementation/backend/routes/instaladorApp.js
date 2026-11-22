@@ -1062,40 +1062,96 @@ router.get('/escaparate/foto/:id', async (req, res) => {
 //   GET    /catalogo/:id/ficha    → su ficha técnica (PDF por proxy, nunca un enlace)
 //   PUT    /catalogo/:id/precio   → guardar SU precio { precio } (sin IVA)
 //   DELETE /catalogo/:id/precio   → quitarlo (vuelve a valer la tarifa)
-// Las marcas, con el MISMO filtro que routes/aerotermia.js (`marcas_autorizadas`,
-// de `prescriptores.marca_referencia`). Sin marcas asignadas NO ve ningún equipo (la
+//   PUT    /catalogo/:id/compra   → a quién le compra ese modelo { distribuidor_id }
+//   POST   /catalogo/:id/pedido   → el pedido al comercial del distribuidor (previa / enviar)
+// Las marcas, las de SU ficha (`prescriptores.marca_referencia`, `marca_secundaria` e
+// `instalador_marcas`), leídas en cada petición. Sin marcas NO ve ningún equipo (la
 // opción conservadora: la ruta vieja le enseñaría el catálogo entero). Un equipo de
 // otra marca, 404. El precio es SIEMPRE el de su empresa (`req.user.prescriptor_id`):
 // nunca un id que mande el navegador, y nunca el de otro instalador. Sin márgenes.
 // Ver docs/conocimiento/instalador-app/app-del-instalador-fase-4.md.
+// 22/11/2026 (Fran): las marcas se leen de su FICHA, no de la sesión (que vive 5 min en
+// caché: RCA no veía las que le acababan de poner); y la tarifa es POR DISTRIBUIDOR:
+// ve la de cada distribuidor al que COMPRA (`instalador_proveedores`), marca a quién le
+// compra cada modelo y se lo PIDE al comercial. Ver catalogo-por-distribuidor.md.
+//   GET    /catalogo/:id/pedido…  ver más abajo
 const CT = require('../services/catalogoTarifas');
+const PD = require('../services/pedidoDistribuidor');
 const SEL_EQUIPO = 'id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, modelo_ud_interior, tipo, potencia_calefaccion, potencia_frigorifica, refrigerante, litros_acs, deposito_acs_incluido, scop_cal_calido_35, scop_cal_calido_55, scop_cal_medio_35, scop_cal_medio_55, scop_dhw_calido, scop_dhw_medio, seer, ficha_tecnica, ficha_tecnica_partes';
 const CAT_NO_DISPONIBLE = { error: 'No hemos podido cargar el catálogo. Vuelve a intentarlo en unos segundos.', code: 'CATALOGO_UNAVAILABLE' };
 const enLotesCat = (ids, fn) => require('../utils/consultaLotes').enLotes(ids, fn).catch((e) => { throw new BdCaida(e.message); });
 
-async function tarifasYPropios(ids, empresaId) {
-    const [tarifas, propios] = await Promise.all([
-        enLotesCat(ids, (t) => supabase.from('aerotermia_tarifas').select('aerotermia_id, precio_sin_iva, vigente_desde, cargada_at').in('aerotermia_id', t)),
-        enLotesCat(ids, (t) => supabase.from('instalador_precios_equipo').select('aerotermia_id, precio_sin_iva').eq('instalador_id', empresaId).in('aerotermia_id', t)),
+/** Sus marcas, de SU ficha (prescriptores + instalador_marcas). */
+async function marcasDe(req) {
+    const empresa = req.user?.prescriptor_id;
+    if (!empresa) return [];
+    const [f, im] = await Promise.all([
+        supabase.from('prescriptores').select('marca_referencia, marca_secundaria').eq('id_empresa', empresa).maybeSingle(),
+        supabase.from('instalador_marcas').select('marca_nombre').eq('instalador_id', empresa),
     ]);
-    return { vig: CT.vigentes(tarifas), propio: new Map(propios.map((p) => [p.aerotermia_id, p])) };
+    if (f.error) throw new BdCaida(f.error.message);
+    // `instalador_marcas` es del escaparate; si falla, valen las de la ficha.
+    return CT.marcasDeFicha(f.data, im.error ? [] : im.data);
+}
+
+/** A quién le compra: [{ id, nombre }] (solo empresas DISTRIBUIDOR). */
+async function proveedoresDe(empresa) {
+    const { data, error } = await supabase.from('instalador_proveedores').select('distribuidor_id').eq('instalador_id', empresa);
+    if (error) throw new BdCaida(error.message);
+    const ids = (data || []).map((r) => r.distribuidor_id);
+    if (!ids.length) return [];
+    const { data: ps, error: e2 } = await supabase.from('prescriptores').select('id_empresa, acronimo, razon_social, tipo_empresa').in('id_empresa', ids);
+    if (e2) throw new BdCaida(e2.message);
+    return (ps || []).filter((p) => String(p.tipo_empresa).toUpperCase() === 'DISTRIBUIDOR')
+        .map((p) => ({ id: p.id_empresa, nombre: PD.nombreEmpresa(p) || 'Distribuidor' }))
+        .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/** Tarifas de SUS distribuidores, a quién compra cada modelo y su precio propio. */
+async function preciosDe(ids, empresa, proveedores) {
+    const distIds = proveedores.map((p) => p.id);
+    const nombre = new Map(proveedores.map((p) => [p.id, p.nombre]));
+    const [tarifas, compras, propios] = await Promise.all([
+        distIds.length
+            ? enLotesCat(ids, (t) => supabase.from('aerotermia_tarifas').select('aerotermia_id, distribuidor_id, precio_sin_iva, vigente_desde, cargada_at').in('distribuidor_id', distIds).in('aerotermia_id', t))
+            : Promise.resolve([]),
+        enLotesCat(ids, (t) => supabase.from('instalador_compra_equipo').select('aerotermia_id, distribuidor_id').eq('instalador_id', empresa).in('aerotermia_id', t)),
+        enLotesCat(ids, (t) => supabase.from('instalador_precios_equipo').select('aerotermia_id, precio_sin_iva').eq('instalador_id', empresa).in('aerotermia_id', t)),
+    ]);
+    const vig = CT.vigentesPorDistribuidor(tarifas);
+    const compra = new Map(compras.filter((c) => nombre.has(c.distribuidor_id)).map((c) => [c.aerotermia_id, c.distribuidor_id]));
+    const propio = new Map(propios.map((p) => [p.aerotermia_id, p]));
+    return (e) => CT.equipoParaInstalador(e, {
+        tarifas: [...(vig.get(e.id) || new Map()).values()].map((t) => ({ ...t, distribuidor: nombre.get(t.distribuidor_id) })),
+        compro_a: compra.get(e.id) || null,
+        propio: propio.get(e.id),
+    });
 }
 
 /** El equipo, solo si es de una de SUS marcas (si no, null → 404). */
 async function equipoSuyo(req) {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id <= 0) return null;
-    const marcas = CT.marcasDelUsuario(req.user);
+    const marcas = await marcasDe(req);
     if (!marcas.length) return null;
     const { data, error } = await supabase.from('aerotermia').select(SEL_EQUIPO).eq('id', id).in('marca', marcas).maybeSingle();
     if (error) throw new BdCaida(error.message);
     return data || null;
 }
 
+/** El equipo tal como lo ve ESE instalador (con sus tarifas), o null. */
+async function fichaEquipo(req) {
+    const e = await equipoSuyo(req);
+    if (!e) return null;
+    const proveedores = await proveedoresDe(req.user.prescriptor_id);
+    const ver = await preciosDe([e.id], req.user.prescriptor_id, proveedores);
+    return { fila: e, dto: ver(e), proveedores };
+}
+
 router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
     try {
-        const marcas = CT.marcasDelUsuario(req.user);
-        if (!marcas.length) return res.json({ sin_marcas: true, marcas: [], equipos: [] });
+        const marcas = await marcasDe(req);
+        if (!marcas.length) return res.json({ sin_marcas: true, marcas: [], proveedores: [], equipos: [] });
         const equipos = [];
         for (let desde = 0; ; desde += 1000) {
             const { data, error } = await supabase.from('aerotermia').select(SEL_EQUIPO).in('marca', marcas)
@@ -1104,10 +1160,18 @@ router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
             equipos.push(...(data || []));
             if (!data || data.length < 1000) break;
         }
-        const { vig, propio } = await tarifasYPropios(equipos.map((e) => e.id), req.user.prescriptor_id);
-        const lista = equipos.map((e) => CT.equipoParaInstalador(e, { tarifa: vig.get(e.id), propio: propio.get(e.id) }))
+        const proveedores = await proveedoresDe(req.user.prescriptor_id);
+        const ver = await preciosDe(equipos.map((e) => e.id), req.user.prescriptor_id, proveedores);
+        const lista = equipos.map(ver)
             .sort((a, b) => a.marca.localeCompare(b.marca, 'es') || (a.potencia_kw || 0) - (b.potencia_kw || 0) || a.nombre.localeCompare(b.nombre, 'es'));
-        res.json(sanear({ sin_marcas: false, marcas: [...new Set(lista.map((e) => e.marca))], equipos: lista }));
+        // Los logos: los de la pantalla Aerotermia del CRM (data URL; solo los de SUS marcas).
+        const { data: logos } = await supabase.from('aerotermia_marcas').select('nombre, logo').in('nombre', marcas);
+        const logo = new Map((logos || []).map((l) => [String(l.nombre).toUpperCase(), /^data:image\//.test(l.logo || '') ? l.logo : null]));
+        const cuantos = new Map();
+        for (const e of lista) cuantos.set(e.marca, (cuantos.get(e.marca) || 0) + 1);
+        const tarjetas = marcas.map((m) => ({ nombre: m, logo: logo.get(m) || null, equipos: cuantos.get(m) || 0 }))
+            .sort((a, b) => (b.equipos > 0) - (a.equipos > 0) || a.nombre.localeCompare(b.nombre, 'es'));
+        res.json(sanear({ sin_marcas: false, marcas: tarjetas, proveedores, equipos: lista }));
     } catch (e) {
         console.warn('[instalador-app] catálogo:', e.message);
         res.status(e instanceof BdCaida ? 503 : 500).json(CAT_NO_DISPONIBLE);
@@ -1116,10 +1180,9 @@ router.get('/catalogo', enforceAuth, soloBetaInstalador, async (req, res) => {
 
 router.get('/catalogo/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
     try {
-        const e = await equipoSuyo(req);
-        if (!e) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
-        const { vig, propio } = await tarifasYPropios([e.id], req.user.prescriptor_id);
-        res.json(sanear(CT.equipoParaInstalador(e, { tarifa: vig.get(e.id), propio: propio.get(e.id) })));
+        const f = await fichaEquipo(req);
+        if (!f) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        res.json(sanear({ ...f.dto, proveedores: f.proveedores }));
     } catch (err) {
         console.warn('[instalador-app] equipo:', err.message);
         res.status(err instanceof BdCaida ? 503 : 500).json(CAT_NO_DISPONIBLE);
@@ -1166,6 +1229,66 @@ router.delete('/catalogo/:id/precio', enforceAuth, soloBetaInstalador, async (re
     } catch (err) {
         console.warn('[instalador-app] quitar precio:', err.message);
         res.status(err instanceof BdCaida ? 503 : 500).json({ error: 'No hemos podido quitar tu precio. Vuelve a intentarlo.', code: 'PRECIO_UNAVAILABLE' });
+    }
+});
+
+// ── A quién le compra ESE modelo: { distribuidor_id } (uno de SUS distribuidores) ──
+router.put('/catalogo/:id/compra', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const e = await equipoSuyo(req);
+        if (!e) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        const dist = String(req.body?.distribuidor_id || '');
+        const proveedores = await proveedoresDe(req.user.prescriptor_id);
+        if (!proveedores.some((p) => p.id === dist)) return res.status(400).json({ error: 'Ese distribuidor no está entre a los que compras.', code: 'DISTRIBUIDOR_NO_SUYO' });
+        const { error } = await supabase.from('instalador_compra_equipo').upsert({
+            instalador_id: req.user.prescriptor_id, aerotermia_id: e.id, distribuidor_id: dist,
+            actualizado_por: req.user.id_usuario || null, actualizado_at: new Date().toISOString(),
+        }, { onConflict: 'instalador_id,aerotermia_id' });
+        if (error) throw new BdCaida(error.message);
+        res.json({ ok: true, compro_a: dist });
+    } catch (err) {
+        console.warn('[instalador-app] compra:', err.message);
+        res.status(err instanceof BdCaida ? 503 : 500).json({ error: 'No hemos podido guardarlo. Vuelve a intentarlo.', code: 'COMPRA_UNAVAILABLE' });
+    }
+});
+
+// ── El PEDIDO al comercial del distribuidor ─────────────────────────────────────
+//   POST /catalogo/:id/pedido  { distribuidor_id, cantidad, obra?, nota?, previa? }
+//   previa: true → solo el borrador (no escribe ni envía). Sin previa → lo manda (si
+//   PEDIDOS_DISTRIBUIDOR_ENABLED; si no, devuelve el borrador `en_seco` y no escribe).
+router.post('/catalogo/:id/pedido', enforceAuth, soloBetaInstalador, async (req, res) => {
+    try {
+        const d = PD.datosDelPedido(req.body);
+        if (d.error) return res.status(400).json({ error: d.error, code: d.code });
+        const f = await fichaEquipo(req);
+        if (!f) return res.status(404).json({ error: 'Ese equipo no está en tu catálogo.', code: 'EQUIPO_NO_ENCONTRADO' });
+        if (!f.proveedores.some((p) => p.id === d.distribuidor_id)) return res.status(400).json({ error: 'Ese distribuidor no está entre a los que compras.', code: 'DISTRIBUIDOR_NO_SUYO' });
+        let fichas;
+        try { fichas = await PD.fichas(req.user.prescriptor_id, d.distribuidor_id); } catch (e) { throw new BdCaida(e.message); }
+        if (!fichas.inst || !fichas.dist) return res.status(404).json({ error: 'No encontramos al distribuidor.', code: 'DISTRIBUIDOR_NO_ENCONTRADO' });
+        const comercial = PD.comercialDe(fichas.dist);
+        if (!comercial.tlf && !comercial.email) return res.status(409).json({ error: 'Ese distribuidor no tiene todavía un comercial con teléfono o correo. Avísanos y lo ponemos.', code: 'SIN_COMERCIAL' });
+        const instalador = PD.contactoInstalador(fichas.inst);
+        const distribuidor = PD.nombreEmpresa(fichas.dist);
+        const tarifa = f.dto.tarifas.find((t) => t.distribuidor_id === d.distribuidor_id) || null;
+        const texto = PD.mensajePedido({ instalador, distribuidor, comercial, equipo: f.dto, cantidad: d.cantidad, obra: d.obra, nota: d.nota, tarifa });
+        // Al navegador va el NOMBRE del comercial y por dónde le llega, nunca su teléfono ni su correo.
+        const borrador = { mensaje: texto, distribuidor, comercial: comercial.nombre || null, canales_posibles: [comercial.tlf && 'WhatsApp', comercial.email && 'Email'].filter(Boolean), copia_a_ti: !!instalador.tlf };
+        if (req.body?.previa === true || req.body?.previa === 'true') return res.json({ previa: true, ...borrador });
+        if (!PD.activo()) return res.json({ en_seco: true, ...borrador });
+
+        const canales = await PD.enviar({ comercial, instalador, distribuidor, texto, asuntoCorreo: PD.asunto({ instalador, equipo: f.dto, cantidad: d.cantidad }) });
+        const { error } = await supabase.from('instalador_pedidos').insert({
+            instalador_id: req.user.prescriptor_id, distribuidor_id: d.distribuidor_id, aerotermia_id: f.fila.id,
+            cantidad: d.cantidad, obra: d.obra, nota: d.nota, precio_tarifa: tarifa ? tarifa.precio : null,
+            mensaje: texto, canales, estado: canales.length ? 'ENVIADO' : 'FALLIDO', creado_por: req.user.id_usuario || null,
+        });
+        if (error) console.warn('[instalador-app] pedido sin apuntar:', error.message); // ya salió: no se dice que falló
+        if (!canales.length) return res.status(502).json({ error: 'No hemos podido mandar el pedido. Vuelve a intentarlo en un rato.', code: 'PEDIDO_NO_ENVIADO' });
+        res.json({ ok: true, enviado: true, canales, ...borrador });
+    } catch (err) {
+        console.warn('[instalador-app] pedido:', err.message);
+        res.status(err instanceof BdCaida ? 503 : 500).json({ error: 'No hemos podido preparar el pedido. Vuelve a intentarlo.', code: 'PEDIDO_UNAVAILABLE' });
     }
 });
 

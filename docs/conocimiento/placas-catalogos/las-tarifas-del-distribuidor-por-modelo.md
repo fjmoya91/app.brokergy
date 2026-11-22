@@ -16,8 +16,13 @@ completa la referencia que trae la tarifa, y se vuelve a subir el Excel.
 
 - Dónde se carga: pantalla **Aerotermia** del CRM → «Cargar tarifa (Excel)», solo ADMIN, en dos pasos (en
   seco y guardar). La plantilla se baja del mismo popup: columnas MARCA · MODELO · PRECIO SIN IVA.
+- **Cada tarifa es de UN distribuidor** (desde el 22/11/2026): en el popup se elige de un desplegable de
+  las empresas DISTRIBUIDOR (`distribuidor_id`; sin él, 400 `FALTA_DISTRIBUIDOR`). Electrofil y Calindsa
+  suben cada uno su Excel y un mismo modelo puede tener las dos tarifas; el instalador ve solo las de los
+  distribuidores a los que compra («Le compra a…» en su ficha). Ver "El CATÁLOGO por DISTRIBUIDOR"
+  ([catalogo-por-distribuidor.md](docs/conocimiento/instalador-app/catalogo-por-distribuidor.md)).
 - Una tarifa nueva no borra la anterior: es una fila más con su fecha. La vigente es la más reciente que ya
-  ha empezado.
+  ha empezado, **por modelo y distribuidor**.
 - Por eso vale la pena que la referencia del distribuidor esté en el catálogo: casar por la **referencia de
   la placa** (regla 57) es lo que evita poner el precio a otro equipo con el mismo nombre comercial; un
   nombre que casa con varios modelos sale como «Elegir modelo» y lo decide una persona.

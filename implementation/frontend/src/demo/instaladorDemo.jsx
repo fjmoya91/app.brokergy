@@ -20,11 +20,14 @@
 //                     instalador en Partners); con ?lector=1, sin poder resolver
 // Fase 4 (Catálogo con tarifas):
 //   ?seccion=catalogo → el catálogo; ?catalogo=sinmarcas → un instalador sin marcas
-//   ?equipo=<id>      → la ficha de un equipo: 101 con tarifa, 102 sin tarifa,
-//                       103 con tu precio, 104 sin ficha técnica (SCOP de clima medio)
+//   ?equipo=<id>      → la ficha de un equipo: 101 con dos distribuidores, 102 sin tarifa,
+//                       103 con tu precio y «se lo compro a», 104 sin ficha técnica (SCOP medio)
+//   ?proveedores=0    → todavía no sabemos a quién le compra (ninguna tarifa)
+//   ?pedido=seco      → «Mandar el pedido» contesta EN SECO (el interruptor apagado)
 //   ?tarifa=1         → la carga del Excel del CRM (solo ADMIN), en sus dos pasos,
 //                       contestada aquí (el fichero que elijas no sale del navegador);
-//                       con ?fallo=1, «Guardar» da el 409 de «el plan ha cambiado»
+//                       con ?fallo=1, «Guardar» da el 409 de «el plan ha cambiado»; al
+//                       cerrarla, el bloque «Le compra a…» de la ficha del instalador
 // Fase 5 (pulido, instalable, marca):
 //   La pantalla y la ficha viajan en la dirección (las MISMAS claves que la app de
 //   verdad: seccion, obra, accion, cliente, equipo): recargar y «atrás» se prueban aquí.
@@ -50,6 +53,7 @@ import { TIPOS_OBRA, EXTRAS, COMBUSTIBLES, calcularPresupuesto, conceptosDe, res
 import { API_DOCS_INSTALADOR } from '../features/docs/docsApi';
 import { RevisionEscaparate } from '../features/admin/components/RevisionEscaparate';
 import { CargarTarifaModal } from '../features/aerotermia/components/CargarTarifaModal';
+import { LeCompraA } from '../features/admin/components/LeCompraA';
 
 const p = new URLSearchParams(window.location.search);
 const VACIO = p.has('vacio');
@@ -313,23 +317,68 @@ function pdfDeMentira(titulo, filas) {
     return d.output('arraybuffer');
 }
 
-// ── Fase 4: el catálogo de mentira (marcas y modelos inventados) ────────────
+// ── Fase 4: el catálogo de mentira (marcas, modelos y distribuidores inventados) ──
+// Desde el 22/11/2026: marcas con LOGO, la tarifa de CADA distribuidor al que compra,
+// a quién se lo compra y el pedido (previa y envío contestados aquí: nada sale).
+const DN = 'd0000000-0000-4000-8000-00000000000a', DS = 'd0000000-0000-4000-8000-00000000000b';
+const PROVEEDORES = p.get('proveedores') === '0' ? [] : [{ id: DN, nombre: 'DISTRIBUIDOR NORTE' }, { id: DS, nombre: 'DISTRIBUIDOR SUR' }];
+const NOMBRE_DIST = { [DN]: 'DISTRIBUIDOR NORTE', [DS]: 'DISTRIBUIDOR SUR' };
+const COMERCIAL = { [DN]: { nombre: 'Ana Comercial', canales: ['WhatsApp', 'Email'] }, [DS]: { nombre: 'Luis Ventas', canales: ['WhatsApp'] } };
+const logoSvg = (texto, fondo, tinta) => `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 80"><rect width="200" height="80" rx="14" fill="${fondo}"/><text x="100" y="52" font-family="Arial Black,Arial,sans-serif" font-size="30" font-weight="900" fill="${tinta}" text-anchor="middle">${texto}</text></svg>`)}`;
+const LOGOS = { 'MARCA A': logoSvg('marca·a', '#0b3d91', '#ffffff'), 'MARCA B': logoSvg('MARCA B', '#ffffff', '#c8102e') };
+const tar = (dist, precio, desde) => ({ distribuidor_id: dist, distribuidor: NOMBRE_DIST[dist], precio, desde });
 const eq = (id, marca, nombre, ref, kw, extra = {}) => ({
     id, marca, nombre, ref, referencias: { conjunto: null, exterior: ref, interior: null },
     uso: 'Calefacción y agua caliente', montaje: 'Monobloc: un solo aparato fuera', potencia_kw: kw, potencia_frio_kw: null,
     scop_suelo: 4.62, scop_radiadores: 3.41, clima_scop: 'calido', acs_corto: 'Sin depósito', acs: 'Con depósito aparte', refrigerante: 'R290',
-    tarifa: null, tu_precio: null, papeles: [{ id: 'ficha', nombre: 'Ficha técnica', incluye: ['la ficha de producto EPREL', 'la etiqueta energética'] }], ...extra,
+    tarifas: [], compro_a: null, tu_precio: null, papeles: [{ id: 'ficha', nombre: 'Ficha técnica', incluye: ['la ficha de producto EPREL', 'la etiqueta energética'] }], ...extra,
 });
 const CATALOGO = [
-    eq(101, 'MARCA A', 'Aire-agua Serie Uno 8', 'MA-U8-M1', 8, { tarifa: { precio: 5890, desde: '2026-11-01' } }),
+    eq(101, 'MARCA A', 'Aire-agua Serie Uno 8', 'MA-U8-M1', 8, { tarifas: [tar(DS, 5740, '2026-11-10'), tar(DN, 5890, '2026-11-01')] }),
     eq(102, 'MARCA A', 'Aire-agua Serie Uno 12', 'MA-U12-M1', 12),
-    eq(103, 'MARCA A', 'Aire-agua Serie Dos 10 bibloc', 'MA-D10-B2', 10, { montaje: 'Bibloc: un aparato fuera y otro dentro', acs_corto: 'Depósito 190 l', acs: 'Con depósito de 190 l dentro', tarifa: { precio: 7240.5, desde: '2026-11-01' }, tu_precio: 6900 }),
-    eq(104, 'MARCA B', 'Compacta 6', 'MB-C6', 6, { uso: 'Calefacción, frío y agua caliente', potencia_frio_kw: 5.8, scop_suelo: 4.1, scop_radiadores: 3.05, clima_scop: 'medio', refrigerante: 'R32', tarifa: { precio: 4380, desde: '2026-10-15' }, papeles: [] }),
-    eq(105, 'MARCA B', 'Compacta 16 trifásica', 'MB-C16-T', 16, { tarifa: { precio: 9875, desde: '2026-10-15' } }),
+    eq(103, 'MARCA A', 'Aire-agua Serie Dos 10 bibloc', 'MA-D10-B2', 10, { montaje: 'Bibloc: un aparato fuera y otro dentro', acs_corto: 'Depósito 190 l', acs: 'Con depósito de 190 l dentro', tarifas: [tar(DN, 7240.5, '2026-11-01')], compro_a: DN, tu_precio: 6900 }),
+    eq(104, 'MARCA B', 'Compacta 6', 'MB-C6', 6, { uso: 'Calefacción, frío y agua caliente', potencia_frio_kw: 5.8, scop_suelo: 4.1, scop_radiadores: 3.05, clima_scop: 'medio', refrigerante: 'R32', tarifas: [tar(DN, 4380, '2026-10-15'), tar(DS, 4410, '2026-10-01')], papeles: [] }),
+    eq(105, 'MARCA B', 'Compacta 16 trifásica', 'MB-C16-T', 16, { tarifas: [tar(DS, 9875, '2026-10-15')] }),
 ];
+// Lo mismo que hace `equipoParaInstalador` en el servidor con las tarifas y la elección.
+const conTarifa = (e) => {
+    const lista = (PROVEEDORES.length ? e.tarifas : []).slice().sort((a, b) => a.precio - b.precio);
+    const elegida = lista.find((t) => t.distribuidor_id === e.compro_a) || null;
+    const ref = elegida || lista[0] || null;
+    return { ...e, tarifas: lista, compro_a: elegida ? elegida.distribuidor_id : e.compro_a, tarifa: ref ? { ...ref, elegida: !!elegida } : null };
+};
 const SIN_MARCAS = p.get('catalogo') === 'sinmarcas';
-const catalogoDeMentira = () => (SIN_MARCAS ? { sin_marcas: true, marcas: [], equipos: [] } : { sin_marcas: false, marcas: ['MARCA A', 'MARCA B'], equipos: copia(CATALOGO) });
+const catalogoDeMentira = () => {
+    if (SIN_MARCAS) return { sin_marcas: true, marcas: [], proveedores: [], equipos: [] };
+    const equipos = CATALOGO.map(conTarifa);
+    const marcas = ['MARCA A', 'MARCA B', 'MARCA C'].map((m) => ({ nombre: m, logo: LOGOS[m] || null, equipos: equipos.filter((e) => e.marca === m).length }));
+    return { sin_marcas: false, marcas, proveedores: copia(PROVEEDORES), equipos: copia(equipos) };
+};
 const equipoDe = (id) => CATALOGO.find((x) => String(x.id) === String(id));
+const fechaEs = (iso) => { const [a, m, d] = String(iso || '').split('-'); return a ? `${d}/${m}/${a}` : ''; };
+const eurEs = (n) => `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })} €`;
+// El texto, con la MISMA forma que `mensajePedido` del servidor (services/pedidoDistribuidor.js).
+function pedidoDeMentira(id, body) {
+    const e = equipoDe(id);
+    if (!e) return Promise.reject(errorDemo(404, 'Ese equipo no está en tu catálogo.'));
+    const dist = body.distribuidor_id;
+    if (!NOMBRE_DIST[dist] || !PROVEEDORES.length) return Promise.reject(errorDemo(400, 'Ese distribuidor no está entre a los que compras.'));
+    const c = COMERCIAL[dist];
+    const t = e.tarifas.find((x) => x.distribuidor_id === dist);
+    const mensaje = [
+        `Hola ${c.nombre.split(' ')[0]}, *RCA* os hace este pedido a través de BROKERGY:`, '',
+        `- Equipo: *${e.marca} ${e.nombre}* (ud. exterior ${e.ref})`,
+        `- Cantidad: ${body.cantidad}`,
+        body.obra ? `- Obra: ${body.obra}` : null,
+        t ? `- Precio de vuestra tarifa: ${eurEs(t.precio)} sin IVA (desde el ${fechaEs(t.desde)})` : null,
+        body.nota ? `- Nota: ${body.nota}` : null, '',
+        'Para confirmar plazo y precio, contestad directamente a RCA en el 600 000 000.', '', 'BROKERGY',
+    ].filter((l) => l !== null).join('\n');
+    const borrador = { mensaje, distribuidor: NOMBRE_DIST[dist], comercial: c.nombre, canales_posibles: c.canales, copia_a_ti: true };
+    if (body.previa) return espera({ previa: true, ...borrador }, 450);
+    if (p.get('pedido') === 'seco') return espera({ en_seco: true, ...borrador }, 900);
+    return envia(() => { corta(`pedido a ${NOMBRE_DIST[dist]} (en el banco no sale nada)`); }).then(() => ({ ok: true, enviado: true, canales: c.canales, ...borrador }));
+}
 
 // ── Los PRESUPUESTOS que hace en la app (22/11/2026), con la forma EXACTA del contrato ──
 // Ids de ejemplo: ?presupuesto=aaaaaaaa-0000-4000-8000-000000000040 (emitido, sin obra),
@@ -441,10 +490,12 @@ const api = {
     ...apiPresupuestos,
     // ── Fase 4 ──
     catalogo: () => espera(catalogoDeMentira()),
-    equipo: (id) => (equipoDe(id) ? espera(copia(equipoDe(id)), 250) : Promise.reject(new Error('404'))),
+    equipo: (id) => (equipoDe(id) ? espera({ ...copia(conTarifa(equipoDe(id))), proveedores: copia(PROVEEDORES) }, 250) : Promise.reject(new Error('404'))),
     fichaEquipo: (id) => espera(pdfDeMentira(`Ficha técnica · ${equipoDe(id)?.nombre || ''}`, [['Potencia', `${equipoDe(id)?.potencia_kw} kW`], ['SCOP 35 °C', '4,62'], ['SCOP 55 °C', '3,41']])),
     guardarPrecio: (id, precio) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = precio; }),
     quitarPrecio: (id) => envia(() => { const x = equipoDe(id); if (x) x.tu_precio = null; }),
+    compra: (id, dist) => (NOMBRE_DIST[dist] ? espera((() => { const x = equipoDe(id); if (x) x.compro_a = dist; return { ok: true, compro_a: dist }; })(), 400) : Promise.reject(errorDemo(400, 'Ese distribuidor no está entre a los que compras.'))),
+    pedido: (id, body) => pedidoDeMentira(id, body),
     obras: () => espera({ obras: copia(LISTA), resumen: resumen(LISTA) }),
     // Con la MISMA forma que el servidor ({ obra }) y el mismo desenvoltorio que la app real.
     obra: (id) => espera(obraDe(id) ? { obra: copia(obraDe(id)) } : Promise.reject(new Error('404')), 250).then(obraDeRespuesta),
@@ -693,7 +744,14 @@ function lecturaDeMentira(elecciones) {
     };
 }
 const errorDemo = (status, error) => Object.assign(new Error(String(status)), { response: { status, data: { error } } });
+let proveedoresDemo = [DN];
+const apiProveedoresDemo = {
+    distribuidores: () => apiTarifasDemo.distribuidores(),
+    leer: () => espera([...proveedoresDemo], 300),
+    guardar: (_id, lista) => (FALLO ? Promise.reject(errorDemo(503, 'No se ha podido guardar a quién compra. Vuelve a intentarlo.')) : espera((proveedoresDemo = [...lista], { ok: true, distribuidores: lista }), 500)),
+};
 const apiTarifasDemo = {
+    distribuidores: () => espera([{ id: DN, nombre: 'DISTRIBUIDOR NORTE', razon_social: 'Distribuidor Norte SL' }, { id: DS, nombre: 'DISTRIBUIDOR SUR', razon_social: 'Distribuidor Sur SL' }], 300),
     plantilla: () => { corta('plantilla (en el banco no se descarga)'); return Promise.reject(errorDemo(400, 'En el banco de pruebas la plantilla no se descarga.')); },
     leer: (form) => espera(lecturaDeMentira(JSON.parse(form.get('elecciones') || '{}')), 700),
     confirmar: (form) => new Promise((ok, ko) => setTimeout(() => {
@@ -707,6 +765,12 @@ function Tarifa() {
         <div style={{ minHeight: '100vh', padding: 24, fontFamily: 'Inter, system-ui, sans-serif' }} className="bg-bkg-deep text-white">
             <p className="text-white/50 text-sm">Pantalla Aerotermia del CRM (solo ADMIN) · banco de pruebas</p>
             {!abierto && <button type="button" className="mt-4 px-5 py-3 rounded-2xl border border-white/10 text-sky-300 text-xs font-black uppercase tracking-widest" onClick={() => setAbierto(true)}>Cargar tarifa (Excel)</button>}
+            {!abierto && (
+                <div className="mt-6 max-w-xl rounded-2xl border border-white/10 bg-white/[0.02] p-5">
+                    <p className="text-[11px] font-black uppercase tracking-widest text-white/60 mb-3">Ficha del instalador · Le compra a…</p>
+                    <LeCompraA instaladorId="demo" api={apiProveedoresDemo} />
+                </div>
+            )}
             {abierto && <CargarTarifaModal api={apiTarifasDemo} onClose={() => setAbierto(false)} />}
         </div>
     );

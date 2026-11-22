@@ -36,7 +36,8 @@ export function useEnvio() {
         setSt({ phase: 'sending', ok: false, textos });
         try {
             const r = await fn();
-            setSt({ phase: 'done', ok: true, textos });
+            // `alAcabar(r)`: textos que dependen de la respuesta (p. ej. un pedido EN SECO).
+            setSt({ phase: 'done', ok: true, textos: typeof textos.alAcabar === 'function' ? { ...textos, ...textos.alAcabar(r) } : textos });
             return r;
         } catch (e) {
             setSt({ phase: 'done', ok: false, textos, error: mensaje(e, 'No se ha podido enviar. Inténtalo en un momento.') });

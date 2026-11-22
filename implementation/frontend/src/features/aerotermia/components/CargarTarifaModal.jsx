@@ -5,8 +5,10 @@
 // vuelve a leer). Lo ambiguo y lo que no casa NO se carga: lo ambiguo se resuelve
 // eligiendo aquí su modelo (y volviendo a leer); lo que no casa, en el catálogo.
 // Nunca se crea un modelo desde el Excel. El Excel no se guarda en ningún sitio.
-// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-4.md.
-import React, { useMemo, useRef, useState } from 'react';
+// Desde el 22/11/2026 la tarifa es DE UN DISTRIBUIDOR: se elige de la lista de empresas
+// DISTRIBUIDOR (no se escribe a mano) y la ven los instaladores que le compran.
+// Ver docs/conocimiento/instalador-app/app-del-instalador-fase-4.md y catalogo-por-distribuidor.md.
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import axios from 'axios';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
@@ -16,6 +18,7 @@ export const apiTarifas = {
     plantilla: () => axios.get(`${B}/plantilla`, { responseType: 'blob' }).then((r) => r.data),
     leer: (form) => axios.post(`${B}/leer`, form).then((r) => r.data),
     confirmar: (form) => axios.post(`${B}/confirmar`, form).then((r) => r.data),
+    distribuidores: () => axios.get(`${B}/distribuidores`).then((r) => r.data.distribuidores || []),
 };
 
 const hoy = () => new Date().toISOString().slice(0, 10);
@@ -38,7 +41,9 @@ const CHIP = {
 };
 
 export function CargarTarifaModal({ onClose, api = apiTarifas }) {
-    const [distribuidor, setDistribuidor] = useState('');
+    const [distribuidor, setDistribuidor] = useState('');      // id de la empresa DISTRIBUIDOR
+    const [distribuidores, setDistribuidores] = useState(null); // null = cargando
+    const [errorLista, setErrorLista] = useState('');
     const [desde, setDesde] = useState(hoy());
     const [fichero, setFichero] = useState(null);
     const [lectura, setLectura] = useState(null);   // respuesta de «leer»
@@ -48,10 +53,18 @@ export function CargarTarifaModal({ onClose, api = apiTarifas }) {
     const [pestana, setPestana] = useState('guardar');
     const [envio, setEnvio] = useState(null);
     const input = useRef(null);
+    useEffect(() => {
+        let vivo = true;
+        api.distribuidores()
+            .then((l) => { if (vivo) { setDistribuidores(l); if (l.length === 1) setDistribuidor(l[0].id); } })
+            .catch((e) => { if (vivo) { setDistribuidores([]); setErrorLista(mensaje(e, 'No se ha podido cargar la lista de distribuidores.')); } });
+        return () => { vivo = false; };
+    }, [api]);
+    const nombreDist = distribuidores?.find((d) => d.id === distribuidor)?.nombre || '';
 
     const formulario = (extra = {}) => {
         const f = new FormData();
-        f.append('distribuidor', distribuidor);
+        f.append('distribuidor_id', distribuidor);
         f.append('vigente_desde', desde);
         f.append('elecciones', JSON.stringify(elecciones));
         for (const [k, v] of Object.entries(extra)) f.append(k, v);
@@ -60,7 +73,7 @@ export function CargarTarifaModal({ onClose, api = apiTarifas }) {
     };
     const leer = async () => {
         setError('');
-        if (distribuidor.trim().length < 2) { setError('Escribe de qué distribuidor es la tarifa.'); return; }
+        if (!distribuidor) { setError('Elige de qué distribuidor es la tarifa.'); return; }
         if (!desde) { setError('Pon desde qué fecha vale.'); return; }
         if (!fichero) { setError('Elige el Excel.'); return; }
         setLeyendo(true);
@@ -113,7 +126,7 @@ export function CargarTarifaModal({ onClose, api = apiTarifas }) {
                 <div className="flex items-start justify-between gap-4 mb-5">
                     <div>
                         <h2 className="text-xl font-black text-white uppercase tracking-tight">Cargar tarifa del distribuidor</h2>
-                        <p className="text-xs text-white/45 mt-1">Primero se lee en seco: no se guarda nada hasta que pulses «Guardar». La ven los instaladores de esas marcas, sin IVA.</p>
+                        <p className="text-xs text-white/45 mt-1">Primero se lee en seco: no se guarda nada hasta que pulses «Guardar». La ven, sin IVA, los instaladores que le compran a ese distribuidor.</p>
                     </div>
                     <button type="button" onClick={onClose} className="text-white/40 hover:text-white w-11 h-11 shrink-0 grid place-items-center -mr-2 -mt-2" aria-label="Cerrar">✕</button>
                 </div>
@@ -122,9 +135,16 @@ export function CargarTarifaModal({ onClose, api = apiTarifas }) {
                 <div className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-3">
                     <label className="flex flex-col gap-1.5">
                         <span className="text-[10px] font-black uppercase tracking-widest text-white/45">Distribuidor</span>
-                        <input type="text" value={distribuidor} maxLength={120} disabled={!!lectura}
-                            onChange={(e) => setDistribuidor(e.target.value)} placeholder="Ej.: Saltoki, Salvador Escoda…"
-                            className="min-h-[44px] bg-white/[0.04] border border-white/10 focus:border-sky-400 rounded-xl px-3 py-2.5 text-white text-sm outline-none disabled:opacity-60" />
+                        <select value={distribuidor} disabled={!!lectura || !distribuidores?.length}
+                            onChange={(e) => setDistribuidor(e.target.value)}
+                            className="min-h-[44px] bg-bkg-deep border border-white/10 focus:border-sky-400 rounded-xl px-3 py-2.5 text-white text-sm outline-none [color-scheme:dark] disabled:opacity-60">
+                            <option value="">{distribuidores == null ? 'Cargando distribuidores…' : distribuidores.length ? 'Elige el distribuidor…' : 'No hay empresas DISTRIBUIDOR'}</option>
+                            {(distribuidores || []).map((d) => (
+                                <option key={d.id} value={d.id}>{d.nombre}{d.razon_social && d.razon_social !== d.nombre ? ` · ${d.razon_social}` : ''}</option>
+                            ))}
+                        </select>
+                        {errorLista && <span className="text-[11px] text-amber-300">{errorLista}</span>}
+                        {distribuidores && !distribuidores.length && !errorLista && <span className="text-[11px] text-white/40">Da de alta al distribuidor en Prescriptores (tipo DISTRIBUIDOR).</span>}
                     </label>
                     <label className="flex flex-col gap-1.5">
                         <span className="text-[10px] font-black uppercase tracking-widest text-white/45">Vale desde</span>
@@ -237,7 +257,7 @@ export function CargarTarifaModal({ onClose, api = apiTarifas }) {
                 <SendActionOverlay
                     phase={envio.phase} ok={!!envio.ok} icon="upload"
                     sendingTitle="Guardando las tarifas…" okTitle="Tarifas guardadas" errorTitle="No se han guardado"
-                    subtitle={envio.ok ? 'Ya las ven los instaladores de esas marcas en su Catálogo.' : ''}
+                    subtitle={envio.ok ? `Ya las ven en su Catálogo los instaladores que le compran a ${nombreDist || 'ese distribuidor'}.` : ''}
                     items={envio.ok ? envio.items : []} errorText={envio.error || ''}
                     onClose={() => { const ok = envio.ok; setEnvio(null); if (ok) onClose(); }}
                 />
