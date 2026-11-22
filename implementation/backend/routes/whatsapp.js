@@ -670,6 +670,21 @@ router.post('/contestador/probar', adminOInterno, async (req, res) => {
 // POST { si, texto? } → «C12»: guarda lo que mandó y envía tal cual lo que se habría
 // contestado, con la respuesta LITERAL de Fran. Con `texto` («C12, dile además…»), ese
 // texto en su lugar. Comprueba que el chat no ha cambiado desde entonces.
+// La MEMORIA de un chat (wa_memoria, 22/11/2026). Leer: una fila, por teléfono. Apuntar: la «nota …»
+// que Fran escribe en su grupo (la pasa el vigilante, sin despertar a Claude).
+router.get('/contestador/memoria', adminOInterno, async (req, res) => {
+    const tel = String(req.query.tel || '').replace(/\D/g, '').slice(-9);
+    if (tel.length !== 9) return res.status(400).json({ error: 'tel inválido' });
+    const r = await require('../services/memoriaWhatsapp').leer(tel);
+    if (r.error) return res.status(503).json({ error: 'No se ha podido leer la memoria', detalle: r.error });
+    res.json({ tel9: tel, hechos: r.hechos });
+});
+router.post('/contestador/memoria/nota', adminOInterno, async (req, res) => {
+    const texto = typeof req.body?.texto === 'string' ? req.body.texto : '';
+    try { res.json(await contestador.notaDeFran(texto)); }
+    catch (e) { res.status(503).json({ ok: false, error: e.message, mensaje: `No lo he podido apuntar: ${e.message}` }); }
+});
+
 router.post('/contestador/:id/enviar', adminOInterno, async (req, res) => {
     const id = Number(String(req.params.id).replace(/^C/i, ''));
     if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'id inválido' });

@@ -23,6 +23,11 @@
 //       El EXCEL para repasar las respuestas: una fila por turno (qué escribió, qué se hizo, qué se le
 //       dijo, por qué, qué miró y qué escribió después) y dos columnas para valorarlas. Solo lee.
 //       Por defecto va a Descargas (lleva conversaciones reales: nunca al repositorio).
+//   node scripts/contestador.js memoria --tel 6xxxxxxxx [--api …]
+//       La MEMORIA de ese chat (wa_memoria): lo que el contestador tiene apuntado de él. Solo lee.
+//   node scripts/contestador.js nota "nota 26RES060_281: hablado por teléfono, ya lo tiene claro" [--api …]
+//       Apunta en la memoria de ese chat lo que diga Fran (también «nota C812: …» o «nota 6xx…: …»). Es lo
+//       mismo que escribir esa línea en su grupo. Solo con lo que Fran ha dicho: nunca de cosecha propia.
 //   node scripts/contestador.js enviar C12 --si "<respuesta literal de Fran>" [--api …]
 //       «C12»: guarda lo suyo y envía tal cual lo que el contestador habría dicho (modo copia).
 //       Solo con el «C12» de Fran, que va LITERAL en --si. Con --texto, ese texto en su lugar
@@ -194,5 +199,21 @@ async function seco() {
         console.log(r.texto ? `✓ C${r.id} enviado a ${r.tel9}${g}:\n${r.texto}` : `✓ C${r.id}${g} (sin escribirle)`);
         return;
     }
-    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · bandeja [--dias 7] · listado [--dias 7] · enviar C12 --si "…" [--texto "…"]');
+    if (orden === 'memoria') {
+        const tel = String(opt('tel', '')).replace(/\D/g, '').slice(-9);
+        if (tel.length !== 9) throw new Error('Uso: memoria --tel 6xxxxxxxx');
+        const r = await api(`/contestador/memoria?tel=${tel}`);
+        const L = require('../utils/memoriaWhatsapp').paraPrompt(r.hechos);
+        console.log(L ? `Memoria de ${tel}:
+${L}` : `La memoria de ${tel} está vacía.`);
+        return;
+    }
+    if (orden === 'nota') {
+        const texto = args.slice(1).filter((a, i, l) => !a.startsWith('--') && !(l[i - 1] || '').startsWith('--')).join(' ').trim();
+        if (!texto) throw new Error('Uso: nota "nota 26RES060_281: lo que ha dicho Fran"');
+        const r = await api('/contestador/memoria/nota', { method: 'POST', body: { texto: /^\s*(nota|apunta|recuerda|memoria)\b/i.test(texto) ? texto : `nota ${texto}` } });
+        console.log(`${r.ok ? '✓' : '✗'} ${r.mensaje}`);
+        return;
+    }
+    console.log('Órdenes: seco [--tel …|--de …] [--max 8] [--cerebro claude|gemini] · estado · resumen · bandeja [--dias 7] · listado [--dias 7] · memoria --tel … · nota "…" · enviar C12 --si "…" [--texto "…"]');
 })().catch((e) => { console.error(`✗ ${e.message}`); process.exitCode = 1; });

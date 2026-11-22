@@ -169,6 +169,11 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   - Si `enviar` dice que **ya se envió** (en modo real el acuse ya salió), lo que pide Fran se le manda
     como cualquier WhatsApp a ese número, con su mensaje como «sí».
   - Si quiere algo que no es contestarle (llamarle, cambiar el expediente…), eso no va por `enviar`.
+  - **La MEMORIA del chat**: «nota 26RES060_281: …» / «nota C12: …» / «nota 6xx…: …» ya no te llega (la
+    apunta el vigilante solo). Si Fran te cuenta lo que ha hablado con alguien por teléfono o algo que el
+    contestador debe saber la próxima vez («he hablado con X, ya sabe que…»), apúntalo con SUS palabras:
+    `node scripts/contestador.js nota "nota <obra o teléfono>: <lo que dice Fran>"` (corto; sin importes,
+    IBAN, DNI ni teléfonos). Verla: `node scripts/contestador.js memoria --tel <tel>`.
   `node scripts/contestador.js estado` lista los últimos. «¿Qué tengo sin contestar?» / «¿hay WhatsApp
   sin contestar?»: `node scripts/contestador.js bandeja --dias 7` (el criterio de la bandeja de la app).
 - **Consultas** (cómo va un expediente, qué falta, cuántas oportunidades tiene X): consulta Supabase en

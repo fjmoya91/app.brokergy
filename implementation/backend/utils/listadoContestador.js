@@ -130,6 +130,8 @@ function filasListado(filas) {
             para_fran: limpio(f.aviso),
             como: comoSeDecidio(f.cerebro),
             miro: Array.isArray(f.fuentes) ? f.fuentes.map(limpio).filter(Boolean).join(' · ') : '',
+            // Lo que apuntó en la MEMORIA del chat (wa_memoria, 22/11/2026).
+            memoria: Array.isArray(f.recordar) ? f.recordar.map(limpio).filter(Boolean).join(' · ') : '',
             minutos,
             alta: f.alta_at ? 'sí' : '',
             despues: sig ? pend(sig) : '',
@@ -162,7 +164,7 @@ const COLUMNAS = [
     ['escribio', 'Escribió', 50], ['resultado', 'Qué se hizo', 28], ['le_dijimos', 'Le dijimos', 60],
     ['sin_enviar', 'Redactado sin enviar (borrador)', 50], ['borrador_enviado', 'Borrador enviado', 12],
     ['motivo_fran', 'Por qué se quedó en Fran', 24], ['para_fran', 'Aviso a Fran', 40], ['por_que', 'Motivo (interno)', 50],
-    ['como', 'Cómo se decidió', 22], ['miro', 'Qué miró', 40], ['minutos', 'Min. hasta contestar', 10], ['alta', 'Alta encargada', 9],
+    ['como', 'Cómo se decidió', 22], ['miro', 'Qué miró', 40], ['memoria', 'Apuntó en la memoria', 36], ['minutos', 'Min. hasta contestar', 10], ['alta', 'Alta encargada', 9],
     ['despues', 'Después escribió', 45],
     // Para repasarlo: se rellenan a mano y sirven para corregir el contestador.
     ['valoracion', 'VALORACIÓN (bien / regular / mal)', 16], ['yo_habria_dicho', 'QUÉ HABRÍA DICHO YO', 50],

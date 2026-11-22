@@ -546,6 +546,44 @@ AAAA-MM-DD o nada, nota ≤ 300, como mucho 10) y lo aplica `seguimientoWhatsapp
 en el mismo aviso, «Del seguimiento: …»; si es lo único (el mensaje se calla), con «ha contestado al
 seguimiento».
 
+## La MEMORIA del chat (2026-11-22)
+
+Fran, 22/11/2026: «quiero que mi chat "tenga memoria" de algún modo», sin petar Supabase. Hasta ahora el
+contestador solo sabía lo de los últimos 10 días de chat y lo de la app; lo que se dijo hace un mes, o lo
+que Fran habló por TELÉFONO, se perdía.
+
+**REGLA — la memoria es una ficha CORTA por teléfono, con límites puestos por el código, y es contexto:
+si choca con el dossier, manda el dossier.** Tabla `wa_memoria` (una fila por `tel9`, `hechos` JSONB con
+CHECK de tamaño < 8 KB; RLS y GRANT, regla 150: [wa_memoria_schema.sql](../../../implementation/backend/scripts/wa_memoria_schema.sql)).
+Cada hecho: `{ f: fecha, t: texto, o: obra|null, p: 'contestador'|'fran' }`. **15 hechos, 200 caracteres,
+120 días**; fuera lo que parezca IBAN, DNI/NIE, teléfono, correo, enlace o un número largo; lo ya apuntado
+(igual salvo tildes y puntuación) no se reescribe. Fuente única de lo puro:
+[utils/memoriaWhatsapp.js](../../../implementation/backend/utils/memoriaWhatsapp.js) (`limpiarHecho`,
+`fusionar`, `paraPrompt`, `ordenNota`); la tabla: [services/memoriaWhatsapp.js](../../../implementation/backend/services/memoriaWhatsapp.js)
+(`leer` por la PK, `anotar` solo escribe si hay algo nuevo).
+
+**Coste**: cada respuesta lee UNA fila por su clave; ninguna llamada a Claude de más (el contestador
+devuelve `recordar` en el MISMO JSON de su respuesta, 0–2 frases, casi siempre vacío) y ~300 tokens de
+prompt cuando hay ficha. Medido al montarlo: 245 chats con contestador → como mucho ~1 MB si todos
+llenaran su ficha (la BD tiene 297 MB). Se descartó guardarla en Drive (lento, cuotas y carreras).
+
+**Quién apunta**:
+- El CONTESTADOR, al contestar de verdad (después de la relectura previa al envío): lo que conviene saber
+  la próxima vez y NO está en la app («Escribe Paqui, la hija: llamarla Paqui», «No lleva depósito: planta
+  baja»). Nada que ya diga el dossier, ni importes ni datos personales. En seco no se apunta nada.
+- FRAN desde su grupo: **«nota 26RES060_281: hablado por teléfono, ya sabe que falta el RITE»**, «nota
+  C812: …» (el chat de esa respuesta) o «nota 6xx xxx xxx: …». Lo coge el vigilante sin despertar a Claude
+  (como el «C12») → `POST /api/whatsapp/contestador/memoria/nota` → `notaDeFran`: una obra se busca en los
+  chats que el contestador ha tenido de ella en 60 días (máx. 3) y, si no, en los teléfonos de su cliente.
+  Le contesta «Apuntado en la memoria de …» o por qué no. Lo de Fran sale en el prompt como «(Fran)» y
+  cuenta como dicho ahora. **«nota C812: …» nunca es un «C812» para mandar.**
+- El asistente, cuando Fran le cuenta lo que habló por teléfono: `node scripts/contestador.js nota "nota
+  <obra>: <lo que dijo Fran>"`, solo con las palabras de Fran.
+
+Verla: `node scripts/contestador.js memoria --tel 6xxxxxxxx` (`GET /contestador/memoria?tel=`) y, en el
+Excel del listado, la columna «Apuntó en la memoria». Pendiente (fase 3): verla y editarla en la ficha del
+cliente en la app.
+
 ## Topes, en el CÓDIGO
 
 6 respuestas por chat en 24 h (móviles: un bot de WhatsApp Business del otro lado no respeta la medianoche),

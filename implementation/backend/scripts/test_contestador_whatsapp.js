@@ -769,6 +769,47 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         await IAr.prepararPartes(adjQ, { maxPdfBytes: Math.floor(una.length * 0.5) });
         ok(/demasiado grande/.test(adjQ[0]._error || ''), 'si ni la primera página cabe, se queda sin leer como antes');
     }
+    // ── La MEMORIA del chat (wa_memoria, 22/11/2026) ──
+    {
+        console.log('\nLa memoria del chat');
+        const M = require('../utils/memoriaWhatsapp');
+        ok(M.limpiarHecho('Escribe Paqui,\nno Carolina: llamarla Paqui.') === 'Escribe Paqui, no Carolina: llamarla Paqui.', 'un hecho: una línea');
+        const s1 = M.limpiarHecho('Su cuenta ES91 2100 0418 4502 0005 1332, DNI 12345678Z, tlf 629 123 456, mail a@b.es, https://x.y/z');
+        ok(!/2100|12345678|629|a@b|https/.test(s1), 'sin IBAN, DNI, teléfono, correo ni enlace');
+        ok(M.limpiarHecho('ES91 2100 0418 4502 0005 1332') === '' && M.limpiarHecho('ok') === '', 'lo que se queda en nada no se apunta');
+        ok(M.limpiarHecho('x'.repeat(400)).length <= M.MAX_CHARS, 'como mucho 200 caracteres');
+        const ahora = new Date('2026-11-22T12:00:00Z');
+        const r1 = M.fusionar([{ f: '2026-06-01', t: 'muy viejo', o: null, p: 'contestador' }, { f: '2026-11-20', t: 'No lleva depósito: planta baja.', o: '26RES093_15', p: 'contestador' }],
+            ['No lleva deposito, planta baja', 'Manda el justificante el lunes.'], { ahora, obra: '26RES093_15' });
+        ok(r1.hechos.length === 2 && r1.anadidos === 1 && r1.caducados === 1 && r1.hechos[0].t === 'No lleva depósito: planta baja.' && r1.hechos[1].t === 'Manda el justificante el lunes.',
+            'lo ya apuntado no se repite (ni se reescribe), lo de más de 120 días se cae y lo nuevo va al final');
+        ok(M.ordenNota('nota C812: es Paqui') && require('../utils/ordenContestador').ordenContestador('nota C812: es Paqui') === null,
+            '«nota C812: …» no es un «C812» para mandar');
+        const muchos = Array.from({ length: 20 }, (_, i) => `hecho número ${i + 1} de la obra`);
+        const r2 = M.fusionar([], muchos, { ahora });
+        ok(r2.hechos.length === M.MAX_HECHOS && r2.hechos[r2.hechos.length - 1].t === 'hecho número 20 de la obra', 'como mucho 15 hechos: se quitan los más viejos');
+        ok(M.fusionar([], ['x'], { ahora }).anadidos === 0, 'si no hay nada que apuntar, no se escribe');
+        ok(M.fusionar([], ['Hablado por teléfono'], { ahora, por: 'fran' }).hechos[0].p === 'fran', 'lo de Fran va marcado como suyo');
+        const pp = M.paraPrompt([{ f: '2026-11-22', t: 'Hablado por teléfono.', o: '26RES060_281', p: 'fran' }, { f: '2026-11-20', t: 'Escribe Paqui.', o: null, p: 'contestador' }]);
+        ok(pp === '- 22/11 (Fran) · 26RES060_281: Hablado por teléfono.\n- 20/11: Escribe Paqui.' && M.paraPrompt([]) === '', 'así la lee el modelo');
+        ok(JSON.stringify(M.ordenNota('nota 26RES060_281: hablado por teléfono, ya lo tiene claro')) === JSON.stringify({ destino: { tipo: 'obra', valor: '26RES060_281' }, texto: 'hablado por teléfono, ya lo tiene claro' })
+            && M.ordenNota('Nota C812: es Paqui quien escribe').destino.tipo === 'turno' && M.ordenNota('nota C812: es Paqui').destino.valor === '812'
+            && M.ordenNota('apunta 629 123 456: lo hablamos el lunes').destino.valor === '629123456'
+            && M.ordenNota('nota 26res060_op390 - espera a los auditores').destino.valor === '26RES060_OP390'
+            && M.ordenNota('nota de la 2026CEE_64: pagado en mano').destino.valor === '2026CEE_64',
+            '«nota 26RES060_281: …», «nota C812: …», «apunta 6xx…: …» y el nº de oportunidad o de CEE');
+        ok(M.ordenNota('notas del día') === null && M.ordenNota('nota: sin destino') === null && M.ordenNota('C12') === null && M.ordenNota('recuerda que mañana hay que llamar') === null,
+            'lo que no dice a qué chat va no es una nota');
+        // El cerebro: la memoria en el prompt y lo que pide recordar, limpio.
+        const chM = { texto: '[22/11 10:00] ELLOS: hola', rol: 'cliente', personas: [], obras: [] };
+        const conM = cerebro.construirPrompt(chM, null, null, { lineas: [], slots: new Set() }, { memoria: [{ f: '2026-11-22', t: 'Hablado por teléfono.', o: null, p: 'fran' }] }).prompt;
+        const sinM = cerebro.construirPrompt(chM, null, null, { lineas: [], slots: new Set() }, {}).prompt;
+        ok(conM.includes('# LO QUE RECORDAMOS DE ESTE CHAT') && conM.includes('(Fran): Hablado por teléfono.') && !sinM.includes('# LO QUE RECORDAMOS DE ESTE CHAT')
+            && sinM.includes('"recordar": []'), 'el prompt lleva la memoria solo si la hay, y pide «recordar»');
+        const rr = cerebro.rematar({ accion: 'RESPONDER', parrafos: ['Perfecto.'], recordar: ['Escribe Paqui, no Carolina.', 'su IBAN es ES91 2100 0418 4502 0005 1332', 'tres', 'cuatro cosas más que apuntar'] }, ENLACES);
+        ok(rr.recordar.length === 2 && rr.recordar[0] === 'Escribe Paqui, no Carolina.' && !/2100/.test(rr.recordar.join()), 'como mucho 2 por respuesta y sin datos personales');
+        ok(cerebro.rematar({ accion: 'CALLAR' }, ENLACES).recordar.length === 0, 'sin «recordar», nada');
+    }
     // ── El LISTADO para repasar las respuestas (21/11/2026) ──
     {
         console.log('\nEl listado para repasar las respuestas');

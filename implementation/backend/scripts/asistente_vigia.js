@@ -35,6 +35,7 @@ const {
 const mandar = mandarOGuardar;
 const proactivo = require('./asistente_proactivo');
 const { ordenContestador } = require('../utils/ordenContestador');
+const { ordenNota } = require('../utils/memoriaWhatsapp');
 
 /** «C4»: manda (y guarda) lo de esas copias del contestador. Devuelve lo que se le dice a Fran. Nunca lanza. */
 async function mandarCopias(ids, si) {
@@ -453,6 +454,17 @@ async function vueltaUnica() {
         const orden = soloTexto ? ordenContestador(soloTexto) : null;
         if (orden?.tipo === 'mandar') {
             await mandar(await mandarCopias(orden.ids, soloTexto));
+            return;
+        }
+        // «nota 26RES060_281: hablado por teléfono…»: a la MEMORIA de ese chat (22/11/2026). Otro botón:
+        // lo apunta el backend, sin despertar a Claude.
+        if (soloTexto && ordenNota(soloTexto)) {
+            try {
+                const r = await api('/api/whatsapp/contestador/memoria/nota', { method: 'POST', body: { texto: soloTexto }, ms: 60_000 });
+                await mandar(r.mensaje || 'Apuntado.');
+            } catch (e) {
+                await mandar(`No lo he podido apuntar: ${String(e.message || e).replace(/^\/api\S+ → /, '')}`);
+            }
             return;
         }
 

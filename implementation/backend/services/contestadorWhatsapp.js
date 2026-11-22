@@ -43,6 +43,8 @@
 // =============================================================================
 
 const supabase = require('./supabaseClient');
+const Memoria = require('./memoriaWhatsapp');
+const { ordenNota, limpiarHecho } = require('../utils/memoriaWhatsapp');
 const horario = require('../utils/horarioWhatsapp');
 const Ronda = require('./rondaWhatsapp');
 const IA = require('./rondaWhatsappIA');
@@ -347,6 +349,10 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
         extra.nombrePila = nombrePilaDe(ms) || nombreDeAgenda(conv.nombre, personas);
         extra.agenda = conv.nombre || null;
         extra.sinSaludo = yaLeEscribimos(ms);
+        // La MEMORIA del chat (wa_memoria, 22/11/2026): una fila, por su clave. Sin ella también se contesta.
+        const mem = await Memoria.leer(tel9);
+        if (mem.error) log(`memoria de ${tel9}: ${mem.error}`);
+        extra.memoria = mem.hechos;
         // Lo que le hemos preguntado en el SEGUIMIENTO (propuestas, CEE inicial): para que entienda
         // a qué contesta y diga qué ha contestado (services/seguimientoWhatsapp.js; nunca lanza).
         extra.seguimientos = await require('./seguimientoWhatsapp').paraContestador(tel9);
@@ -378,6 +384,7 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     // (21/11/2026), y por qué se queda en Fran lo que sí se queda: para medirlo.
     if (b.enviado_sin_fran) detalle.enviado_sin_fran = true;
     if (b.por) detalle.por = b.por;
+    if ((b.recordar || []).length) detalle.recordar = b.recordar;
     // Ya hay algo ESCALADO en este chat con su acuse y sin contestar: lo nuevo se le AÑADE, sin
     // otro acuse (17/11/2026, 26RES060_OP376: cuatro acuses casi iguales en una hora).
     const abierto = b.accion === 'ESCALAR' ? await escaladoAbiertoDe(conv.chatId, ms) : null;
@@ -395,6 +402,7 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
         obra: c.obraBorrador || null, cerebro: b.cerebro || 'gemini', detalle,
         borrador: b.borrador || '', aviso: b.aviso || '', fuentes: b.fuentes || [], investigado: b.investigado || '',
         seguimiento: Array.isArray(b.seguimiento) ? b.seguimiento : [],
+        recordar: Array.isArray(b.recordar) ? b.recordar : [],
     };
 }
 
@@ -718,6 +726,11 @@ async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
             return otra.estado;
         }
     }
+    // Lo que el cerebro pide recordar de este chat: ya es la decisión que vale. Nunca lanza.
+    if ((d.recordar || []).length) {
+        try { await Memoria.anotar(d.tel9 || fila.tel9, d.recordar, { obra: d.obra || null, por: 'contestador' }); }
+        catch (e) { log(`C${fila.id}: no he podido apuntar en la memoria (${e.message})`); }
+    }
     const m = modoDeFila(modo(), d);
     if (m !== modo()) d.motivo = `${d.motivo ? `${d.motivo} · ` : ''}lo ha redactado el cerebro de respaldo: revísalo`;
     const mg = modoGuardar();
@@ -977,6 +990,58 @@ function chatHaCambiado(ms, ultimoId, acuseEnviado) {
     return null;
 }
 
+// ─── «nota 26RES060_281: …»: Fran apunta algo en la memoria de un chat ───────
+/**
+ * A qué teléfonos va una nota: «C812» → el de esa respuesta; un teléfono → ese; un nº de obra → los
+ * chats en los que el contestador ha hablado de esa obra estos 60 días y, si no hay, los del CLIENTE
+ * de esa obra (titular, contacto). Nunca a todo el universo.
+ */
+async function telefonosDeNota(destino) {
+    if (destino.tipo === 'tel') return [destino.valor];
+    if (destino.tipo === 'turno') {
+        const { data, error } = await supabase.from('wa_contestador').select('tel9').eq('id', Number(destino.valor)).maybeSingle();
+        if (error) throw new Error(`la base de datos no responde (${error.message})`);
+        return data?.tel9 ? [data.tel9] : [];
+    }
+    const obra = destino.valor;
+    const desde = new Date(Date.now() - 60 * 86_400_000).toISOString();
+    const { data, error } = await supabase.from('wa_contestador').select('tel9').eq('obra', obra).gte('created_at', desde).not('tel9', 'is', null).limit(50);
+    if (error) throw new Error(`la base de datos no responde (${error.message})`);
+    const deChats = [...new Set((data || []).map(x => x.tel9))];
+    if (deChats.length) return deChats.slice(0, 3);
+    const { u } = await cargar();
+    const o = (u.obras || []).find(x => String(x.codigo || '').toUpperCase() === obra || String(x.id_oportunidad || '').toUpperCase() === obra);
+    if (!o?.cliente_id) return [];
+    const tels = [];
+    for (const [tel, ps] of u.porTel) if (ps.some(p => p.tipo === 'cliente' && p.id === o.cliente_id)) tels.push(tel);
+    return tels.slice(0, 3);
+}
+
+/**
+ * La nota de Fran, apuntada. `texto` es su mensaje literal («nota 26RES060_281: hablado por teléfono…»).
+ * @returns {Promise<{ ok: boolean, mensaje: string, telefonos?: string[] }>}
+ */
+async function notaDeFran(texto) {
+    const o = ordenNota(texto);
+    if (!o) return { ok: false, mensaje: 'No entiendo a qué chat va la nota: «nota 26RES060_281: …», «nota C812: …» o «nota 6xx xxx xxx: …».' };
+    const tels = await telefonosDeNota(o.destino);
+    const ref = o.destino.tipo === 'turno' ? `C${o.destino.valor}` : o.destino.valor;
+    if (!tels.length) return { ok: false, mensaje: `No encuentro ningún chat de ${ref}: no lo apunto. Prueba con «nota C… : …» o con su teléfono.` };
+    const obra = o.destino.tipo === 'obra' ? o.destino.valor : null;
+    let n = 0;
+    for (const t of tels) {
+        // eslint-disable-next-line no-await-in-loop
+        const r = await Memoria.anotar(t, [o.texto], { obra, por: 'fran' });
+        n += r.anadidos ? 1 : 0;
+    }
+    if (!n) {
+        return limpiarHecho(o.texto)
+            ? { ok: true, telefonos: tels, mensaje: `Eso ya estaba apuntado en la memoria de ${ref}.` }
+            : { ok: false, mensaje: `La nota de ${ref} se queda vacía al quitarle los datos personales: no la apunto.` };
+    }
+    return { ok: true, telefonos: tels, mensaje: `Apuntado en la memoria de ${ref}${tels.length > 1 ? ` (${tels.length} chats)` : ''}: lo tendrá en cuenta la próxima vez que escriba.` };
+}
+
 // ─── El resumen de las 9:00 (dentro del repaso del asistente) ────────────────
 async function resumen({ desde = new Date(Date.now() - 24 * 3_600_000) } = {}) {
     try {
@@ -1027,7 +1092,7 @@ let handle = null;
  */
 async function listado({ desde, hasta, tope = 5000 } = {}) {
     const campos = 'id, chat_id, tel9, nombre, estado, accion, motivo, obra, texto, acuse, modo, cerebro, ultimo_at, enviado_at, error, created_at, '
-        + 'pendientes:detalle->pendientes, fuentes:detalle->fuentes, titulo:detalle->>titulo, rol:detalle->>rol, borrador:detalle->>borrador, '
+        + 'pendientes:detalle->pendientes, fuentes:detalle->fuentes, recordar:detalle->recordar, titulo:detalle->>titulo, rol:detalle->>rol, borrador:detalle->>borrador, '
         + 'aviso:detalle->>aviso, por:detalle->>por, enviado_sin_fran:detalle->>enviado_sin_fran, '
         + 'borrador_enviado_at:detalle->>borrador_enviado_at, alta_at:detalle->>alta_at';
     const out = [];
@@ -1064,7 +1129,7 @@ function start() {
 }
 
 module.exports = {
-    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, listado, activo, modo, modoGuardar, CFG,
+    start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, listado, activo, modo, modoGuardar, CFG, notaDeFran,
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado, trasRedactar,
