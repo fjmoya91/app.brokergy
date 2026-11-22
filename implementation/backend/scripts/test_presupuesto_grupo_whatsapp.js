@@ -22,13 +22,13 @@ const pruebas = [];
 const prueba = (nombre, fn) => pruebas.push({ nombre, fn });
 
 // ── Dobles ───────────────────────────────────────────────────────────────────
-function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas = [], topeHoy = 0, cerebroFalla = false, autorizados = [AUTOR] } = {}) {
+function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas = [], topeHoy = 0, cerebroFalla = false, autorizados = [AUTOR], horario = '' } = {}) {
     const llamadas = { cerebro: 0, crear: [], actualizar: [], resolver: [], pdf: 0, candidatos: [], porRc: [], tarea: [], texto: [], documento: [], imagen: [], copiar: [], avisos: [] };
     const filas = new Map();
     const ficha = { direccion: null, municipio: null };      // la ficha del cliente cli-1 (lo que sale IMPRESO)
     let nPed = 0;
     let nPre = 39;
-    const cfg = { ...A.config({ PRESUPUESTO_WA_ENABLED: 'true', PRESUPUESTO_WA_GRUPOS: `${GRUPO}=${RCA}`, PRESUPUESTO_WA_MODO: modo }) };
+    const cfg = { ...A.config({ PRESUPUESTO_WA_ENABLED: 'true', PRESUPUESTO_WA_GRUPOS: `${GRUPO}=${RCA}`, PRESUPUESTO_WA_MODO: modo, PRESUPUESTO_WA_HORARIO: horario }) };
     const deps = {
         cfg,
         logica: L,
@@ -321,8 +321,16 @@ prueba('modo copia → no envía al grupo, no guarda ni encarga; lo copia a Fran
     assert.ok(e.llamadas.copiar.some(t => t.includes('encargaría la simulación')));
 });
 
-prueba('fuera de horario → se programa, sin cerebro ni envíos', async () => {
+prueba('a las 23:30 de un domingo contesta igual: el grupo no tiene horario (Fran, 22/11/2026)', async () => {
     const e = entorno({ guion: G });
+    const r = await e.decir(COMPLETO, { ahora: DOMINGO_23 });
+    assert.ok(!r.programado, 'no se programa');
+    assert.ok(e.llamadas.cerebro > 0, 'piensa');
+    assert.ok(r.enviados.length > 0, 'contesta');
+});
+
+prueba('con PRESUPUESTO_WA_HORARIO=casa, fuera de la franja → se programa, sin cerebro ni envíos', async () => {
+    const e = entorno({ guion: G, horario: 'casa' });
     const r = await e.decir(COMPLETO, { ahora: DOMINGO_23 });
     assert.ok(r.programado);
     assert.strictEqual(e.llamadas.cerebro, 0);

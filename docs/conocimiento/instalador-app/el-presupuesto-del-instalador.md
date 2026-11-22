@@ -233,7 +233,10 @@ de ese autor en la última hora, o el mensaje habla de presupuesto / simulación
 
 **REGLA — nace APAGADO (`PRESUPUESTO_WA_ENABLED`) y, encendido, en modo COPIA
 (`PRESUPUESTO_WA_MODO=copia`): no escribe en el grupo ni guarda nada; calcula sin guardar y le copia a
-Fran lo que habría contestado.** `real` cuando las copias están bien. Franja de la casa, tope diario por
+Fran lo que habría contestado.** `real` cuando las copias están bien. **Sin la franja de la casa**
+(22/11/2026, Fran: «quítalo»; su primera prueba, a las 23:00, se quedó callada esperando a las 7:00 y el
+deploy de después la perdió): es la herramienta del instalador en SU grupo, no un mensaje a un cliente, así
+que contesta a cualquier hora; `PRESUPUESTO_WA_HORARIO=casa` vuelve a la de la regla 205. Tope diario por
 grupo (`PRESUPUESTO_WA_TOPE_DIA`, 20), cada mensaje una vez, y con un fallo del modelo o de la BD un
 único «ahora mismo no puedo hacerlo, te lo hacemos nosotros en un rato» y aviso al equipo: nunca un
 presupuesto a medias. **En el `.env` local, apagado** (local = datos de producción). En copia, a Fran

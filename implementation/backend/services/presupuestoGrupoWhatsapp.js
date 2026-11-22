@@ -24,7 +24,9 @@
 //
 // SALVAGUARDAS:
 //  - Solo se escribe al chatId del GRUPO configurado (jamás a un número de un mensaje).
-//  - Franja de la casa (`utils/horarioWhatsapp`, regla 205): fuera, se programa.
+//  - SIN la franja de la casa (Fran, 22/11/2026: «quítalo»): es la herramienta del
+//    instalador en SU grupo, no un cliente; contesta a cualquier hora. Con
+//    `PRESUPUESTO_WA_HORARIO=casa` vuelve la de `utils/horarioWhatsapp` (regla 205).
 //  - `PRESUPUESTO_WA_MODO=copia` (por defecto): no se escribe en el grupo NI se guarda
 //    nada (ni cliente, ni presupuesto, ni encargo): se compone igual, se apunta en el log
 //    y se le copia a Fran a su canal. `real` para escribir.
@@ -57,6 +59,7 @@ function config(env = process.env) {
         grupos,
         probadores: new Set(String(env.PRESUPUESTO_WA_PROBADORES || '').split(/[,;\s]+/).map(ult9).filter(Boolean)),
         soloProbadores: env.PRESUPUESTO_WA_SOLO_PROBADORES === 'true',
+        conHorario: env.PRESUPUESTO_WA_HORARIO === 'casa',
         topeDia: num(env.PRESUPUESTO_WA_TOPE_DIA, 20),
         rafagaMs: num(env.PRESUPUESTO_WA_RAFAGA_S, 8) * 1000,
         copiaA: env.PRESUPUESTO_WA_COPIA_A || env.ASISTENTE_WHATSAPP_GRUPO || null,
@@ -189,7 +192,7 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     let nuevos = mensajes.filter(m => m && m.id && !vistos.has(m.id) && limpio(m.texto));
     if (!nuevos.length) return { ...out, ignorado: 'ya tratado' };
 
-    if (!horario.puedeContestar(ahora)) {
+    if (cfg.conHorario && !horario.puedeContestar(ahora)) {
         return { ...out, programado: horario.siguienteApertura(ahora).toISOString() };
     }
 
@@ -829,7 +832,7 @@ function start() {
     if (!cfg.grupos.size) { console.log('[presupuesto-wa] Sin grupos (PRESUPUESTO_WA_GRUPOS): no escucha.'); return; }
     require('./whatsappService').onMessage(alMensaje);
     console.log(`[presupuesto-wa] Escuchando ${cfg.grupos.size} grupo(s) en modo ${cfg.modo.toUpperCase()}`
-        + `${cfg.soloProbadores ? ', solo probadores' : ''}; tope ${cfg.topeDia}/día; cerebro ${require('./presupuestoPedidoCerebro').proveedor()}.`);
+        + `${cfg.soloProbadores ? ', solo probadores' : ''}; ${cfg.conHorario ? 'franja de la casa' : 'a cualquier hora'}; tope ${cfg.topeDia}/día; cerebro ${require('./presupuestoPedidoCerebro').proveedor()}.`);
 }
 
 module.exports = {
