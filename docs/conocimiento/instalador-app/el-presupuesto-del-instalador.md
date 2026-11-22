@@ -99,9 +99,10 @@ solo los huecos; varios → `CLIENTE_AMBIGUO` con candidatos; ninguno → se da 
 ### En la app
 
 Sección «Presupuestos» (`seccion=presupuestos`, ficha `presupuesto=<uuid>|nuevo`; regla 236: en la
-dirección nunca viaja un nombre). Una sola pantalla: cliente (buscar entre los suyos o darlo de alta en
-línea) → la obra (tipo, caldera, equipo, extras) → lo que incluye (las líneas, editables) → el precio →
-nº, fecha, validez y nota. Vista previa REAL del PDF (`POST /presupuestos/vista-previa`, no guarda ni
+dirección nunca viaja un nombre). Una pantalla en PASOS (ver «Paso a paso» abajo): el cliente (buscar
+entre los suyos o darlo de alta en línea) → la obra (tipo, caldera, agua caliente, emisor, dirección) →
+el equipo → lo que incluye (los extras y las líneas, editables) → el precio → nº, fecha, validez y nota.
+Vista previa REAL del PDF (`POST /presupuestos/vista-previa`, no guarda ni
 gasta número), como la de la factura. Rutas en [routes/instaladorApp.js](implementation/backend/routes/instaladorApp.js)
 (`enforceAuth` + beta): `GET /presupuestos`, `GET /presupuestos/nuevo`, `POST /presupuestos/vista-previa`,
 `POST /presupuestos`, `GET|PUT /presupuestos/:id`, `POST …/anular`, `GET …/pdf`, `POST …/whatsapp`,
@@ -126,6 +127,48 @@ Al ligarlo, el PDF se guarda además como `PRESUPUESTO DE LA INSTALACIÓN.pdf` e
 donde lo buscan la acción «Tu presupuesto» de la obra y los anexos de la propuesta (sin eso la obra
 seguía diciendo «Aún no tenemos tu presupuesto» con uno hecho en la app). **Solo si ahí no hay ninguno**:
 el que subió él o leyó el equipo no se pisa ni pasa a `_old`.
+
+### Paso a paso, y el equipo de su catálogo, de otra marca o genérico (22/11/2026)
+
+Fran, tras probarlo: «que sea como por pasos y se vayan cerrando los pasos conforme se van haciendo… se
+selecciona el cliente y se cierra, luego se puede volver en cualquier momento. La selección de los
+modelos de aerotermia y marca, que filtre por marca y por modelo o si quiere poner uno genérico también,
+pero que sean fáciles de elegir o quitar y cambiar… muchas de las cosas se harán con el teléfono». Antes
+eran cinco tarjetas abiertas a la vez (en el móvil, cuatro pantallas de scroll) y el equipo eran dos
+cajas de texto con un `datalist` de marcas y hasta cuatro sugerencias, que desaparecían en cuanto había
+uno elegido: cambiarlo era borrar a mano.
+
+**REGLA — el formulario va en PASOS, UNO abierto cada vez; cerrado, cada paso dice en una línea lo que
+tiene y se reabre tocándolo.** Seis pasos (cinco en «otra obra», que no tiene equipo: lo que lleva se
+escribe en la obra). «Seguir con …» cierra el paso y abre el siguiente que falte; elegir un cliente de la
+lista sigue SOLO. Un paso visto y completo lleva ✓ verde; visto e incompleto, «!» en ámbar. Al entrar: en
+uno nuevo se abre el primero que falta (desde la ficha de un cliente, ya la obra o el equipo); en «Hacer
+otro igual», el cliente; **cambiando uno hecho, todos cerrados** (se ve el presupuesto entero en seis
+filas y se toca lo que se quiere cambiar). Guardar con algo que falta abre ese paso; un 400/409 del
+servidor abre el paso del campo (`pasoDeCampo`) y pone el error junto a él. El paso que se abre se trae a
+la vista. Qué está listo, los resúmenes, el paso inicial, el siguiente y el de cada error son funciones
+puras de [logic/presupuestoApp.js](implementation/frontend/src/features/instalador/logic/presupuestoApp.js)
+(`pasosDe`, `pasosListos`, `resumenesDe`, `pasoInicial`, `siguientePaso`, `pasoDeCampo`).
+
+**REGLA — el equipo se pone de TRES maneras, a un toque: «Mi catálogo», «Otro modelo» y «Genérico».**
+[views/ElegirEquipo.jsx](implementation/frontend/src/features/instalador/views/ElegirEquipo.jsx):
+- **Mi catálogo** (solo en aerotermia y si su catálogo tiene equipos: es el SUYO, `/catalogo`, solo sus
+  marcas, reglas 234/240): las marcas en fichas con cuántos modelos tiene cada una, un buscador por
+  modelo, referencia o kW («8 kw») sin tildes ni mayúsculas (`filtrarEquipos`) y la lista a un toque, con
+  los kW delante. Elegido, se queda en una tarjeta con **Cambiar** (abre la lista en su marca, «Dejarlo»
+  la cierra) y **Quitar**. La potencia es la del equipo elegido (`equipoDelCatalogo`), no la del anterior.
+- **Otro modelo**: marca y modelo escritos (la marca sugiere las suyas). Lo elegido del catálogo queda
+  escrito para retocarlo y su id solo se suelta AL TECLEAR: volver a «Mi catálogo» sin tocar nada lo
+  encuentra elegido.
+- **Genérico**: sin marca ni modelo; la línea dice «bomba de calor aire-agua (aerotermia), de X kW»
+  (`conceptosDe` ya lo hacía con marca y modelo vacíos). Se pide al menos la potencia (los litros en
+  agua caliente).
+El modo es solo de pantalla (`equipoModo`, no viaja a la API): uno guardado con id es «catálogo», con
+marca o modelo «otro modelo» y sin nada «genérico» (`modoEquipoDe`).
+
+El CSS de los pasos y del selector va aparte, en [ui/estiloPresupuesto.js](implementation/frontend/src/features/instalador/ui/estiloPresupuesto.js),
+montado solo por el formulario; mismos tokens que `estilo.js`. Comprobado en el banco a 360, 375 y
+1280 px: sin scroll horizontal en ningún paso abierto, y en PC el PDF sigue al lado.
 
 ### Por WhatsApp, en el grupo del instalador
 
@@ -236,5 +279,6 @@ PRESUPUESTO_WA_MODO=copia
 
 Tras tocarlo: `node implementation/backend/scripts/test_presupuesto_instalador.js`,
 `test_presupuesto_grupo_whatsapp.js`, `test_factura_instalador.js`, `test_app_instalador.js`,
-`test_navegacion_instalador.mjs`, `test_rutas_sin_sesion.js`, `auditar_rutas_sin_guardian.js`,
-`npm run build` y el banco (`?seccion=presupuestos`, `?presupuesto=nuevo`).
+`test_navegacion_instalador.mjs`, `test_presupuesto_pasos.mjs`, `test_rutas_sin_sesion.js`,
+`auditar_rutas_sin_guardian.js`, `npm run build` y el banco a 360 y 1280 px (`?seccion=presupuestos`,
+`?presupuesto=nuevo`).

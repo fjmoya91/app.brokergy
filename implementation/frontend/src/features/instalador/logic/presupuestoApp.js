@@ -90,6 +90,9 @@ export function estadoInicial({ opciones = {}, entrada = null, cliente = null } 
         obra,
         misma,
         dir: misma ? { ...DIR_VACIA } : dirObra,
+        // Cómo se elige el equipo (solo pantalla, no viaja): del catálogo, escrito a mano o
+        // genérico. Sin decir (null) lo decide la pantalla según haya catálogo.
+        equipoModo: modoEquipoDe(obra.equipo, !!src.obra),
         conceptosMano: aMano,
         autoAlEditar: aMano ? auto : null,
         extrasTocados: Array.isArray(obraSrc.extras),
@@ -239,3 +242,142 @@ export function simulacionDesde({ presupuesto: p, entrada } = {}) {
  */
 export const obraDelPresupuesto = (p) => (typeof p?.obra === 'string' ? p.obra : null) || p?.id_oportunidad || p?.obra?.oportunidad || null;
 export const estaLigado = (p) => !!(obraDelPresupuesto(p) || p?.oportunidad_id);
+
+// ── Los PASOS del formulario (22/11/2026) ─────────────────────────────────────────────
+// Fran: «que sea como por pasos y se vayan cerrando conforme se van haciendo… se selecciona el
+// cliente y se cierra, luego se puede volver en cualquier momento». Cada paso cerrado enseña
+// en una línea lo que tiene; la pantalla abre uno cada vez.
+
+/** Equipo guardado → cómo se eligió. `guardado` = viene de un presupuesto ya hecho (vacío = genérico). */
+export function modoEquipoDe(equipo, guardado = false) {
+    if (equipo?.aerotermia_id) return 'catalogo';
+    if (recorta(equipo?.marca) || recorta(equipo?.modelo)) return 'mano';
+    return guardado ? 'generico' : null;
+}
+
+/** El modo que se ve: el elegido o, sin elegir, el catálogo si es aerotermia y hay equipos. */
+export function modoEquipoVisible(f, hayCatalogo) {
+    const tipo = tipoDe(f?.obra);
+    const m = f?.equipoModo;
+    if (m === 'catalogo' && !(tipo === 'aerotermia' && hayCatalogo)) return 'mano';
+    if (m) return m;
+    return tipo === 'aerotermia' && hayCatalogo ? 'catalogo' : 'mano';
+}
+
+/** Los pasos, en orden. En «otra obra» no hay equipo: lo que lleva se escribe en la obra. */
+export function pasosDe(f) {
+    const base = ['cliente', 'obra', 'equipo', 'incluye', 'precio', 'datos'];
+    return tipoDe(f?.obra) === 'otro' ? base.filter((k) => k !== 'equipo') : base;
+}
+
+const sinTildesP = (s) => txt(s).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+/**
+ * Los equipos del catálogo que casan con la marca (exacta, sin tildes ni mayúsculas) y con lo
+ * buscado (todas las palabras: marca, nombre, referencias o «8 kw»). Ordenados por marca y potencia.
+ */
+export function filtrarEquipos(equipos, { marca = '', q = '' } = {}) {
+    const m = sinTildesP(marca);
+    const palabras = sinTildesP(q).replace(/(\d),(\d)/g, '$1.$2').split(/\s+/).filter(Boolean);
+    return (Array.isArray(equipos) ? equipos : [])
+        .filter((e) => !m || sinTildesP(e?.marca) === m)
+        .filter((e) => {
+            if (!palabras.length) return true;
+            const r = e?.referencias || {};
+            const kwTxt = e?.potencia_kw != null ? `${e.potencia_kw} ${e.potencia_kw}kw kw` : '';
+            const pajar = sinTildesP([e?.marca, e?.nombre, e?.ref, r.conjunto, r.exterior, r.interior, kwTxt].filter(Boolean).join(' '));
+            return palabras.every((w) => pajar.includes(w));
+        })
+        .slice()
+        .sort((a, b) => txt(a?.marca).localeCompare(txt(b?.marca), 'es') || (Number(a?.potencia_kw) || 0) - (Number(b?.potencia_kw) || 0) || txt(a?.nombre).localeCompare(txt(b?.nombre), 'es'));
+}
+
+/** Del catálogo al equipo del presupuesto: la potencia es la del equipo nuevo, no la del anterior. */
+export function equipoDelCatalogo(x) {
+    return { aerotermia_id: x.id, marca: txt(x.marca), modelo: txt(x.ref || x.nombre), potencia_kw: x.potencia_kw != null ? String(x.potencia_kw).replace('.', ',') : '' };
+}
+
+const fechaCorta = (iso) => { const [a, m, d] = txt(iso).split('-'); return a && m && d ? `${d}/${m}/${a}` : ''; };
+const kwTexto = (v) => { const s = recorta(v); return s ? `${s.replace('.', ',')} kW` : ''; };
+const titulo = (s) => recorta(s).toLowerCase().replace(/(^|[\s-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+
+/**
+ * ¿Está listo cada paso? `calc` = lo de `calcularPresupuesto`; `hayCatalogo` para saber el modo del equipo.
+ * Solo el cliente, el precio, el nº y la fecha impiden guardar; lo demás se avisa.
+ */
+export function pasosListos(f, { calc = null, hayCatalogo = false } = {}) {
+    const o = f.obra;
+    const tipo = tipoDe(o);
+    const dirCliente = tieneDireccion(f.cliente);
+    const conDir = (f.misma && dirCliente) || !!recorta(f.dir?.direccion);
+    const modo = modoEquipoVisible(f, hayCatalogo);
+    return {
+        cliente: f.clienteModo === 'elegido' || (f.clienteModo === 'nuevo' && !!recorta(f.cliente?.nombre)),
+        obra: conDir && (tipo !== 'otro' || !!recorta(o.descripcion)),
+        equipo: modo === 'catalogo' ? !!o.equipo?.aerotermia_id : modo === 'mano' ? !!(recorta(o.equipo?.marca) || recorta(o.equipo?.modelo)) : true,
+        incluye: conceptosVisibles(f).some((l) => recorta(l)),
+        precio: !!calc && calc.total > 0 && !(calc.errores || []).length,
+        datos: !!recorta(f.numero) && !!f.fecha,
+    };
+}
+
+/** Lo que dice cada paso cerrado, en una línea (o dos, separadas por « · »). */
+export function resumenesDe(f, { calc = null, catalogo = [], hayCatalogo = false, eur = (n) => String(n), tel = (s) => s } = {}) {
+    const o = f.obra;
+    const tipo = tipoDe(o);
+    const c = f.cliente || {};
+    const nombre = titulo([c.nombre, c.apellidos].filter(Boolean).join(' '));
+    const tlf = recorta(c.tlf) ? tel(recorta(c.tlf)) : '';
+    const cliente = f.clienteModo === 'elegido' ? [nombre || 'Sin nombre', tlf, titulo(c.municipio)].filter(Boolean).join(' · ')
+        : f.clienteModo === 'nuevo' && recorta(c.nombre) ? `Nuevo: ${[nombre, tlf].filter(Boolean).join(' · ')}`
+            : 'Sin elegir';
+    const dir = f.misma && tieneDireccion(c) ? [recorta(c.direccion), titulo(c.municipio)].filter(Boolean).join(', ')
+        : [recorta(f.dir?.direccion), titulo(f.dir?.municipio)].filter(Boolean).join(', ');
+    let que;
+    if (tipo === 'aerotermia') {
+        const comb = { gasoleo: 'gasóleo', gas: 'gas natural', glp: 'propano', electrica: 'eléctrica', lena: 'leña', pellets: 'pellets', carbon: 'carbón' }[o.caldera?.combustible];
+        const emisor = { radiadores: 'radiadores', suelo: 'suelo radiante', fancoils: 'fancoils' }[o.emisor || 'radiadores'];
+        que = ['Aerotermia', comb ? `quita caldera de ${comb}` : 'sin caldera que quitar', emisor, o.acs ? 'con agua caliente' : 'solo calefacción'].join(' · ');
+    } else if (tipo === 'acs') que = 'Bomba de calor para agua caliente';
+    else if (tipo === 'aire') que = 'Aire acondicionado';
+    else { const l = recorta(o.descripcion).split(/\r?\n/)[0] || 'Otra obra (sin describir)'; que = l.length > 60 ? `${l.slice(0, 57)}…` : l; }
+    const obra = dir ? `${que} · ${dir}` : `${que} · falta la dirección`;
+    const modo = modoEquipoVisible(f, hayCatalogo);
+    const eq = o.equipo || {};
+    const delCat = eq.aerotermia_id ? (catalogo || []).find((x) => String(x.id) === String(eq.aerotermia_id)) : null;
+    const pot = kwTexto(eq.potencia_kw);
+    const litros = tipo === 'acs' && recorta(eq.litros) ? `${recorta(eq.litros)} l` : '';
+    let equipo;
+    if (modo === 'generico') equipo = ['Genérico, sin marca ni modelo', pot, litros].filter(Boolean).join(' · ');
+    else if (modo === 'catalogo') equipo = eq.aerotermia_id ? [titulo(eq.marca), delCat?.nombre || recorta(eq.modelo), pot].filter(Boolean).join(' · ') : 'Sin elegir';
+    else equipo = recorta(eq.marca) || recorta(eq.modelo) ? [titulo(eq.marca), recorta(eq.modelo), pot, litros].filter(Boolean).join(' · ') : 'Sin elegir';
+    const n = conceptosVisibles(f).filter((l) => recorta(l)).length;
+    const incluye = `${n} ${n === 1 ? 'línea' : 'líneas'}${f.conceptosMano ? ' · cambiadas por ti' : ''}`;
+    const precio = calc && calc.total > 0 ? `${eur(calc.total)} con IVA (${f.iva_pct} %)${f.modo === 'partidas' ? ' · por partidas' : ''}` : 'Sin precio';
+    const datos = [recorta(f.numero) ? `Nº ${recorta(f.numero)}` : 'Sin número', fechaCorta(f.fecha), Number(f.validez_dias) ? `vale ${Number(f.validez_dias)} días` : ''].filter(Boolean).join(' · ');
+    return { cliente, obra, equipo, incluye, precio, datos };
+}
+
+/** El paso de cada error del servidor (los de `erroresPorCampo`). */
+export function pasoDeCampo(campo, f) {
+    if (campo === 'numero' || campo === 'fecha') return 'datos';
+    if (campo === 'cliente') return 'cliente';
+    if (campo === 'direccion') return f?.clienteModo === 'nuevo' && f?.misma ? 'cliente' : 'obra';
+    if (campo === 'precio') return 'precio';
+    if (campo === 'conceptos') return 'incluye';
+    return null;
+}
+
+/** El paso que se abre al entrar: cambiando uno hecho, ninguno (se ve todo cerrado); si no, el primero que falte. */
+export function pasoInicial(f, modo, listos) {
+    if (modo === 'editar') return null;
+    if (modo === 'duplicar') return 'cliente'; // otro igual: casi siempre para otro cliente
+    return pasosDe(f).find((k) => !listos[k]) || null;
+}
+
+/** Tras «Seguir» en `k`: el siguiente que no esté hecho (visto y listo), o ninguno. */
+export function siguientePaso(f, k, { vistos, listos }) {
+    const orden = pasosDe(f);
+    const i = orden.indexOf(k);
+    return orden.slice(i + 1).find((p) => !(vistos.has(p) && listos[p])) || null;
+}

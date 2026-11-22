@@ -1,17 +1,23 @@
 // ─── El PRESUPUESTO que el instalador hace para su cliente (22/11/2026) ─────────────────
 // Fran (beta RCA): «igual que hay simulación y factura, que pueda hacer un presupuesto con la
 // MISMA plantilla que su factura… el texto predefinido y editable, lo más fácil posible».
-// UNA pantalla que se va rellenando sola, de arriba abajo: el cliente, la obra, lo que
-// incluye (el texto de `logic/presupuesto.js`, el mismo que imprime el servidor), el precio
-// y el número. Al lado (PC) o en una hoja (móvil), el PDF DE VERDAD que compone el servidor
-// con su plantilla (`POST /presupuestos/vista-previa`, el mismo retardo que la factura),
-// pintado con la `VistaPrevia` de FacturaObraView.
+// Al lado (PC) o en una hoja (móvil), el PDF DE VERDAD que compone el servidor con su plantilla
+// (`POST /presupuestos/vista-previa`, el mismo retardo que la factura), pintado con la
+// `VistaPrevia` de FacturaObraView.
+//
+// PASO A PASO (22/11/2026, Fran: «que se vayan cerrando los pasos conforme se van haciendo…
+// se selecciona el cliente y se cierra, luego se puede volver en cualquier momento… piensa que
+// muchas cosas se harán con el teléfono»). Seis pasos (cinco en «otra obra»): el cliente, la
+// obra, el equipo, lo que incluye, el precio y el número. UNO abierto cada vez; cerrado, cada
+// paso dice en una línea lo que tiene y se reabre tocándolo. «Seguir» cierra el paso y abre el
+// siguiente que falte (elegir un cliente de la lista sigue solo). Lo que decide cada paso, sus
+// resúmenes y a qué paso va cada error son funciones puras de `logic/presupuestoApp.js`.
 //
 // REGLA — mientras el instalador no toque las líneas, se regeneran solas al cambiar la obra;
 // en cuanto las toca, ya no se pisan: se avisa y se ofrece volver al texto recomendado.
 // REGLA — guardar va con el popup de la casa (SendActionOverlay); un 400 o un 409 del
-// servidor cierra el popup y el error se pone JUNTO A SU CAMPO (el número repetido, con el
-// que sugiere el servidor a un toque).
+// servidor cierra el popup, ABRE EL PASO del campo y el error se pone junto a él (el número
+// repetido, con el que sugiere el servidor a un toque).
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { VistaPrevia } from '../../public/views/FacturaObraView';
@@ -20,11 +26,17 @@ import {
 } from '../logic/presupuesto';
 import {
     estadoInicial, entradaDe, conceptosVisibles, extrasAlCambiarObra, erroresPorCampo, clienteDeFicha, tieneDireccion,
-    CLIENTE_VACIO,
+    CLIENTE_VACIO, pasosDe, pasosListos, resumenesDe, pasoDeCampo, pasoInicial, siguientePaso, modoEquipoVisible,
 } from '../logic/presupuestoApp';
 import { Icono, Esqueleto, AvisoError, sinTildes, nombrePropio, telefonoBonito, useHojaTeclado } from '../ui/piezas';
+import { CSS_PRESUPUESTO } from '../ui/estiloPresupuesto';
+import { ElegirEquipo } from './ElegirEquipo';
 
 const RETARDO_PREVIA = 650; // el mismo que la factura
+
+const TITULOS = { cliente: 'El cliente', obra: 'La obra', equipo: 'El equipo', incluye: 'Lo que incluye', precio: 'El precio', datos: 'Número y fecha' };
+const SIGUIENTE = { cliente: 'el cliente', obra: 'la obra', equipo: 'el equipo', incluye: 'lo que incluye', precio: 'el precio', datos: 'el número' };
+const CAMPOS_ERROR = ['numero', 'fecha', 'cliente', 'direccion', 'precio', 'conceptos'];
 
 /** El popup de guardar. Si el error es «de un campo» (400/409) se cierra y lo cuenta el campo. */
 export function useGuardado() {
@@ -59,6 +71,7 @@ const filtrarClientes = (lista, q) => {
     }).slice(0, 6);
 };
 const nombreDe = (c) => nombrePropio([c?.nombre, c?.apellidos].filter(Boolean).join(' ')) || 'Sin nombre';
+const calcDe = (ent) => (ent ? calcularPresupuesto({ conceptos: ent.conceptos, modo: ent.modo, total: ent.total, partidas: ent.partidas, iva_pct: ent.iva_pct, con_iva: ent.con_iva }) : null);
 
 function Campo({ etiqueta, error, ayuda, children, className = '' }) {
     return (
@@ -72,12 +85,34 @@ function Campo({ etiqueta, error, ayuda, children, className = '' }) {
 const Chip = ({ activo, onClick, children, peq = false }) => (
     <button type="button" className={`ia-filtro${peq ? ' peq' : ''}`} aria-pressed={activo ? 'true' : 'false'} onClick={onClick}>{children}</button>
 );
-const Seccion = ({ n, titulo, hecho, children, id }) => (
-    <section className="ia-card ia-pr-sec" aria-labelledby={id}>
-        <h2 id={id}><span className="ia-pr-n" aria-hidden="true">{n}</span>{titulo}{hecho && <span className="ok" aria-label="Hecho"><Icono n="ok" size={20} grosor={2.6} /></span>}</h2>
-        {children}
-    </section>
-);
+
+/** Un paso: cerrado, una fila de un toque con lo que tiene; abierto, su contenido y «Seguir». */
+function Paso({ k, n, abierto, estado, resumen, onTocar, onSeguir, seguirTexto, children }) {
+    const idC = `ia-ps-${k}-c`;
+    return (
+        <section className={`ia-card ia-ps${abierto ? ' abierto' : ''}`} id={`ia-ps-${k}`}>
+            <h2 className="ia-ps-h">
+                <button type="button" aria-expanded={abierto ? 'true' : 'false'} aria-controls={idC} onClick={onTocar}>
+                    <span className={`ia-ps-n${!abierto && estado ? ` ${estado}` : ''}`} aria-hidden="true">
+                        {!abierto && estado === 'ok' ? <Icono n="ok" size={18} grosor={2.8} /> : !abierto && estado === 'falta' ? '!' : n}
+                    </span>
+                    <span className="ia-ps-t">
+                        <b>{TITULOS[k]}</b>
+                        {!abierto && resumen && <small className={estado === 'falta' ? 'falta' : ''}>{resumen}</small>}
+                    </span>
+                    {abierto ? <span className="ia-ps-flecha" aria-hidden="true"><Icono n="chevron" size={20} /></span>
+                        : <span className="ia-ps-cambiar">{estado ? 'Cambiar' : 'Abrir'}</span>}
+                </button>
+            </h2>
+            {abierto && (
+                <div className="ia-ps-c" id={idC}>
+                    {children}
+                    {onSeguir && <button type="button" className="ia-btn ia-btn-sec ia-ps-seguir" onClick={onSeguir}>{seguirTexto}</button>}
+                </div>
+            )}
+        </section>
+    );
+}
 
 /** Móvil: el PDF en una hoja (con teclado: foco dentro, Escape, foco devuelto). */
 function HojaPdf({ pdf, cargando, total, onCerrar }) {
@@ -117,48 +152,59 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
     const [previaCargando, setPreviaCargando] = useState(false);
     const [desborda, setDesborda] = useState(false);
     const [verHoja, setVerHoja] = useState(false);
+    // Los pasos: `abierto` = el que se ve (undefined = aún sin decidir; null = todos cerrados);
+    // `vistos` = los que ya se han pasado (enseñan ✓ o «!» al cerrarse).
+    const [abierto, setAbierto] = useState(undefined);
+    const [vistos, setVistos] = useState(() => new Set());
+    const [avanzar, setAvanzar] = useState(null);
+    const irA = useRef(null);
     const guardado = useGuardado();
     const montado = useRef(true);
     useEffect(() => () => { montado.current = false; }, []);
+
+    const hayCatalogo = (catalogo?.equipos || []).length > 0;
+    const listosDe = (st) => pasosListos(st, { calc: calcDe(entradaDe(st)), hayCatalogo });
 
     const obraDesde = desde?.obra || entrada?.obra?.oportunidad || null;
     const clienteDesde = desde?.cliente || null;
     useEffect(() => {
         let vivo = true;
         setFalloCarga(false);
+        const arrancar = (st) => {
+            setF((prev) => prev || st);
+            const listos = pasosListos(st, { calc: calcDe(entradaDe(st)), hayCatalogo: false });
+            setAbierto((a) => (a !== undefined ? a : pasoInicial(st, modo, listos)));
+            // Nuevo: solo cuentan como vistos lo que ya viene hecho de fuera (el cliente desde su
+            // ficha, el nº y la fecha); la obra, el equipo y lo que incluye hay que pasarlos.
+            setVistos((v) => (v.size ? v : new Set(modo === 'editar' || modo === 'duplicar' ? pasosDe(st) : ['cliente', 'datos'].filter((k) => listos[k]))));
+        };
         api.presupuestoNuevo({ obra: obraDesde, cliente: clienteDesde?.id_cliente || null })
             .then((o) => {
                 if (!vivo) return;
                 setOpciones(o || {});
                 const ent = modo === 'editar' ? entrada
                     : modo === 'duplicar' && entrada ? { ...entrada, numero: o?.numero || '', fecha: o?.fecha || entrada.fecha } : null;
-                setF((prev) => {
-                    if (prev) return prev;
-                    const st = estadoInicial({ opciones: o || {}, entrada: ent, cliente: clienteDesde });
-                    // Hecho desde una obra: queda ligado a ella aunque el servidor no lo devuelva puesto.
-                    if (obraDesde && !st.obra.oportunidad) st.obra = { ...st.obra, oportunidad: obraDesde };
-                    return st;
-                });
+                const st = estadoInicial({ opciones: o || {}, entrada: ent, cliente: clienteDesde });
+                // Hecho desde una obra: queda ligado a ella aunque el servidor no lo devuelva puesto.
+                if (obraDesde && !st.obra.oportunidad) st.obra = { ...st.obra, oportunidad: obraDesde };
+                arrancar(st);
             })
             .catch(() => {
                 if (!vivo) return;
                 // Cambiando uno ya hecho, se puede seguir sin las opciones (el nº y lo demás ya están).
-                if (modo === 'editar' && entrada) { setOpciones({}); setF((prev) => prev || estadoInicial({ entrada })); } else setFalloCarga(true);
+                if (modo === 'editar' && entrada) { setOpciones({}); arrancar(estadoInicial({ entrada })); } else setFalloCarga(true);
             });
         return () => { vivo = false; };
     }, [api, intento]); // eslint-disable-line react-hooks/exhaustive-deps
     useEffect(() => {
         let vivo = true;
         api.clientes().then((l) => { if (vivo) setClientes(Array.isArray(l) ? l : []); }).catch(() => { if (vivo) setClientes([]); });
-        api.catalogo?.().then((c) => { if (vivo) setCatalogo(c?.equipos || []); }).catch(() => { if (vivo) setCatalogo([]); });
+        api.catalogo?.().then((c) => { if (vivo) setCatalogo(c && typeof c === 'object' ? c : { equipos: [] }); }).catch(() => { if (vivo) setCatalogo({ equipos: [] }); });
         return () => { vivo = false; };
     }, [api]);
 
-    const conceptos = f ? conceptosVisibles(f) : [];
     const ent = useMemo(() => (f ? entradaDe(f) : null), [f]);
-    const calc = useMemo(() => (ent ? calcularPresupuesto({ conceptos: ent.conceptos, modo: ent.modo, total: ent.total, partidas: ent.partidas, iva_pct: ent.iva_pct, con_iva: ent.con_iva }) : null), [ent]);
-    const auto = f ? conceptosDe(f.obra) : [];
-    const autoCambio = !!(f?.conceptosMano && f.autoAlEditar && JSON.stringify(f.autoAlEditar) !== JSON.stringify(auto));
+    const calc = useMemo(() => calcDe(ent), [ent]);
 
     // La vista previa: el PDF de verdad, pedido un rato después de dejar de teclear.
     const clavePrevia = ent ? JSON.stringify(ent) : '';
@@ -174,8 +220,41 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
         return () => clearTimeout(t);
     }, [clavePrevia]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // ── Moverse entre pasos (antes de los `return`: las usa un efecto) ──
+    /** Cierra `k` como visto y abre el siguiente que falte (o ninguno, y se va a «Guardar»). */
+    const seguirDesde = (k, st = f) => {
+        const v = new Set(vistos); v.add(k);
+        const sig = siguientePaso(st, k, { vistos: v, listos: listosDe(st) });
+        setVistos(v);
+        setAbierto(sig);
+        irA.current = sig ? `ia-ps-${sig}` : `ia-ps-${k}`;
+    };
+    // Elegir un cliente de la lista sigue solo, pero con el estado ya puesto.
+    useEffect(() => {
+        if (!avanzar || !f) return;
+        setAvanzar(null);
+        seguirDesde(avanzar, f);
+    }, [avanzar, f]); // eslint-disable-line react-hooks/exhaustive-deps
+    // El paso que se abre se trae a la vista (en el móvil, el anterior se ha plegado encima).
+    useEffect(() => {
+        const destino = irA.current;
+        if (!destino) return undefined;
+        irA.current = null;
+        const raf = requestAnimationFrame(() => {
+            const el = document.getElementById(destino);
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            if (r.top < 8 || r.top > window.innerHeight * 0.45) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [abierto, vistos]);
+
     if (falloCarga) return <div className="ia-pagina estrecha"><Volver onVolver={onVolver} texto={volverTexto} /><AvisoError onReintentar={() => setIntento((n) => n + 1)} /></div>;
-    if (!f) return <div className="ia-pagina estrecha"><Volver onVolver={onVolver} texto={volverTexto} /><Esqueleto alto={160} n={3} /></div>;
+    if (!f) return <div className="ia-pagina estrecha"><Volver onVolver={onVolver} texto={volverTexto} /><Esqueleto alto={72} n={5} /></div>;
+
+    const conceptos = conceptosVisibles(f);
+    const auto = conceptosDe(f.obra);
+    const autoCambio = !!(f.conceptosMano && f.autoAlEditar && JSON.stringify(f.autoAlEditar) !== JSON.stringify(auto));
 
     // ── Cambiar el estado ──
     const pon = (cambio) => setF((x) => ({ ...x, ...cambio }));
@@ -193,6 +272,7 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
         setF((x) => ({ ...x, cliente_id: cid, cliente: { ...CLIENTE_VACIO, ...datos }, clienteModo: 'elegido', misma: tieneDireccion(datos) ? x.misma : false }));
         setQ('');
         setErrores((e) => ({ ...e, cliente: null }));
+        setAvanzar('cliente');
     };
     const clienteNuevo = () => {
         const t = q.trim();
@@ -218,25 +298,44 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
     const recomendado = () => pon({ conceptosMano: null, autoAlEditar: null });
     const ponPartida = (i, k, v) => setF((x) => { const p = [...x.partidas]; p[i] = { ...(p[i] || {}), [k]: v }; return { ...x, partidas: p }; });
 
+    // ── Los pasos ──
+    const orden = pasosDe(f);
+    const listos = pasosListos(f, { calc, hayCatalogo });
+    const resumenes = resumenesDe(f, { calc, catalogo: catalogo?.equipos || [], hayCatalogo, eur, tel: telefonoBonito });
+    const conError = new Set(CAMPOS_ERROR.filter((c) => errores[c]).map((c) => pasoDeCampo(c, f)).filter(Boolean));
+    const estadoDe = (k) => (conError.has(k) ? 'falta' : vistos.has(k) ? (listos[k] ? 'ok' : 'falta') : null);
+    const tocar = (k) => {
+        const v = new Set(vistos);
+        if (abierto) v.add(abierto);
+        setVistos(v);
+        if (abierto === k) { setAbierto(null); return; }
+        setAbierto(k);
+        irA.current = `ia-ps-${k}`;
+    };
+    const textoSeguir = (k) => {
+        const v = new Set(vistos); v.add(k);
+        const sig = siguientePaso(f, k, { vistos: v, listos });
+        return sig ? `Seguir con ${SIGUIENTE[sig]}` : 'Listo';
+    };
+    const pasoProps = (k) => ({
+        k, n: orden.indexOf(k) + 1, abierto: abierto === k, estado: estadoDe(k), resumen: resumenes[k],
+        onTocar: () => tocar(k), onSeguir: () => seguirDesde(k), seguirTexto: textoSeguir(k),
+    });
+
     // ── Lo que se ve ──
     const o = f.obra;
     const tipo = tipoDe(o);
     const extras = extrasDe(tipo);
     const elegidos = new Set((o.extras || []).map((e) => e.clave));
     const encontrados = filtrarClientes(clientes, q);
-    const catMarcas = [...new Set((catalogo || []).map((x) => x.marca).filter(Boolean))];
-    const tq = sinTildes(`${o.equipo.marca} ${o.equipo.modelo}`);
-    const sugerencias = tipo === 'aerotermia' && catalogo?.length && !o.equipo.aerotermia_id
-        ? catalogo.filter((x) => {
-            const pajar = sinTildes(`${x.marca} ${x.nombre} ${x.ref || ''}`);
-            return tq ? tq.split(/\s+/).filter(Boolean).every((w) => pajar.includes(w)) : true;
-        }).slice(0, 4)
-        : [];
-    const usarEquipo = (x) => ponEquipo({ aerotermia_id: x.id, marca: x.marca || '', modelo: x.ref || x.nombre || '', potencia_kw: o.equipo.potencia_kw || x.potencia_kw || '' });
     const totalTxt = calc && calc.total > 0 ? eur(calc.total) : '—';
-    const clienteListo = f.clienteModo === 'elegido' || (f.clienteModo === 'nuevo' && f.cliente.nombre.trim());
+    const clienteListo = listos.cliente;
     const dirCliente = tieneDireccion(f.cliente);
-    const precioListo = !!calc && calc.total > 0;
+    const modoEquipo = modoEquipoVisible(f, hayCatalogo);
+    const cambiarTipo = (t) => {
+        ponObra({ tipo: t }, true);
+        if (t === 'otro' && abierto === 'equipo') setAbierto(null);
+    };
 
     const guardar = async () => {
         const falta = [];
@@ -245,7 +344,14 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
         if (!f.fecha) falta.push('la fecha');
         if (calc?.errores?.length) falta.push(...calc.errores.map((m) => m.replace(/\.$/, '').toLowerCase()));
         setFaltan(falta);
-        if (falta.length) return;
+        if (falta.length) {
+            // Se abre el primer paso que falta, para que se vea dónde.
+            const primero = ['cliente', 'precio', 'datos'].find((k) => !listos[k]) || 'precio';
+            setVistos(new Set(orden));
+            setAbierto(primero);
+            irA.current = `ia-ps-${primero}`;
+            return;
+        }
         setErrores({ general: [] });
         const ok = modo === 'editar' ? '¡Presupuesto cambiado!' : '¡Presupuesto guardado!';
         try {
@@ -257,7 +363,11 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                         const st = e?.response?.status;
                         if (st !== 400 && st !== 409) return false;
                         const porCampo = erroresPorCampo(e);
-                        if (montado.current) setErrores(porCampo);
+                        if (montado.current) {
+                            setErrores(porCampo);
+                            const paso = CAMPOS_ERROR.filter((c) => porCampo[c]).map((c) => pasoDeCampo(c, f)).find(Boolean);
+                            if (paso) { setVistos(new Set(orden)); setAbierto(paso); irA.current = `ia-ps-${paso}`; }
+                        }
                         return true;
                     },
                 },
@@ -269,17 +379,18 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
     const titulo = modo === 'editar' ? `Cambiar el presupuesto ${f.numero || ''}`.trim() : modo === 'duplicar' ? 'Otro presupuesto igual' : 'Nuevo presupuesto';
     return (
         <div className="ia-pagina ancha" style={{ paddingTop: 0 }}>
+            <style>{CSS_PRESUPUESTO}</style>
             <Volver onVolver={onVolver} texto={volverTexto} />
             <div className="ia-accion-cab ia-entra">
                 <p className="ia-eyebrow">{opciones?.emisor?.nombre || 'Tu presupuesto'}</p>
                 <h1 className="ia-display">{titulo}</h1>
-                <p>Rellena de arriba abajo. El texto sale solo y lo puedes cambiar; a la derecha ves el PDF tal cual le llega a tu cliente.</p>
+                <p>{modo === 'editar' ? 'Toca el paso que quieras cambiar.' : 'Paso a paso: cada uno se cierra al terminarlo y puedes volver a cualquiera tocándolo.'} El texto sale solo y lo puedes cambiar.</p>
             </div>
 
             <div className="ia-pr-dos">
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14, minWidth: 0 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
                     {/* 1 · El cliente */}
-                    <Seccion n={1} titulo="El cliente" hecho={clienteListo} id="ia-pr-cli">
+                    <Paso {...pasoProps('cliente')} onSeguir={clienteListo ? () => seguirDesde('cliente') : null}>
                         {f.clienteModo === 'elegido' ? (
                             <>
                                 <div className="ia-pr-elegido">
@@ -290,22 +401,22 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                                     </div>
                                     <button type="button" className="ia-link" onClick={() => pon({ clienteModo: 'buscar', cliente_id: null })}>Cambiar</button>
                                 </div>
-                                {!dirCliente && <p className="ia-pequeno" style={{ margin: 0 }}>Su ficha no tiene dirección: pon abajo la de la obra.</p>}
+                                {!dirCliente && <p className="ia-pequeno" style={{ margin: 0 }}>Su ficha no tiene dirección: la pones en «La obra».</p>}
                             </>
                         ) : f.clienteModo === 'nuevo' ? (
                             <>
                                 <div className="ia-pr-fila2 mitad">
-                                    <Campo etiqueta="Nombre"><input type="text" value={f.cliente.nombre} onChange={(e) => ponCliente('nombre', e.target.value)} autoComplete="off" /></Campo>
-                                    <Campo etiqueta="Apellidos"><input type="text" value={f.cliente.apellidos} onChange={(e) => ponCliente('apellidos', e.target.value)} autoComplete="off" /></Campo>
+                                    <Campo etiqueta="Nombre"><input type="text" value={f.cliente.nombre} onChange={(e) => ponCliente('nombre', e.target.value)} autoComplete="off" autoCapitalize="words" enterKeyHint="next" /></Campo>
+                                    <Campo etiqueta="Apellidos"><input type="text" value={f.cliente.apellidos} onChange={(e) => ponCliente('apellidos', e.target.value)} autoComplete="off" autoCapitalize="words" enterKeyHint="next" /></Campo>
                                 </div>
                                 <div className="ia-pr-fila2 mitad">
-                                    <Campo etiqueta="Teléfono"><input type="tel" inputMode="tel" value={f.cliente.tlf} onChange={(e) => ponCliente('tlf', e.target.value)} autoComplete="off" /></Campo>
-                                    <Campo etiqueta="DNI (si lo tienes)"><input type="text" value={f.cliente.dni} onChange={(e) => ponCliente('dni', e.target.value.toUpperCase())} autoComplete="off" /></Campo>
+                                    <Campo etiqueta="Teléfono"><input type="tel" inputMode="tel" value={f.cliente.tlf} onChange={(e) => ponCliente('tlf', e.target.value)} autoComplete="off" enterKeyHint="next" /></Campo>
+                                    <Campo etiqueta="DNI (si lo tienes)"><input type="text" value={f.cliente.dni} onChange={(e) => ponCliente('dni', e.target.value.toUpperCase())} autoComplete="off" autoCapitalize="characters" enterKeyHint="next" /></Campo>
                                 </div>
-                                <Campo etiqueta="Dirección" error={errores.direccion}><input type="text" value={f.cliente.direccion} onChange={(e) => ponCliente('direccion', e.target.value)} autoComplete="off" placeholder="Calle y número" /></Campo>
+                                <Campo etiqueta="Dirección" error={errores.direccion}><input type="text" value={f.cliente.direccion} onChange={(e) => ponCliente('direccion', e.target.value)} autoComplete="off" placeholder="Calle y número" enterKeyHint="next" /></Campo>
                                 <div className="ia-pr-fila2">
-                                    <Campo etiqueta="C. P."><input type="text" inputMode="numeric" value={f.cliente.codigo_postal} onChange={(e) => ponCliente('codigo_postal', e.target.value.replace(/\D/g, '').slice(0, 5))} autoComplete="off" /></Campo>
-                                    <Campo etiqueta="Pueblo"><input type="text" value={f.cliente.municipio} onChange={(e) => ponCliente('municipio', e.target.value)} autoComplete="off" /></Campo>
+                                    <Campo etiqueta="C. P."><input type="text" inputMode="numeric" value={f.cliente.codigo_postal} onChange={(e) => ponCliente('codigo_postal', e.target.value.replace(/\D/g, '').slice(0, 5))} autoComplete="off" enterKeyHint="next" /></Campo>
+                                    <Campo etiqueta="Pueblo"><input type="text" value={f.cliente.municipio} onChange={(e) => ponCliente('municipio', e.target.value)} autoComplete="off" autoCapitalize="words" enterKeyHint="done" /></Campo>
                                 </div>
                                 <button type="button" className="ia-link" style={{ alignSelf: 'flex-start' }} onClick={() => pon({ clienteModo: 'buscar' })}>Mejor busco entre mis clientes</button>
                             </>
@@ -333,12 +444,12 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                             </>
                         )}
                         {errores.cliente && f.clienteModo !== 'buscar' && <div className="ia-aviso tu" role="alert">{errores.cliente}</div>}
-                    </Seccion>
+                    </Paso>
 
                     {/* 2 · La obra */}
-                    <Seccion n={2} titulo="La obra" id="ia-pr-obra">
+                    <Paso {...pasoProps('obra')}>
                         <div className="ia-chips" role="group" aria-label="Qué obra es">
-                            {TIPOS_OBRA.map((t) => <Chip key={t.clave} activo={tipo === t.clave} onClick={() => ponObra({ tipo: t.clave }, true)}>{t.texto}</Chip>)}
+                            {TIPOS_OBRA.map((t) => <Chip key={t.clave} activo={tipo === t.clave} onClick={() => cambiarTipo(t.clave)}>{t.texto}</Chip>)}
                         </div>
                         {tipo === 'aerotermia' && (
                             <>
@@ -363,41 +474,10 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                                 </fieldset>
                             </>
                         )}
-                        {tipo === 'otro' ? (
+                        {tipo === 'otro' && (
                             <Campo etiqueta="¿Qué obra es?" ayuda="Una línea por cada cosa que incluye: así sale en el presupuesto.">
                                 <textarea rows={4} value={o.descripcion} onChange={(e) => ponObra({ descripcion: e.target.value })} />
                             </Campo>
-                        ) : (
-                            <>
-                                <div className="ia-pr-fila2 mitad">
-                                    <Campo etiqueta="Marca">
-                                        <input type="text" list={catMarcas.length ? 'ia-pr-marcas' : undefined} value={o.equipo.marca} autoComplete="off"
-                                            onChange={(e) => ponEquipo({ marca: e.target.value, aerotermia_id: null })} />
-                                    </Campo>
-                                    <Campo etiqueta="Modelo">
-                                        <input type="text" value={o.equipo.modelo} autoComplete="off" onChange={(e) => ponEquipo({ modelo: e.target.value, aerotermia_id: null })} />
-                                    </Campo>
-                                </div>
-                                {catMarcas.length > 0 && <datalist id="ia-pr-marcas">{catMarcas.map((m) => <option key={m} value={m} />)}</datalist>}
-                                {sugerencias.length > 0 && (
-                                    <div className="ia-pr-lista" aria-label="De tu catálogo">
-                                        {sugerencias.map((x) => (
-                                            <button key={x.id} type="button" onClick={() => usarEquipo(x)}>
-                                                <span className="ia-baldosa c" aria-hidden="true"><Icono n="catalogo" size={16} /></span>
-                                                <span><b>{[x.marca, x.nombre].filter(Boolean).join(' · ')}</b><small>{[x.ref, x.potencia_kw && `${x.potencia_kw} kW`].filter(Boolean).join(' · ')} · de tu catálogo</small></span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                )}
-                                {o.equipo.aerotermia_id && <p className="ia-pequeno" style={{ margin: 0 }}>De tu catálogo. Si lo cambias a mano, se queda como lo escribas.</p>}
-                                <div className="ia-pr-fila2 mitad">
-                                    {tipo === 'acs' ? (
-                                        <Campo etiqueta="Litros (opcional)"><input type="text" inputMode="numeric" value={o.equipo.litros} onChange={(e) => ponEquipo({ litros: e.target.value.replace(/\D/g, '').slice(0, 4) })} /></Campo>
-                                    ) : (
-                                        <Campo etiqueta="Potencia en kW (opcional)"><input type="text" inputMode="decimal" value={o.equipo.potencia_kw} onChange={(e) => ponEquipo({ potencia_kw: e.target.value.replace(/[^\d.,]/g, '').slice(0, 6) })} /></Campo>
-                                    )}
-                                </div>
-                            </>
                         )}
                         <label className="ia-permiso">
                             <input type="checkbox" checked={f.misma && dirCliente} disabled={!dirCliente} onChange={(e) => pon({ misma: e.target.checked })} />
@@ -405,18 +485,30 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                         </label>
                         {!(f.misma && dirCliente) && (
                             <>
-                                <Campo etiqueta="Dirección de la obra" error={f.clienteModo === 'elegido' ? errores.direccion : null}>
-                                    <input type="text" value={f.dir.direccion} onChange={(e) => ponDir('direccion', e.target.value)} placeholder="Calle y número" autoComplete="off" />
+                                <Campo etiqueta="Dirección de la obra" error={f.clienteModo === 'elegido' || !f.misma ? errores.direccion : null}>
+                                    <input type="text" value={f.dir.direccion} onChange={(e) => ponDir('direccion', e.target.value)} placeholder="Calle y número" autoComplete="off" enterKeyHint="next" />
                                 </Campo>
                                 <div className="ia-pr-fila2">
-                                    <Campo etiqueta="C. P."><input type="text" inputMode="numeric" value={f.dir.codigo_postal} onChange={(e) => ponDir('codigo_postal', e.target.value.replace(/\D/g, '').slice(0, 5))} autoComplete="off" /></Campo>
-                                    <Campo etiqueta="Pueblo"><input type="text" value={f.dir.municipio} onChange={(e) => ponDir('municipio', e.target.value)} autoComplete="off" /></Campo>
+                                    <Campo etiqueta="C. P."><input type="text" inputMode="numeric" value={f.dir.codigo_postal} onChange={(e) => ponDir('codigo_postal', e.target.value.replace(/\D/g, '').slice(0, 5))} autoComplete="off" enterKeyHint="next" /></Campo>
+                                    <Campo etiqueta="Pueblo"><input type="text" value={f.dir.municipio} onChange={(e) => ponDir('municipio', e.target.value)} autoComplete="off" autoCapitalize="words" enterKeyHint="done" /></Campo>
                                 </div>
                             </>
                         )}
+                    </Paso>
+
+                    {/* 3 · El equipo (no en «otra obra») */}
+                    {orden.includes('equipo') && (
+                        <Paso {...pasoProps('equipo')}>
+                            <ElegirEquipo tipo={tipo} modo={modoEquipo} equipo={o.equipo} catalogo={catalogo}
+                                onModo={(m) => pon({ equipoModo: m })} onEquipo={ponEquipo} />
+                        </Paso>
+                    )}
+
+                    {/* 4 · Lo que incluye */}
+                    <Paso {...pasoProps('incluye')}>
                         {extras.length > 0 && (
                             <fieldset className="ia-campo">
-                                <legend>¿Qué más lleva?</legend>
+                                <legend>¿Qué más lleva? Toca para añadir o quitar</legend>
                                 <div className="ia-chips">
                                     {extras.map((x) => {
                                         const sel = (o.extras || []).find((e) => e.clave === x.clave);
@@ -434,12 +526,8 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                                 </div>
                             </fieldset>
                         )}
-                    </Seccion>
-
-                    {/* 3 · Lo que incluye */}
-                    <Seccion n={3} titulo="Lo que incluye" id="ia-pr-lineas">
                         <p className="ia-pequeno" style={{ margin: 0, fontSize: 14 }}>
-                            {f.conceptosMano ? 'Lo has cambiado tú: así se queda aunque cambies la obra.' : 'Sale solo con lo que has marcado arriba. Puedes cambiar cualquier línea.'}
+                            {f.conceptosMano ? 'Lo has cambiado tú: así se queda aunque cambies la obra.' : 'Así sale en el presupuesto, con lo que has marcado. Puedes cambiar cualquier línea.'}
                         </p>
                         {autoCambio && (
                             <div className="ia-aviso tu ia-aviso-fila" role="status">
@@ -466,23 +554,24 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                             {conceptos.length < MAX_LINEAS && <button type="button" className="ia-btn ia-btn-sec ia-btn-peq" onClick={anadirLinea}><Icono n="mas" size={18} /> Añadir una línea</button>}
                             {f.conceptosMano && <button type="button" className="ia-link" onClick={recomendado}>Volver al texto recomendado</button>}
                         </div>
-                    </Seccion>
+                    </Paso>
 
-                    {/* 4 · El precio */}
-                    <Seccion n={4} titulo="El precio" hecho={precioListo} id="ia-pr-precio">
+                    {/* 5 · El precio */}
+                    <Paso {...pasoProps('precio')}>
                         <div className="ia-chips" role="group" aria-label="Cómo pones el precio">
                             <Chip activo={f.modo === 'total'} onClick={() => pon({ modo: 'total' })}>Un precio para todo</Chip>
                             <Chip activo={f.modo === 'partidas'} onClick={() => pon({ modo: 'partidas' })}>Por partidas</Chip>
                         </div>
                         {f.modo === 'total' ? (
                             <Campo etiqueta={f.con_iva ? 'Precio de toda la obra, con el IVA' : 'Precio de toda la obra, sin IVA'} error={errores.precio}>
-                                <input type="text" className="ia-precio" inputMode="decimal" value={f.total} placeholder="0,00" onChange={(e) => pon({ total: e.target.value.replace(/[^\d.,]/g, '') })} />
+                                <input type="text" className="ia-precio" inputMode="decimal" value={f.total} placeholder="0,00" onChange={(e) => pon({ total: e.target.value.replace(/[^\d.,]/g, '') })} enterKeyHint="done" />
                             </Campo>
                         ) : (
-                            <>
-                                <p className="ia-pequeno" style={{ margin: 0, fontSize: 14 }}>Pon la cantidad y el precio en cada línea de arriba{f.con_iva ? ' (con el IVA)' : ' (sin IVA)'}. La que no tenga precio sale sin importe.</p>
-                                {errores.precio && <div className="ia-aviso tu" role="alert">{errores.precio}</div>}
-                            </>
+                            <div className="ia-aviso-fila" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                                <p className="ia-pequeno" style={{ margin: 0, fontSize: 14 }}>Pon la cantidad y el precio de cada línea en «Lo que incluye»{f.con_iva ? ' (con el IVA)' : ' (sin IVA)'}. La que no tenga precio sale sin importe.</p>
+                                <button type="button" className="ia-link" onClick={() => tocar('incluye')}>Ir a las líneas</button>
+                                {errores.precio && <div className="ia-aviso tu" role="alert" style={{ width: '100%' }}>{errores.precio}</div>}
+                            </div>
                         )}
                         <label className="ia-permiso">
                             <input type="checkbox" checked={f.con_iva} onChange={(e) => pon({ con_iva: e.target.checked })} />
@@ -500,10 +589,10 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                             <div className="fila"><span>IVA {f.iva_pct} %</span><b>{calc ? eur(calc.iva) : '—'}</b></div>
                             <div className="total"><span>Total</span><b>{totalTxt}</b></div>
                         </div>
-                    </Seccion>
+                    </Paso>
 
-                    {/* 5 · Número y fecha */}
-                    <Seccion n={5} titulo="Número y fecha" id="ia-pr-datos">
+                    {/* 6 · Número y fecha */}
+                    <Paso {...pasoProps('datos')}>
                         <div className="ia-pr-fila2 mitad">
                             <Campo etiqueta="Nº de presupuesto" error={errores.numero}>
                                 <input type="text" value={f.numero} onChange={(e) => pon({ numero: e.target.value.slice(0, 30) })} autoComplete="off" />
@@ -524,12 +613,12 @@ export function PresupuestoForm({ api, modo = 'nuevo', id = null, entrada = null
                         <Campo etiqueta="Nota al pie" ayuda="Sale debajo de los totales.">
                             <textarea rows={2} value={f.notas} onChange={(e) => pon({ notas: e.target.value.slice(0, 400) })} />
                         </Campo>
-                    </Seccion>
+                    </Paso>
 
                     {desborda && <div className="ia-aviso tu" role="status">El texto ya no cabe en una hoja. Acorta alguna línea o quita una.</div>}
                     {errores.general?.length > 0 && <div className="ia-aviso tu" role="alert">{errores.general.join(' ')}</div>}
 
-                    <div className="ia-pr-guardar">
+                    <div className="ia-pr-guardar" id="ia-pr-guardar">
                         {faltan.length > 0 && <div className="ia-aviso tu" role="alert"><b>Falta:</b> {faltan.join(', ')}.</div>}
                         <div className="fila">
                             <button type="button" className="ia-pr-ver" onClick={() => setVerHoja(true)} aria-haspopup="dialog">
