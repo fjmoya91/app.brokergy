@@ -355,6 +355,12 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(C.chatHaCambiado(ms, 'a', 'Lo de la factura lo miro y te digo.') === null, '«C12» tras el acuse: el chat no ha cambiado');
     ok(C.chatHaCambiado(ms, 'a', null) === 'nuestro', 'sin acuse enviado, lo nuestro de después sí es un cambio');
     ok(C.chatHaCambiado([...ms, { id: 'c', de_mi: false }], 'a', 'Lo de la factura lo miro y te digo.') === 'suyo', 'si ha vuelto a escribir, no se manda');
+    // Mientras se redacta (hasta 5 min) el chat puede cambiar: se relee antes de mandar (22/11/2026).
+    ok(C.trasRedactar(C.chatHaCambiado([{ id: 'a', de_mi: false }, { id: 'b', de_mi: false }], 'a', null)).estado === 'PENDIENTE',
+        'si ha escrito más mientras se redactaba, se vuelve a decidir con lo nuevo (no se pierde su mensaje)');
+    ok(C.trasRedactar(C.chatHaCambiado([{ id: 'a', de_mi: false }, { id: 'b', de_mi: true, texto: 'Hola, ya lo he visto' }], 'a', null)).estado === 'DESCARTADA',
+        'si una persona de la casa le ha contestado mientras tanto, no se manda nada');
+    ok(C.trasRedactar(C.chatHaCambiado([{ id: 'a', de_mi: false }], 'a', null)) === null, 'sin cambios, se sigue');
     ok(C.chatHaCambiado(ms.slice(0, 1), 'a', null) === null && C.chatHaCambiado(ms, 'x', null) === 'nuestro', 'sin nada después, igual; sin su mensaje, cambio');
 
     // Lo que el investigador lee de la simulación: las cifras de la propuesta, redondeadas.

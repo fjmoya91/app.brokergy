@@ -264,6 +264,13 @@ sus 3 primeras páginas (o 2, o 1: las que quepan), que es donde un CIFO, una fa
 qué obra, y se le dice que es un recorte. **Lo que se GUARDA en el expediente es siempre el fichero entero.** Si
 ni la primera página cabe, o el PDF está roto, se queda sin leer como antes (y entonces «no falta nada» no sale).
 
+**Justo antes de mandar se RELEE el chat** (`actuar` → `trasRedactar`, `chatHaCambiado`). Entre leer el chat y
+mandar pasan de 10 s a 5 min (el investigador). Antes, en ese rato: si el cliente escribía algo más, la ráfaga lo
+sumaba a la MISMA fila, que después pasaba a HECHA, y su mensaje nuevo **se quedaba sin contestar** hasta que
+volviera a escribir; y si Fran le contestaba a mano, salía la respuesta igual, duplicada. Ahora: si ha escrito
+él, la fila sigue PENDIENTE y se vuelve a decidir con lo nuevo delante (15 min de silencio desde ahora); si ha
+escrito alguien de la casa o la app, DESCARTADA y no sale nada. Es la lección 2.3 de [voz-de-fran.md](voz-de-fran.md).
+
 **La voz de Fran entra en el prompt** ([voz-de-fran.md](voz-de-fran.md)): la respuesta de la vía FM («todavía no
 sabemos seguro… esperamos a los auditores… para el certificado inicial no hace falta») como ejemplo, y como reglas
 «LO QUE FRAN YA HA CORREGIDO»: la FM sin afirmar ni cifras, el CEE inicial es la casa como está, «ya podéis

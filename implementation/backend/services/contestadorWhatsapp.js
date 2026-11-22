@@ -691,7 +691,33 @@ function modoDeFila(m, d) {
     return m === 'real' && d?.accion === 'RESPONDER' && /respaldo/i.test(String(d?.cerebro || '')) ? 'copia' : m;
 }
 
-async function actuar(fila, d) {
+/**
+ * Lo que se hace si el chat ha cambiado MIENTRAS se redactaba (el investigador tarda hasta 5 min).
+ * Pura. 'suyo' → se vuelve a decidir con lo nuevo delante (la fila sigue PENDIENTE): si no, la fila
+ * pasaba a HECHA y su mensaje nuevo se quedaba sin contestar —la ráfaga ya lo había sumado a ESTA
+ * fila—. 'nuestro' → una persona de la casa (o la app) ya le ha contestado: no se manda nada.
+ */
+function trasRedactar(cambio) {
+    if (cambio === 'suyo') return { estado: 'PENDIENTE', motivo: 'ha escrito algo más mientras redactaba: vuelvo a mirarlo' };
+    if (cambio === 'nuestro') return { estado: 'DESCARTADA', motivo: 'mientras redactaba le ha contestado una persona de la casa o la app: no mando nada' };
+    return null;
+}
+
+async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
+    // Justo antes de hacer nada, se relee el chat (22/11/2026; voz-de-fran.md, lección 2.3).
+    if (d.ultimo_msg_id) {
+        const conv = await fuente.leer({ chatId: fila.chat_id, dias: 3 });
+        const otra = trasRedactar(chatHaCambiado(conv.mensajes || [], d.ultimo_msg_id, null));
+        if (otra) {
+            const ahoraIso = new Date().toISOString();
+            await supabase.from('wa_contestador').update({
+                ...(otra.estado === 'PENDIENTE' ? { responder_after: plazoDesde().toISOString() } : { estado: 'DESCARTADA', motivo: otra.motivo }),
+                updated_at: ahoraIso,
+            }).eq('id', fila.id);
+            log(`C${fila.id}: ${otra.motivo}`);
+            return otra.estado;
+        }
+    }
     const m = modoDeFila(modo(), d);
     if (m !== modo()) d.motivo = `${d.motivo ? `${d.motivo} · ` : ''}lo ha redactado el cerebro de respaldo: revísalo`;
     const mg = modoGuardar();
@@ -836,7 +862,8 @@ async function vuelta({ ahora = new Date() } = {}) {
                     hecho.push({ id: fila.id, estado: 'DESCARTADA', motivo: d.motivo });
                     continue;
                 }
-                await actuar(fila, d);
+                const otra = await actuar(fila, d);
+                if (otra) { hecho.push({ id: fila.id, estado: otra }); continue; }
                 hecho.push({ id: fila.id, estado: 'HECHA', accion: d.accion });
                 log(`C${fila.id} ${d.accion}${d.obra ? ` (${d.obra})` : ''}: ${recorta(d.motivo, 80)}`);
             } catch (e) {
@@ -1040,6 +1067,6 @@ module.exports = {
     start, alMensajeEntrante, vuelta, decidir, enviarCopia, resumen, listar, listado, activo, modo, modoGuardar, CFG,
     mapaSinObra, clasificarSinObra,
     // para las pruebas
-    textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado,
+    textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado, trasRedactar,
     nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid, yaLeEscribimos,
 };
