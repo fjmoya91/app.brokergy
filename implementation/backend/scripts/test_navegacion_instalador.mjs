@@ -38,6 +38,7 @@ t('sección válida', L('?seccion=clientes').seccion === 'clientes');
 t('sección desconocida → inicio', L('?seccion=ajustes').seccion === 'inicio');
 t('obra manda sobre la sección', igual(L('?seccion=clientes&obra=26RES060_OP901'), { seccion: 'obras', obra: '26RES060_OP901', accion: null, cliente: null, equipo: null }));
 t('obra + acción válida', L('?obra=26RES060_187&accion=cifo').accion === 'cifo');
+t('la propuesta es una acción de la obra (también sin expediente)', L('?obra=26RES060_OP279&accion=propuesta').accion === 'propuesta');
 t('acción desconocida se ignora', L('?obra=26RES060_187&accion=borrar').accion === null);
 t('acción sin obra se ignora', L('?accion=cifo').accion === null);
 t('cliente → clientes', L('?cliente=8f2c1a90-1b2c-4d5e-9f00-123456789abc').seccion === 'clientes');

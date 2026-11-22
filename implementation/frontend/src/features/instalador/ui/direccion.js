@@ -16,7 +16,7 @@
 
 export const CLAVES = ['seccion', 'obra', 'accion', 'cliente', 'equipo'];
 export const SECCIONES = ['inicio', 'obras', 'clientes', 'catalogo', 'pagina'];
-export const ACCIONES = ['presupuesto', 'factura', 'cifo', 'rite', 'fm_decl', 'docs'];
+export const ACCIONES = ['propuesta', 'presupuesto', 'factura', 'cifo', 'rite', 'fm_decl', 'docs'];
 
 const forma = {
     obra: /^[A-Za-z0-9_-]{1,60}$/,

@@ -35,15 +35,18 @@ paths:
 
 236. **La app del instalador RECUERDA dónde estás en la dirección, avisa sin red, se instala y lleva SU marca, sin cambiar nada para los demás** (2026-11-21, Fran: fase 5, beta RCA). En la dirección viajan SOLO `seccion`, `obra`, `accion`, `cliente` y `equipo`, cada uno con su forma ([ui/direccion.js](implementation/frontend/src/features/instalador/ui/direccion.js)): nunca un nombre, una dirección, un DNI ni un token; lo que no casa se ignora. Cada ficha es una entrada del historial (`iaFicha`, la `pila` de la regla 231); recargar la reabre sin empujar más y un enlace directo empuja la ficha sobre su sección («atrás» vuelve a la lista, no fuera); `App.jsx` guarda la dirección de CARGA (`direccionDeCarga`) antes de que su efecto de la URL la toque, para que valga tras iniciar sesión, y ese efecto no cambia para quien no es `app_instalador`. Sin red o con la BD caída se DICE y se deja reintentar (franja «Sin conexión», `AvisoError` con «Volver a intentarlo», recarga sola al volver la red): nunca en blanco ni a cero (38). El manifest de `public/instalador/`, el color de la barra y el `apple-touch-icon` los pone **solo** [ui/cabeceraApp.js](implementation/frontend/src/features/instalador/ui/cabeceraApp.js) al montar la app y los quita al desmontarla (`index.html` no se toca); **sin service worker**; la invitación a instalarla, solo en el móvil y descartable. Nombre e icono de la app instalada: BROKERGY para todos (uno por instalador pediría servir su manifest sin sesión). Dentro: su logo + su nombre «con BROKERGY» y su `landing_color_primary` SOLO en lo que marca «dónde estoy», y solo si pasa **4,5:1 sobre blanco, crema y `#f1efeb`** ([ui/marca.js](implementation/frontend/src/features/instalador/ui/marca.js)); si no, el de BROKERGY; la acción principal sigue naranja. Hojas con teclado (`useHojaTeclado`: foco dentro, Tab atrapado, Escape, foco devuelto) y «Ir al contenido». Publicarla y meter al siguiente: [publicar-la-app-del-instalador.md](docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md). Tras tocarlo: `node implementation/backend/scripts/test_navegacion_instalador.mjs`, `test_app_instalador.js`, `npm run build` y el banco a 360/390/1280 px (`?marca=1`, `?marca=claro`, `?instalar=iphone`, `?sinred=1`, `?obra=NOEXISTE`). Ver "La app del INSTALADOR, fase 5".
 
+237. **TODA obra se abre en SU ficha, tenga o no expediente, con «Todo lo de esta obra» en UNA lista; la propuesta se VE y se PASA desde dentro, pero enviarla sigue siendo nuestro** (2026-11-21, Fran entrando como RCA: «cuando pulso sobre una de mis obras me lleva a la vista de la oportunidad… para ver todo, la factura, etc.»; 6 de sus 11 obras no tenían expediente). `abrirObra` no mira `con_expediente`; la calculadora solo se abre desde «Corrige el cálculo» (`se_puede_corregir`: sin expediente y paso ≤ 2). La lista la arma el SERVIDOR (`caminoDeObra` en [utils/appInstalador.js](implementation/backend/utils/appInstalador.js)): propuesta · presupuesto · CEE inicial · factura · certificado de la instalación · RITE · fotos · CEE final · bono, cada fila con su tono (`ok` · `tu` · `nos` · `luego` = aún no toca · `info` = las fotos, que no cuentan) y su `accion` (sin ella no se pulsa); quien NO instala no ve el certificado ni el RITE. **Sin enviar (LEAD, PTE ENVIAR) la pelota es NUESTRA**: el instalador no puede enviar la propuesta (botones de ADMIN, `send-proposal`/`send-media` son `staffOClaveInterna`, regla 102), y la tarea «Envía la propuesta» de la fase 1 le llevaba a una calculadora sin botón de enviar. **ENVIADA le toca a él solo si le llegó SOLO a él** (`entregaPropuesta`, la misma del listado interno, regla 136): «Pásale la propuesta a tu cliente», con un `wa.me` desde SU WhatsApp y el enlace `/firma/<uuid>` de siempre (la app no envía nada); «Ya se la he pasado» apunta un envío `{ channel: 'instalador', modo: 'CLIENTE' }` en la versión vigente —⚠️ `propuesta_version_merge` SUSTITUYE `envios`: va la lista que había más el nuevo— y la obra pasa a «Espera al cliente». De `propuesta_versiones` (lleva teléfonos y correos) solo sale una lista blanca (`propuestaDe`); el PDF, por proxy, es el `drive_id` de la versión ACEPTADA si está sellada o de la vigente, y la ruta no acepta ids del navegador. Sin expediente el equipo es el del cálculo, dicho «previsto». Tras tocarlo: `node implementation/backend/scripts/test_app_instalador.js`, `test_navegacion_instalador.mjs`, `test_entrega_propuesta.js`, `auditar_rutas_sin_guardian.js`, `npm run build` y el banco (`?obra=26RES060_OP904`, `…OP902`, `&accion=propuesta`). Ver "La ficha de la OBRA es la misma con expediente y sin él".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 11,2 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-1.md` — La app del INSTALADOR, fase 1: cáscara, Inicio, Obras y Clientes en solo lectura (2026-11-21) · 11,8 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-2.md` — La app del INSTALADOR, fase 2: la obra se HACE dentro de la app, con sesión y sin enlaces (2026-11-21) · 9,1 KB
-- `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 14,7 KB
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md` — La app del INSTALADOR, fase 3: «Tu página web», el escaparate que propone el instalador y revisa BROKERGY (2026-11-21) · 15,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21) · 8,3 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 11,6 KB
+- `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21) · 7,1 KB
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 12,8 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -61,6 +64,7 @@ por token; la app no tiene un segundo camino para firmar, subir o facturar.**
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-3.md`
   - **REGLA — lo que propone el instalador nace EN REVISIÓN y no sale en ningún sitio público hasta que un
 ADMIN lo aprueba; aprobar una foto de obra es el MISMO camino que el botón «Publicar en el escaparate».**
+  - **REGLA — esta respuesta se revalida SIEMPRE (`no-cache`), no se guarda cinco minutos**
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md`
   - **REGLA — la carga va SIEMPRE en dos pasos, y el Excel NUNCA crea un modelo.**
   - **REGLA — el instalador ve SOLO sus marcas, la tarifa vigente y SU precio; nunca el distribuidor, el margen,
@@ -75,6 +79,13 @@ su app ([ui/cabeceraApp.js](implementation/frontend/src/features/instalador/ui/c
 quitan al desmontarla; `index.html` sigue con el de todos.**
   - **REGLA — su color solo se usa si pasa AA (4,5:1) sobre los TRES fondos donde va (blanco, crema y el gris
 de la casilla activa); si no, se oscurece un poco y, si ni así, se queda el de BROKERGY**
+- `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md`
+  - **REGLA — TODA obra se abre en su ficha; la calculadora solo queda detrás de «Corrige el cálculo».**
+  - **REGLA — «Todo lo de esta obra» es UNA lista, de la propuesta al cobro, y la arma el SERVIDOR.**
+  - **REGLA — sin enviar, la propuesta la llevamos NOSOTROS; el instalador no tiene la tarea de enviarla.**
+  - **REGLA — ENVIADA le toca al instalador solo si la propuesta le llegó SOLO a él.**
+  - **REGLA — el instalador pasa la propuesta con SU WhatsApp; la app no envía nada.**
+  - **REGLA — de la propuesta sale a la app una lista BLANCA; el PDF, por proxy y sin id del navegador.**
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md`
   - **REGLA — los dos SQL van ANTES del deploy, y la beta se enciende DESPUÉS de comprobar que los demás
 usuarios ven lo de siempre.**

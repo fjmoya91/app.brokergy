@@ -96,7 +96,14 @@ necesita un «sí» de Fran al texto.
 
 ### La API pública de la página: el CONTRATO
 
-`GET /api/public/marketplace/red/:slug/pagina`, sin sesión, `Cache-Control: public, max-age=300`.
+`GET /api/public/marketplace/red/:slug/pagina`, sin sesión, `Cache-Control: no-cache`.
+
+**REGLA — esta respuesta se revalida SIEMPRE (`no-cache`), no se guarda cinco minutos** (21/11/2026). Con
+`max-age=300`, Fran aprobó 8 fotos de RCA y la ficha siguió sin ellas: su navegador había pedido la página
+ANTES de aprobar y enseñó esa respuesta guardada hasta que caducó («ya he subido y validado fotos, pero
+en su ficha de la web no aparecen»). La API las servía bien desde el primer segundo. Aprobar y recargar
+tiene que enseñar la foto; la respuesta pesa 2 KB y lleva ETag (304 si no cambió). Las FOTOS sí se
+guardan un día (`/foto/:id`): una retirada deja de salir porque desaparece de esta lista.
 
 - **Quién sale y con qué slug**: el criterio de `brokergy-web/scripts/red.mjs` (todos los INSTALADORES
   con al menos una obra sin rechazar, salvo BROKERGY, la ficha de prueba y los `oculto_web`; slug =

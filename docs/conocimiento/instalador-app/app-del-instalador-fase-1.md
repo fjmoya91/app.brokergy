@@ -41,15 +41,20 @@ llevamos nosotros) · `cli` (Espera al cliente) · `fin` (Cobrada).
 
 | Situación | Paso | Quién |
 |---|---|---|
-| Sin expediente · LEAD o PTE ENVIAR | 1 | tu (tarea «Envía la propuesta al cliente» → la oportunidad) |
-| Sin expediente · EN CURSO (la estamos preparando) | 1 | nos |
-| Sin expediente · ENVIADA o PRE-ACEPTADO | 2 | cli |
+| Sin expediente · LEAD, PTE ENVIAR o EN CURSO (la preparamos y la enviamos nosotros) | 1 | nos |
+| Sin expediente · ENVIADA o PRE-ACEPTADO, y la propuesta le llegó SOLO al instalador | 2 | tu (tarea «Pásale la propuesta a tu cliente» → acción `propuesta` de la obra) |
+| Sin expediente · ENVIADA o PRE-ACEPTADO, el resto | 2 | cli |
 | Sin expediente · ACEPTADA | 3 | nos |
 | Sin expediente · RECHAZADA u otro | — | fuera de la app |
 | Con expediente · visible RECHAZADA | — | fuera de la app |
 | Con expediente · FINALIZADO | 5 | fin |
 | Con expediente · EN CURSO y (estado ≥ PTE. CEE FINAL u «obra hecha») | 4 | ver abajo |
 | Con expediente · el resto (ACEPTADA, EN CURSO antes de la obra) | 3 | ver abajo |
+
+> Las tres primeras filas cambiaron el 21/11/2026: hasta entonces LEAD y PTE ENVIAR eran `tu` con la tarea
+> «Envía la propuesta al cliente», que abría la oportunidad — donde el instalador no tiene botón de enviar.
+> Y desde ese día una obra SIN expediente abre la MISMA ficha que una con él. Ver «La ficha de la OBRA es
+> la misma con expediente y sin él» ([la-ficha-de-la-obra-para-toda-obra.md](docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md)).
 
 Con expediente, **quién** = `tu` si tiene alguna tarea; `cli` si hay un Anexo I o una Cesión enviados sin
 firmar; si no, `nos`. «Obra hecha» es el criterio del radar del parte diario (fin de obra comunicado,

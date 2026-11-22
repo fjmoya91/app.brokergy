@@ -702,7 +702,11 @@ router.get('/red/:slug/pagina', async (req, res) => {
         grupo: f.par_id || f.id,
       })),
     };
-    res.set('Cache-Control', 'public, max-age=300');
+    // `no-cache` = se guarda pero se REVALIDA siempre (ETag → 304): una foto recién
+    // aprobada sale al recargar. Con `max-age=300` (hasta el 21/11/2026) quien había
+    // abierto la ficha antes de aprobar seguía 5 minutos viéndola sin fotos, y parecía
+    // que aprobar no hacía nada.
+    res.set('Cache-Control', 'no-cache');
     return res.json(assertAnonymous(dto, 'pagina'));
   } catch (e) {
     console.error('[marketplace/pagina]', e.message);

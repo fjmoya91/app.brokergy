@@ -166,6 +166,122 @@ const leerBase64 = (file) => new Promise((ok, ko) => {
 const MAX_MB = 20;
 const ACEPTA = /^(application\/pdf|image\/(jpeg|png|webp|heic|heif))$/i;
 
+// ── La PROPUESTA ────────────────────────────────────────────────────────────
+// La prepara y la envía BROKERGY (regla 102: lo que sale de la casa es del equipo
+// interno). Aquí el instalador la VE y, si se la hemos mandado solo a él —lo normal—,
+// se la PASA a su cliente con SU WhatsApp y el enlace de aceptación de siempre
+// (`/firma/<uuid>`, el mismo que ya recibe en nuestro mensaje, regla 100). El enlace
+// se arma aquí con el `uuid` de la obra; el PDF llega por el proxy.
+const fechaCorta = (iso) => { const d = iso ? new Date(iso) : null; return d && !Number.isNaN(d.getTime()) ? d.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' }) : null; };
+const soloDigitos = (t) => String(t || '').replace(/\D/g, '').replace(/^(0034|34)(?=\d{9}$)/, '');
+
+export function PropuestaAccion({ obra, api, onCambio, waBrokergy }) {
+    const p = obra.propuesta || { estado: 'preparando' };
+    const [copiado, setCopiado] = useState(false);
+    const [marcando, setMarcando] = useState(false);
+    const [fallo, setFallo] = useState(false);
+    const enlace = obra.uuid && typeof window !== 'undefined' ? `${window.location.origin}/firma/${obra.uuid}` : null;
+    const pila = String(obra.cliente || '').trim().split(/\s+/)[0] || '';
+    const texto = enlace ? [
+        `Hola${pila ? ` ${pila[0].toUpperCase()}${pila.slice(1).toLowerCase()}` : ''}, te paso la propuesta de la ayuda para tu obra${obra.bono ? `: te corresponde un bono de ${eur(obra.bono)}` : ''}.`,
+        '',
+        'Para verla y aceptarla, pulsa aquí:',
+        enlace,
+        '',
+        'Se abre una página donde completas tus datos y firmas la aceptación desde el móvil, en un par de minutos.',
+    ].join('\n') : '';
+    const tel = soloDigitos(obra.telefono);
+    const wa = enlace ? `https://wa.me/${tel.length === 9 ? `34${tel}` : ''}?text=${encodeURIComponent(texto)}` : null;
+    const fecha = fechaCorta(p.fecha);
+    const leToca = p.estado === 'enviada' && p.la_tiene === 'instalador';
+
+    const copiar = async () => {
+        try { await navigator.clipboard.writeText(enlace); setCopiado(true); setTimeout(() => setCopiado(false), 2500); } catch { /* sin portapapeles: el enlace se ve abajo */ }
+    };
+    const yaPasada = async () => {
+        setMarcando(true); setFallo(false);
+        try { await api.propuestaPasada(obra.id); onCambio?.(); } catch { setFallo(true); } finally { setMarcando(false); }
+    };
+
+    const pdf = p.tiene_pdf ? (
+        <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-label="El documento de la propuesta">
+            <p className="ia-eyebrow">El documento{p.version ? ` · versión ${p.version}` : ''}{fecha ? ` · ${fecha}` : ''}</p>
+            <HojasPdf clave={`prop-${obra.id}-${p.version}`} nombre={`Propuesta ${obra.id}.pdf`} cargar={() => api.propuestaPdf(obra.id)} />
+        </section>
+    ) : null;
+
+    if (p.estado === 'preparando') {
+        const msg = encodeURIComponent(`Hola, ya he calculado la obra ${obra.id} (${obra.cliente || ''}). ¿Me mandáis la propuesta?`);
+        return (
+            <>
+                <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-labelledby="ia-prop-h">
+                    <span className="ia-estado nos">La estamos preparando</span>
+                    <h2 id="ia-prop-h" className="ia-toca-h" style={{ margin: 0 }}>Todavía no hay propuesta para tu cliente</h2>
+                    <p className="ia-pequeno" style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5 }}>
+                        Con tu cálculo preparamos la propuesta y te la mandamos por WhatsApp. En cuanto esté, la verás aquí y se la podrás pasar a tu cliente.
+                        {obra.bono ? <> Mientras tanto ya puedes decirle que su bono sale por <b style={{ color: 'var(--tinta)' }}>{eur(obra.bono)}</b>.</> : null}
+                    </p>
+                    {waBrokergy && (
+                        <a className="ia-btn ia-btn-sec" href={`https://wa.me/${waBrokergy}?text=${msg}`} target="_blank" rel="noopener noreferrer">
+                            <Icono n="whatsapp" size={20} /> ¿Corre prisa? Escríbenos
+                        </a>
+                    )}
+                </section>
+                {pdf}
+            </>
+        );
+    }
+
+    if (p.estado === 'aceptada') {
+        const cuando = fechaCorta(p.aceptada_el);
+        return (
+            <>
+                <section className="ia-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-labelledby="ia-prop-h">
+                    <span className="ia-estado ok">Aceptada{cuando ? ` · ${cuando}` : ''}</span>
+                    <h2 id="ia-prop-h" className="ia-toca-h" style={{ margin: 0 }}>Tu cliente aceptó la propuesta</h2>
+                    <p className="ia-pequeno" style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5 }}>
+                        {p.tiene_pdf ? 'Es la que firmó: con ella tramitamos la ayuda. La tienes debajo por si quieres repasarla.' : 'Con ella tramitamos la ayuda.'}
+                    </p>
+                </section>
+                {pdf}
+            </>
+        );
+    }
+
+    return (
+        <>
+            <section className={`ia-card${leToca ? ' toca' : ''}`} style={{ display: 'flex', flexDirection: 'column', gap: 12 }} aria-labelledby="ia-prop-h">
+                <span className={`ia-estado ${leToca ? 'tu' : 'nos'}`}>{leToca ? 'Te toca pasársela' : 'Enviada · esperando a tu cliente'}</span>
+                <h2 id="ia-prop-h" className="ia-toca-h" style={{ margin: 0 }}>
+                    {leToca ? 'Pásale la propuesta a tu cliente' : 'Tu cliente ya tiene la propuesta'}
+                </h2>
+                <p className="ia-pequeno" style={{ margin: 0, fontSize: 14.5, lineHeight: 1.5 }}>
+                    {leToca
+                        ? 'Te la mandamos a ti. Envíasela con tu WhatsApp: le llega el enlace para verla y aceptarla desde el móvil.'
+                        : 'Falta que la acepte. Si le ves, recuérdaselo: puedes volver a mandarle el enlace desde aquí.'}
+                </p>
+                {wa && (
+                    <a className={`ia-btn ${leToca ? 'ia-btn-pri' : 'ia-btn-sec'}`} href={wa} target="_blank" rel="noopener noreferrer">
+                        <Icono n="whatsapp" size={22} /> {leToca ? 'Enviársela por WhatsApp' : 'Recordárselo por WhatsApp'}
+                    </a>
+                )}
+                {enlace && (
+                    <button type="button" className="ia-btn ia-btn-sec" onClick={copiar}>
+                        <Icono n={copiado ? 'ok' : 'compartir'} size={20} /> {copiado ? 'Enlace copiado' : 'Copiar el enlace'}
+                    </button>
+                )}
+                {leToca && (
+                    <button type="button" className="ia-link" style={{ alignSelf: 'center', minHeight: 44 }} disabled={marcando} onClick={yaPasada}>
+                        {marcando ? 'Apuntándolo…' : 'Ya se la he pasado'}
+                    </button>
+                )}
+                {fallo && <div className="ia-aviso tu" role="alert">No hemos podido apuntarlo. Prueba otra vez en un momento.</div>}
+            </section>
+            {pdf}
+        </>
+    );
+}
+
 // ── El PRESUPUESTO ──────────────────────────────────────────────────────────
 const ESTADO_PRESU = {
     subido: { texto: 'Subido', tono: 'ok' },

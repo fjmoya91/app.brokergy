@@ -1,22 +1,30 @@
-// ─── Una obra con expediente (prototipo «Obra») ─────────────────────────────
+// ─── Una obra (prototipo «Obra») ────────────────────────────────────────────
+// La MISMA ficha para toda obra, tenga o no expediente (Fran, 21/11/2026: «cuando
+// pulso sobre una de mis obras me lleva a la vista de la oportunidad… hay que darle
+// una vuelta para ver todo, la factura, etc.»). Antes, una obra sin expediente —la
+// mitad de las de RCA— se abría en la calculadora de siempre.
+//
 // Lo que enseña lo trae `GET /api/instalador-app/obras/:id` en lista blanca: ni
 // margen, ni comisión, ni notas internas, ni enlaces de Drive (reglas 1, 102 y 218).
+// «Todo lo de esta obra» es UNA lista, de la propuesta al cobro, que arma el servidor
+// (`caminoDeObra` en utils/appInstalador.js): lo hecho, lo que le toca, lo que
+// llevamos nosotros y lo que aún no toca. Cada fila con `accion` se abre aquí mismo.
 // Fase 2: lo que le toca al instalador se HACE aquí, en su sitio (AccionesObra.jsx):
-// el presupuesto, la factura, el certificado de la instalación, el RITE y las fotos y
-// papeles. La acción abierta es una entrada más del historial (el «atrás» del móvil
-// vuelve a la obra), y tras cada envío la obra y el Inicio se vuelven a pedir.
+// la propuesta, el presupuesto, la factura, el certificado de la instalación, el RITE
+// y las fotos. La acción abierta es una entrada más del historial (el «atrás» del
+// móvil vuelve a la obra), y tras cada envío la obra y el Inicio se vuelven a pedir.
 import React, { useEffect, useState } from 'react';
 import { Icono, ChipQuien, BarraPasos, Esqueleto, AvisoError, eur, eurSigno, telHref, waHref, iconoDeTarea } from '../ui/piezas';
 import { TEXTO_QUIEN } from '../logic/obras';
 import { Destino, VERBO } from './Tarea';
-import { useEnvio, PresupuestoAccion, FacturaAccion, TramitesAccion, DocsAccion } from './AccionesObra';
+import { useEnvio, PropuestaAccion, PresupuestoAccion, FacturaAccion, TramitesAccion, DocsAccion } from './AccionesObra';
 
 /** WhatsApp de BROKERGY (el mismo que `DocsManager`). */
 export const WA_BROKERGY = '34623926179';
 
 const TEXTO_PASO = {
-    1: 'Ya sabes cuánto bono le sale a tu cliente. Lo siguiente es enviarle la propuesta.',
-    2: 'La propuesta está enviada. Esperamos a que tu cliente la acepte.',
+    1: 'Ya sabes cuánto bono le sale a tu cliente. Ahora preparamos la propuesta y te la mandamos.',
+    2: 'La propuesta está enviada. Falta que tu cliente la acepte.',
     3: 'Tu cliente ha aceptado. Preparamos el certificado energético antes de la obra.',
     4: 'Con la obra hecha, reunimos los papeles y lo presentamos para cobrar el bono.',
     5: 'El bono está cobrado. Obra cerrada.',
@@ -63,11 +71,11 @@ export function CuentasCliente({ cuentas, compacta = false, cliente = null }) {
 
 // «Caldera de gasóleo OTRA»: la marca de relleno del alta no se enseña.
 const marcaQueSeEnseña = (m) => (/^(otr[ao]s?|desconocid[ao]|sin marca|n\/?a|-+)$/i.test(String(m || '').trim()) ? null : m);
-const ICONO_TONO = { ok: 'ok', tu: 'aviso', nos: 'reloj' };
+const ICONO_TONO = { ok: 'ok', tu: 'aviso', nos: 'reloj', luego: 'reloj' };
+const ICONO_INFO = { fotos: 'camara' };
 
-// Qué acción abre cada papel (si la hay) y cada tarea.
-const ACCION_DE_PAPEL = { cifo: 'cifo', rite: 'rite', factura: 'factura' };
 const TITULO_ACCION = {
+    propuesta: { t: 'La propuesta', p: 'La que recibe tu cliente con su bono. La ves aquí y se la pasas con un toque.' },
     presupuesto: { t: 'Tu presupuesto', p: 'El que le diste a tu cliente. Lo ves aquí y, si cambia, subes el nuevo.' },
     factura: { t: 'La factura de la obra', p: 'Hazla o súbela aquí. La revisamos nosotros y te avisamos si falta algo.' },
     cifo: { t: 'Certificado y RITE', p: 'Lo que tienes que firmar y subir de esta obra, en un solo sitio.' },
@@ -96,6 +104,9 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
         const tit = TITULO_ACCION[g] || TITULO_ACCION.docs;
         let cuerpo = null;
         if (!det) cuerpo = error ? <AvisoError onReintentar={() => setIntento((n) => n + 1)} /> : <Esqueleto alto={200} n={2} />;
+        else if (g === 'propuesta') cuerpo = <PropuestaAccion obra={o} api={api} onCambio={onCambio} waBrokergy={WA_BROKERGY} />;
+        else if (g === 'factura' && !o.con_expediente) cuerpo = <div className="ia-aviso">La factura se hace cuando la obra esté terminada. Te avisamos aquí cuando toque.</div>;
+        else if (g === 'cifo' && !o.con_expediente) cuerpo = <div className="ia-aviso">El certificado de la instalación y el RITE se firman y se suben al terminar la obra. Te avisamos aquí cuando toque.</div>;
         else if (g === 'presupuesto') cuerpo = <PresupuestoAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} />;
         else if (g === 'factura') cuerpo = <FacturaAccion obra={o} api={api} alSubir={envio.alSubir} onCambio={onCambio} />;
         else if (g === 'cifo') cuerpo = o.es_instaladora
@@ -124,8 +135,10 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
     const tareas = o?.tareas || [];
     const [t1, ...otras] = tareas;
     const msgDudas = encodeURIComponent(`Hola, tengo una duda con la obra ${o?.numero_expediente || o?.id || ''} (${o?.cliente || ''}).`);
-    const papelFactura = o?.papeles?.find((p) => p.key === 'factura');
-    const facturaPendiente = !!o?.es_instaladora && papelFactura?.tono === 'tu';
+    const papeles = o?.papeles || [];
+    const abrirPapel = (p) => abrir(p.accion === 'factura' ? { tipo: 'accion', accion: 'factura', modo: o.factura_modo } : p.accion);
+    const instalado = (o?.paso || 0) >= 4 && !o?.equipo?.previsto;
+    const hibrida = /hibridaci/i.test(o?.tipo || '');
 
     return (
         <div className="ia-pagina estrecha" style={{ paddingTop: 0 }}>
@@ -154,7 +167,7 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                         </div>
                         <h2 id="ia-paso-tit" className="ia-display">Paso {o.paso} de 5 · {o.fase}</h2>
                         <BarraPasos paso={o.paso} grande etiquetas />
-                        <p className="txt">{TEXTO_PASO[o.paso]}{!t1 && TEXTO_QUIEN[o.quien] ? <> <b>{TEXTO_QUIEN[o.quien]}</b></> : null}</p>
+                        <p className="txt">{o.paso === 2 && o.quien === 'tu' ? 'Te hemos mandado la propuesta a ti. Falta que se la pases a tu cliente y que la acepte.' : TEXTO_PASO[o.paso]}{!t1 && TEXTO_QUIEN[o.quien] ? <> <b>{TEXTO_QUIEN[o.quien]}</b></> : null}</p>
                     </section>
 
                     {t1 && (
@@ -175,48 +188,49 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                         </section>
                     )}
 
-                    <CuentasCliente cuentas={o.cuentas} cliente={o.cliente} />
-
-                    <section className="ia-card lista" aria-labelledby="ia-pf-tit">
-                        <p id="ia-pf-tit" className="ia-eyebrow" style={{ padding: '0 12px 6px' }}>Presupuesto y factura</p>
-                        <button type="button" className="ia-fila primera" onClick={() => abrir('presupuesto')}>
-                            <span className="ia-baldosa"><Icono n="factura" size={22} /></span>
-                            <span className="ia-fila-txt">
-                                <b>Tu presupuesto</b>
-                                <span>{o.presupuesto?.importe ? `${eur(o.presupuesto.importe)}${o.presupuesto.estimado ? ' · estimado' : ''}` : 'Sin presupuesto'}</span>
-                            </span>
-                            <span className="ia-link" style={{ textDecoration: 'none' }}>Ver</span>
-                        </button>
-                        {o.factura && (
-                            <button type="button" className="ia-fila" onClick={() => abrir({ tipo: 'accion', accion: 'factura', modo: o.factura_modo })}>
-                                <span className="ia-baldosa"><Icono n="factura" size={22} /></span>
-                                <span className="ia-fila-txt">
-                                    <b>Tu factura</b>
-                                    <span className={facturaPendiente ? 'tu' : undefined}>{papelFactura?.estado || (o.factura.n ? 'Subida' : 'Sin hacer')}</span>
-                                </span>
-                                <span className="ia-link" style={{ textDecoration: 'none' }}>{facturaPendiente ? 'Hacerla' : 'Ver'}</span>
-                            </button>
-                        )}
-                        {o.cobrado && (
-                            <div className="ia-fila" style={{ cursor: 'default' }}>
-                                <span className="ia-baldosa c ok"><Icono n="ok" size={20} /></span>
-                                <span className="ia-fila-txt"><b>Bono</b><span>Cobrado</span></span>
+                    {papeles.length > 0 ? (
+                        <section className="ia-card lista" aria-labelledby="ia-pp-tit">
+                            <div className="ia-todo-cab">
+                                <p id="ia-pp-tit" className="ia-eyebrow">Todo lo de esta obra</p>
+                                {o.papeles_total > 0 && <span>{o.papeles_listos} de {o.papeles_total} listos</span>}
                             </div>
-                        )}
-                    </section>
+                            {papeles.map((p, i) => {
+                                const contenido = (
+                                    <>
+                                        <span className={`ia-baldosa c ${p.tono === 'ok' ? 'ok' : p.tono === 'tu' || p.tono === 'info' ? '' : p.tono === 'luego' ? 'luego' : 'nos'}`}>
+                                            <Icono n={p.tono === 'info' ? (ICONO_INFO[p.key] || 'subir') : ICONO_TONO[p.tono]} size={20} />
+                                        </span>
+                                        <span className="ia-fila-txt">
+                                            <b className={p.tono === 'luego' ? 'luego' : undefined}>{p.nombre}</b>
+                                            <span className={p.tono === 'tu' ? 'tu' : undefined}>{p.estado}</span>
+                                        </span>
+                                        {p.accion && <Icono n="chevron" size={20} className="ia-chev" />}
+                                    </>
+                                );
+                                return p.accion ? (
+                                    <button key={p.key} type="button" className={`ia-fila${i === 0 ? ' primera' : ''}`} onClick={() => abrirPapel(p)}>{contenido}</button>
+                                ) : (
+                                    <div key={p.key} className={`ia-fila${i === 0 ? ' primera' : ''}`} style={{ cursor: 'default' }}>{contenido}</div>
+                                );
+                            })}
+                        </section>
+                    ) : !det && !error ? <Esqueleto alto={220} n={1} /> : null}
+
+                    <CuentasCliente cuentas={o.cuentas} cliente={o.cliente} />
 
                     {(o.equipo || o.caldera_retirada) && (
                         <section className="ia-card filas" aria-labelledby="ia-eq-tit">
-                            <p id="ia-eq-tit" className="ia-eyebrow">Equipo instalado</p>
+                            <p id="ia-eq-tit" className="ia-eyebrow">{instalado ? 'Equipo instalado' : 'Equipo previsto'}</p>
                             <dl className="ia-dl" style={{ marginTop: 8 }}>
                                 {o.equipo && <>
-                                    <div className="primera"><dt>{o.equipo.titulo}</dt><dd>{[o.equipo.marca, o.equipo.modelo].filter(Boolean).join(' ')}</dd></div>
-                                    <div><dt>Nº de serie</dt><dd className="mono">{o.equipo.serie || 'Falta'}</dd></div>
+                                    <div className="primera"><dt>{o.equipo.titulo}</dt><dd>{[o.equipo.marca, o.equipo.modelo].filter(Boolean).join(' ') || 'Por decidir'}</dd></div>
+                                    {instalado && <div><dt>Nº de serie</dt><dd className="mono">{o.equipo.serie || 'Falta'}</dd></div>}
                                     {o.equipo.acs && <div><dt>Agua caliente</dt><dd>{[o.equipo.acs.marca, o.equipo.acs.modelo].filter(Boolean).join(' ')}</dd></div>}
+                                    {!o.equipo.acs && !instalado && <div><dt>Agua caliente</dt><dd>{o.equipo.con_acs ? 'Con la aerotermia' : 'No se cambia'}</dd></div>}
                                 </>}
                                 {o.caldera_retirada && (
                                     <div className={o.equipo ? undefined : 'primera'}>
-                                        <dt>Se quitó</dt>
+                                        <dt>{hibrida ? 'Caldera' : instalado ? 'Se quitó' : 'Se quita'}</dt>
                                         <dd>{[o.caldera_retirada.tipo || 'Caldera', o.caldera_retirada.combustible && `de ${String(o.caldera_retirada.combustible).toLowerCase()}`, marcaQueSeEnseña(o.caldera_retirada.marca)].filter(Boolean).join(' ')}</dd>
                                     </div>
                                 )}
@@ -224,36 +238,12 @@ export function ObraView({ obraId, base, cargarDetalle, api, nonce = 0, accion =
                         </section>
                     )}
 
-                    {o.papeles?.length > 0 && (
-                        <section className="ia-card lista" aria-labelledby="ia-pp-tit">
-                            <p id="ia-pp-tit" className="ia-eyebrow" style={{ padding: '0 12px 6px' }}>Fotos y papeles · {o.papeles_listos} de {o.papeles.length} listos</p>
-                            {o.papeles.map((p, i) => {
-                                const a = o.es_instaladora || p.key === 'factura' ? ACCION_DE_PAPEL[p.key] : null;
-                                const contenido = (
-                                    <>
-                                        <span className={`ia-baldosa c ${p.tono === 'ok' ? 'ok' : p.tono === 'tu' ? '' : 'nos'}`}>
-                                            <Icono n={ICONO_TONO[p.tono]} size={20} />
-                                        </span>
-                                        <span className="ia-fila-txt">
-                                            <b>{p.nombre}</b>
-                                            <span className={p.tono === 'tu' ? 'tu' : undefined}>{p.estado}</span>
-                                        </span>
-                                        {a && <Icono n="chevron" size={20} className="ia-chev" />}
-                                    </>
-                                );
-                                return a ? (
-                                    <button key={p.key} type="button" className={`ia-fila${i === 0 ? ' primera' : ''}`}
-                                        onClick={() => abrir(a === 'factura' ? { tipo: 'accion', accion: 'factura', modo: o.factura_modo } : a)}>{contenido}</button>
-                                ) : (
-                                    <div key={p.key} className={`ia-fila${i === 0 ? ' primera' : ''}`} style={{ cursor: 'default' }}>{contenido}</div>
-                                );
-                            })}
-                            <button type="button" className="ia-fila" onClick={() => abrir('docs')}>
-                                <span className="ia-baldosa"><Icono n="subir" size={22} /></span>
-                                <span className="ia-fila-txt"><b>Fotos de la obra</b><span>Súbelas aquí y mira qué falta</span></span>
-                                <Icono n="chevron" size={20} className="ia-chev" />
-                            </button>
-                        </section>
+                    {o.se_puede_corregir && onAbrirOportunidad && (
+                        <button type="button" className="ia-aviso ia-corregir" onClick={() => onAbrirOportunidad(o.id)}>
+                            <Icono n="firma" size={22} style={{ flex: 'none', color: 'var(--tinta)' }} />
+                            <span><b style={{ color: 'var(--tinta)' }}>¿Ha cambiado algo?</b> Corrige el cálculo: la caldera, el equipo o el presupuesto.</span>
+                            <Icono n="chevron" size={20} className="ia-chev" />
+                        </button>
                     )}
 
                     <a className="ia-aviso" style={{ borderStyle: 'dashed', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 12, minHeight: 56 }}

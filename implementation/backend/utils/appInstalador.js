@@ -41,10 +41,16 @@ function enBetaInstalador(user, env = process.env) {
 const PASOS = ['Simulada', 'Propuesta enviada', 'Aceptada', 'En trámite', 'Cobrada'];
 
 // Estados de CAPTACIÓN (oportunidad sin expediente) → paso y quién.
-// `EN CURSO` sin expediente = la propuesta la está preparando BROKERGY.
+// Sin enviar (LEAD, PTE ENVIAR, EN CURSO) = la propuesta la prepara y la manda
+// BROKERGY: el instalador NO puede enviarla (los botones del popup son de ADMIN y
+// `send-proposal` / `send-media` son `staffOClaveInterna`, regla 102). Hasta el
+// 21/11/2026 esto decía `tu` con la tarea «Envía la propuesta al cliente», que le
+// llevaba a una calculadora sin botón de enviar.
+// ENVIADA: `cli`, SALVO que solo le haya llegado al instalador (regla 136): entonces
+// le toca a él pasársela a su cliente (ver `pasoDeObra`).
 const CAPTACION = {
-    'LEAD': { paso: 1, quien: 'tu' },
-    'PTE ENVIAR': { paso: 1, quien: 'tu' },
+    'LEAD': { paso: 1, quien: 'nos' },
+    'PTE ENVIAR': { paso: 1, quien: 'nos' },
     'EN CURSO': { paso: 1, quien: 'nos' },
     'ENVIADA': { paso: 2, quien: 'cli' },
     'PRE-ACEPTADO': { paso: 2, quien: 'cli' },
@@ -107,12 +113,15 @@ function esperaAlCliente(e = {}) {
  *
  * @returns {{paso:number, fase:string, quien:'tu'|'nos'|'cli'|'fin', tareas:Array}|null}
  */
-function pasoDeObra({ estadoCaptacion, exp = null, est = null, esInstaladora = true }) {
+function pasoDeObra({ estadoCaptacion, exp = null, est = null, esInstaladora = true, entrega = null }) {
     if (!exp) {
         const c = CAPTACION[String(estadoCaptacion || 'PTE ENVIAR').toUpperCase()];
         if (!c) return null; // RECHAZADA u otro: no es una obra en marcha
-        const tareas = c.quien === 'tu' ? [{ key: 'propuesta', que: 'Envía la propuesta al cliente' }] : [];
-        return { paso: c.paso, fase: PASOS[c.paso - 1], quien: c.quien, tareas };
+        // Enviada SOLO al instalador (lo normal con los partners, regla 136): la
+        // pelota la tiene él hasta que se la pase a su cliente.
+        const soloEl = c.paso === 2 && !!entrega && entrega.instalador && !entrega.cliente;
+        if (soloEl) return { paso: 2, fase: PASOS[1], quien: 'tu', tareas: [{ key: 'propuesta', que: 'Pásale la propuesta a tu cliente' }] };
+        return { paso: c.paso, fase: PASOS[c.paso - 1], quien: c.quien, tareas: [] };
     }
     const visible = estadoDesdeExpediente({ estado: exp.estado, cee: { certificador_id: exp.certificador_id } });
     if (visible === 'RECHAZADA') return null;
@@ -163,8 +172,95 @@ function financialsDeLaObra({ fin, fin080, kwh080, isReforma, comparativaReforma
     return propuestaGuardada(op, !!esRes080).financials || {};
 }
 
+// ── 4. TODO lo de la obra, en el orden en que pasa ───────────────────────────
+// Fran, 21/11/2026: «hay que darle una vuelta a la vista de las obras, para ver todo,
+// la factura, etc.». UNA lista para CUALQUIER obra —con expediente o sin él—, de la
+// propuesta al cobro: lo hecho, lo que le toca, lo que llevamos nosotros y lo que
+// «aún no toca». Antes, una obra sin expediente se abría en la calculadora de
+// siempre y no enseñaba nada de esto.
+//
+// Tonos: `ok` (hecho) · `tu` (le toca a él) · `nos` (lo llevamos nosotros o se espera
+// al cliente) · `luego` (aún no toca) · `info` (un sitio al que entrar: no cuenta).
+// `accion` = la pantalla de la obra que abre la fila (null = no se abre).
+const miles = (n) => `${String(Math.round(Number(n) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} €`;
+
+/**
+ * @param {object} o
+ *   paso, quien            — de `pasoDeObra`
+ *   conExpediente, esInstaladora
+ *   presupuesto            — { importe, estimado }
+ *   exp                    — el expediente en escalares (o null)
+ *   est                    — `estadoInstalador(doc)` (o null)
+ *   fac                    — { n, validadas } de sus facturas
+ *   cobrado                — hay transferencia al cliente
+ */
+function caminoDeObra({ paso, quien, conExpediente, esInstaladora, presupuesto, exp = null, est = null, fac = null, cobrado = false }) {
+    const e = exp || {};
+    const cifo = est?.cifo || {};
+    const rite = est?.rite || {};
+    const f = fac || { n: 0, validadas: 0 };
+    const filas = [];
+    const pon = (key, nombre, estado, tono, accion = null) => filas.push({ key, nombre, estado, tono, accion });
+
+    // 1 · La propuesta
+    if (conExpediente || paso >= 3) pon('propuesta', 'La propuesta', 'Aceptada por tu cliente', 'ok', 'propuesta');
+    else if (paso === 2 && quien === 'tu') pon('propuesta', 'La propuesta', 'Te la hemos mandado: pásasela a tu cliente', 'tu', 'propuesta');
+    else if (paso === 2) pon('propuesta', 'La propuesta', 'Enviada · falta que tu cliente la acepte', 'nos', 'propuesta');
+    else pon('propuesta', 'La propuesta', 'La estamos preparando nosotros', 'nos', 'propuesta');
+
+    // 2 · Su presupuesto
+    const imp = Number(presupuesto?.importe) > 0 ? miles(presupuesto.importe) : null;
+    if (imp && !presupuesto.estimado) pon('presupuesto', 'Tu presupuesto', imp, 'ok', 'presupuesto');
+    else if (imp) pon('presupuesto', 'Tu presupuesto', `${imp} · estimado: sube el tuyo`, 'tu', 'presupuesto');
+    else pon('presupuesto', 'Tu presupuesto', 'Falta: súbelo cuando lo tengas', 'tu', 'presupuesto');
+
+    // 3 · El certificado energético de antes de la obra
+    const iniOk = !!(e.fecha_reg_ini || e.seg_cee_ini === 'REGISTRADO');
+    pon('cee_ini', 'Certificado energético inicial',
+        !conExpediente ? 'Cuando tu cliente acepte' : iniOk ? 'Registrado' : 'Lo hacemos nosotros',
+        !conExpediente ? 'luego' : iniOk ? 'ok' : 'nos');
+
+    // 4 · La factura de la obra
+    const toca = conExpediente && ceeInicialRegistrado(e);
+    if (f.n) pon('factura', 'Tu factura', f.validadas === f.n ? (f.n === 1 ? 'Revisada' : `${f.n} revisadas`) : 'Subida · la estamos revisando', f.validadas === f.n ? 'ok' : 'nos', 'factura');
+    else if (toca && esInstaladora) pon('factura', 'Tu factura', 'Todavía no está hecha', 'tu', 'factura');
+    else if (toca) pon('factura', 'Factura de la obra', 'La hace la empresa que instala', 'nos');
+    else pon('factura', 'Tu factura', 'Se hace al terminar la obra', 'luego');
+
+    // 5 y 6 · Lo que firma y sube la empresa que INSTALA
+    if (!conExpediente) {
+        pon('cifo', 'Certificado de la instalación', 'Al terminar la obra', 'luego');
+        pon('rite', 'Legalización RITE', 'Al terminar la obra', 'luego');
+    } else if (esInstaladora) {
+        const pideFirma = !!(cifo.borrador && (cifo.sentAt || cifo.refirma));
+        pon('cifo', 'Certificado de la instalación',
+            cifo.recibido ? 'Firmado' : cifo.bloqueado ? 'Lo estamos corrigiendo' : pideFirma ? 'Falta tu firma' : 'Lo preparamos nosotros',
+            cifo.recibido ? 'ok' : (pideFirma && !cifo.bloqueado) ? 'tu' : 'nos', 'cifo');
+        const pideRite = !!(rite.sentAt || cifo.sentAt);
+        pon('rite', 'Legalización RITE',
+            rite.recibido ? 'Recibida' : pideRite ? 'Falta que la subas' : 'Aún no toca',
+            rite.recibido ? 'ok' : pideRite ? 'tu' : 'luego', 'rite');
+    }
+
+    // 7 · Las fotos (un sitio al que entrar: lo que falta lo dice su pantalla)
+    pon('fotos', 'Fotos de la obra', 'Súbelas aquí y mira qué falta', 'info', 'docs');
+
+    // 8 · El certificado energético de después
+    const finOk = !!(e.fecha_reg_fin || e.seg_cee_fin === 'REGISTRADO');
+    pon('cee_fin', 'Certificado energético final',
+        !conExpediente ? 'Al terminar la obra' : finOk ? 'Registrado' : paso >= 4 ? 'Lo hacemos nosotros' : 'Al terminar la obra',
+        !conExpediente ? 'luego' : finOk ? 'ok' : paso >= 4 ? 'nos' : 'luego');
+
+    // 9 · El bono
+    const pagado = cobrado || paso === 5;
+    pon('bono', 'El bono de tu cliente', pagado ? 'Cobrado' : paso >= 4 ? 'Lo estamos tramitando' : 'Cuando esté todo presentado', pagado ? 'ok' : paso >= 4 ? 'nos' : 'luego');
+
+    const cuentan = filas.filter(x => x.tono !== 'info');
+    return { filas, listos: cuentan.filter(x => x.tono === 'ok').length, total: cuentan.length };
+}
+
 module.exports = {
-    empresasEnBeta, enBetaInstalador, PASOS, CAPTACION,
+    empresasEnBeta, enBetaInstalador, PASOS, CAPTACION, caminoDeObra,
     obraHecha, ceeInicialRegistrado, tareasDeExpediente, esperaAlCliente, pasoDeObra,
     cuentasCliente, financialsDeLaObra,
 };

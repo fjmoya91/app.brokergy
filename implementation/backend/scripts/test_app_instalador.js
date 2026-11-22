@@ -41,6 +41,16 @@ const DB = {
     // La TRAE RCA, pero la INSTALA otra empresa: la ve y sube fotos; no firma, ni el RITE, ni la factura.
     { id: '55555555-5555-5555-5555-555555555555', id_oportunidad: '26RES060_OP904', ficha: 'RES060', creador_id: 'u-rca', prescriptor_id: 'p-1', cliente_id: 'c-1',
       datos_calculo: { estado: 'ACEPTADA', upload_token: 'tok-904', inputs: {}, result: { financials: FIN_CON_MARGEN } } },
+    // ENVIADA, pero la propuesta solo le llegó a ÉL (regla 136): le toca pasársela a su cliente.
+    { id: '66666666-6666-6666-6666-666666666666', id_oportunidad: '26RES060_OP905', ficha: 'RES060', creador_id: 'u-rca', prescriptor_id: 'p-1', cliente_id: 'c-1',
+      datos_calculo: { estado: 'ENVIADA', upload_token: 'tok-905', inputs: { presupuesto: 9000, presupuestoEstimado: true, aerothermiaModel: '127', potenciaBomba: '12', fuelType: 'gasoleo', changeAcs: true },
+        result: { financials: FIN_CON_MARGEN },
+        propuesta_versiones: [
+          { v: 1, fecha: '2026-11-01T10:00:00Z', drive_id: 'd-prop-v1-123456', drive_link: 'https://drive.google.com/v1', destinatarios: [{ modo: 'PARTNER', label: 'RCA', telefono: '699111222', email: 'rca@ejemplo.es' }],
+            envios: [{ channel: 'whatsapp', status: 'ok', modo: 'PARTNER', text: 'RCA → 699111222' }] },
+          { v: 2, fecha: '2026-11-10T10:00:00Z', drive_id: 'd-prop-v2-123456', drive_link: 'https://drive.google.com/v2', destinatarios: [{ modo: 'PARTNER', label: 'RCA', telefono: '699111222', email: 'rca@ejemplo.es' }],
+            envios: [{ channel: 'whatsapp', status: 'ok', modo: 'PARTNER', text: 'RCA → 699111222' }] },
+        ] } },
     { id: '44444444-4444-4444-4444-444444444444', id_oportunidad: '26RES060_OP903', ficha: 'RES060', creador_id: 'u-rca', prescriptor_id: 'p-1', cliente_id: 'c-1',
       datos_calculo: { estado: 'RECHAZADA', inputs: {}, result: {} } },
   ],
@@ -54,6 +64,7 @@ const DB = {
       instalador_asociado_id: 'p-2', instalacion: { instalador_id: 'p-2' }, cee: { certificador_id: 'cert-1' },
       documentacion: { facturas: [{ drive_id: 'd-fac-1234567890', numero_factura: '7/26', importe_con_iva: 1210, validada: false, drive_link: 'https://drive.google.com/fac' }] } },
   ],
+  aerotermia: [{ id: 127, marca: 'MARCA', modelo_comercial: 'SERIE 12' }],
   clientes: [
     { id_cliente: 'c-1', nombre_razon_social: 'CARMEN', apellidos: 'RUIZ', tlf: '600000000', municipio: 'TOMELLOSO', provincia: 'CIUDAD REAL', direccion: 'C/ OLIVO 12' },
     { id_cliente: 'c-2', nombre_razon_social: 'AJENO', apellidos: '', tlf: '611111111', municipio: 'X' },
@@ -99,13 +110,15 @@ function qb(table) {
   } });
   return b;
 }
-const fakeSb = { auth: { getUser: async (t) => ({ data: { user: { id: 'a-' + t, email: t + '@x' } }, error: null }) }, from: qb, rpc: () => Promise.resolve({ data: null, error: null }) };
+const fakeSb = { auth: { getUser: async (t) => ({ data: { user: { id: 'a-' + t, email: t + '@x' } }, error: null }) }, from: qb, rpc: (nombre, args) => { RPC.push({ nombre, args }); return Promise.resolve({ data: null, error: null }); } };
+const RPC = [];
 const fakeFactura = { plantillaDe: async () => null,
   refFactura: (f) => require('crypto').createHash('sha256').update(String(f?.drive_id || '')).digest('hex').slice(0, 12) };
 // Drive SIMULADO: el de verdad no se toca. Conoce tres ficheros; dos cuelgan de la carpeta de la 902.
 const DRIVE = { 'd-ok-1234567890': { mimeType: 'image/jpeg', parents: ['sub-fotos'] }, 'sub-fotos': { parents: ['carpeta-902'] },
   'd-pdf-1234567890': { mimeType: 'application/pdf', parents: ['sub-fotos'] }, 'd-fac-1234567890': { mimeType: 'application/pdf', parents: [] },
-  'd-ajeno-1234567': { mimeType: 'application/pdf', parents: ['otra-carpeta'] } };
+  'd-ajeno-1234567': { mimeType: 'application/pdf', parents: ['otra-carpeta'] },
+  'd-prop-v2-123456': { mimeType: 'application/pdf', parents: [] }, 'd-prop-v1-123456': { mimeType: 'application/pdf', parents: [] } };
 const DRIVE_LLAMADAS = [];
 const fakeDrive = {
   getFileMetadata: async (id) => { DRIVE_LLAMADAS.push(id); return DRIVE[id] ? { id, ...DRIVE[id] } : null; },
@@ -144,8 +157,36 @@ const { estadoDesdeExpediente } = require(path.join(B, 'utils/estadoOportunidad'
 let nPuro = 0;
 const eq = (a, b, msg) => { nPuro++; assert.deepStrictEqual(a, b, msg); };
 eq(A.pasoDeObra({ estadoCaptacion: 'PTE ENVIAR' }).paso, 1);
-eq(A.pasoDeObra({ estadoCaptacion: 'PTE ENVIAR' }).quien, 'tu');
-eq(A.pasoDeObra({ estadoCaptacion: 'LEAD' }).quien, 'tu');
+// Sin enviar: la propuesta la prepara y la manda BROKERGY (el instalador no puede enviarla).
+eq(A.pasoDeObra({ estadoCaptacion: 'PTE ENVIAR' }).quien, 'nos');
+eq(A.pasoDeObra({ estadoCaptacion: 'PTE ENVIAR' }).tareas, []);
+eq(A.pasoDeObra({ estadoCaptacion: 'LEAD' }).quien, 'nos');
+// ENVIADA: espera al cliente, SALVO que solo le haya llegado al instalador (regla 136).
+eq(A.pasoDeObra({ estadoCaptacion: 'ENVIADA' }).quien, 'cli');
+eq(A.pasoDeObra({ estadoCaptacion: 'ENVIADA', entrega: { instalador: true, cliente: false } }).quien, 'tu');
+eq(A.pasoDeObra({ estadoCaptacion: 'ENVIADA', entrega: { instalador: true, cliente: false } }).tareas.map(t => t.key), ['propuesta']);
+eq(A.pasoDeObra({ estadoCaptacion: 'ENVIADA', entrega: { instalador: true, cliente: true } }).quien, 'cli');
+eq(A.pasoDeObra({ estadoCaptacion: 'PTE ENVIAR', entrega: { instalador: true, cliente: false } }).quien, 'nos');
+// «Todo lo de esta obra»: la misma lista con expediente y sin él.
+{
+  const sin = A.caminoDeObra({ paso: 1, quien: 'nos', conExpediente: false, esInstaladora: false, presupuesto: { importe: 9000, estimado: true } });
+  eq(sin.filas.map(f => f.key), ['propuesta', 'presupuesto', 'cee_ini', 'factura', 'cifo', 'rite', 'fotos', 'cee_fin', 'bono']);
+  eq(sin.filas.filter(f => f.accion).map(f => f.key), ['propuesta', 'presupuesto', 'fotos']);
+  eq(sin.filas.find(f => f.key === 'factura').tono, 'luego');
+  eq(sin.filas.find(f => f.key === 'presupuesto').estado, '9.000 € · estimado: sube el tuyo');
+  eq([sin.listos, sin.total], [0, 8]); // las fotos no cuentan: son un sitio al que entrar
+  const pasar = A.caminoDeObra({ paso: 2, quien: 'tu', conExpediente: false, presupuesto: { importe: 9000 } });
+  eq(pasar.filas[0].tono, 'tu');
+  const con = A.caminoDeObra({ paso: 4, quien: 'tu', conExpediente: true, esInstaladora: true, presupuesto: { importe: 14200 },
+    exp: { fecha_reg_ini: '2026-10-05' }, est: { cifo: { borrador: true, sentAt: 'x' }, rite: {} }, fac: { n: 0, validadas: 0 } });
+  eq(con.filas.filter(f => f.tono === 'tu').map(f => f.key), ['factura', 'cifo', 'rite']);
+  eq(con.filas.find(f => f.key === 'propuesta').tono, 'ok');
+  eq(con.filas.find(f => f.key === 'factura').accion, 'factura');
+  const ajena = A.caminoDeObra({ paso: 4, quien: 'nos', conExpediente: true, esInstaladora: false, presupuesto: {}, exp: { fecha_reg_ini: 'x' }, fac: { n: 0, validadas: 0 } });
+  eq(ajena.filas.some(f => f.key === 'cifo' || f.key === 'rite'), false); // quien no instala no firma
+  eq(ajena.filas.find(f => f.key === 'factura').accion, null);
+  eq(A.caminoDeObra({ paso: 5, quien: 'fin', conExpediente: true, esInstaladora: true, presupuesto: { importe: 1 }, exp: {}, fac: { n: 1, validadas: 1 } }).filas.at(-1).estado, 'Cobrado');
+}
 eq(A.pasoDeObra({ estadoCaptacion: 'EN CURSO' }).quien, 'nos');
 eq(A.pasoDeObra({ estadoCaptacion: 'ENVIADA' }).paso, 2);
 eq(A.pasoDeObra({ estadoCaptacion: 'PRE-ACEPTADO' }).quien, 'cli');
@@ -230,13 +271,17 @@ const srv = app.listen(0, async () => {
   console.log('— Solo lo suyo');
   await t('rca', '/api/instalador-app/obras', 200, js => {
     const ids = (js.obras || []).map(o => o.id).sort().join(',');
-    if (ids !== '26RES060_OP900,26RES060_OP902,26RES060_OP904') return 'obras=' + ids;
+    if (ids !== '26RES060_OP900,26RES060_OP902,26RES060_OP904,26RES060_OP905') return 'obras=' + ids;
     const o904 = js.obras.find(o => o.id === '26RES060_OP904');
     if (o904.tareas.length) return 'a quien NO instala le salen tareas: ' + o904.tareas.map(x => x.key).join(',');
     const mal = clavesProhibidas(js); if (mal.length) return 'SE ESCAPA: ' + mal.join(' ');
     const o900 = js.obras.find(o => o.id === '26RES060_OP900');
-    if (o900.bono !== 3850 || o900.paso !== 1 || o900.quien !== 'tu') return 'OP900 ' + JSON.stringify(o900);
-    if (o900.tareas[0]?.destino?.tipo !== 'oportunidad') return 'la propuesta no lleva a la oportunidad';
+    if (o900.bono !== 3850 || o900.paso !== 1 || o900.quien !== 'nos' || o900.tareas.length) return 'OP900 ' + JSON.stringify(o900);
+    const o905 = js.obras.find(o => o.id === '26RES060_OP905');
+    if (o905.paso !== 2 || o905.quien !== 'tu') return 'OP905 ' + JSON.stringify(o905);
+    const d = o905.tareas[0]?.destino; // se hace DENTRO de la obra: ya no lleva a la oportunidad
+    if (o905.tareas[0]?.key !== 'propuesta' || d?.tipo !== 'accion' || d?.accion !== 'propuesta') return 'tarea OP905 ' + JSON.stringify(o905.tareas);
+    if ('versiones' in o905 || 'propuesta_versiones' in o905) return 'las versiones salen en la lista';
     return js.resumen.te_toca === 2 || 'resumen ' + JSON.stringify(js.resumen);
   });
   await t('rca', '/api/instalador-app/obras/26RES060_OP901', 404);
@@ -258,9 +303,34 @@ const srv = app.listen(0, async () => {
     if (o.equipo?.modelo !== 'MOD-12') return 'equipo ' + JSON.stringify(o.equipo);
     return true;
   });
+  console.log('— La MISMA ficha sin expediente: todo lo de la obra, la propuesta y el equipo previsto');
+  await t('rca', '/api/instalador-app/obras/26RES060_OP900', 200, js => {
+    const o = js.obra;
+    if (o.con_expediente !== false || o.se_puede_corregir !== true) return `con_expediente=${o.con_expediente} se_puede_corregir=${o.se_puede_corregir}`;
+    if ((o.papeles || []).map(p => p.key).join(',') !== 'propuesta,presupuesto,cee_ini,factura,cifo,rite,fotos,cee_fin,bono') return 'papeles ' + JSON.stringify(o.papeles);
+    if (o.papeles_total !== 8 || o.papeles_listos !== 0) return `listos ${o.papeles_listos}/${o.papeles_total}`;
+    const pr = o.propuesta;
+    return (pr.estado === 'preparando' && pr.tiene_pdf === false && pr.version === null) || 'propuesta ' + JSON.stringify(pr);
+  });
+  await t('rca', '/api/instalador-app/obras/26RES060_OP905', 200, js => {
+    const o = js.obra; const pr = o.propuesta;
+    const txt = JSON.stringify(js);
+    if (/699111222|rca@ejemplo|destinatarios|envios|d-prop-/.test(txt)) return 'se escapan los destinatarios o el fichero de la versión';
+    if (pr.estado !== 'enviada' || pr.la_tiene !== 'instalador' || pr.version !== 2 || pr.tiene_pdf !== true) return 'propuesta ' + JSON.stringify(pr);
+    if (o.papeles[0].tono !== 'tu' || o.papeles[0].accion !== 'propuesta') return 'fila propuesta ' + JSON.stringify(o.papeles[0]);
+    if (o.equipo?.previsto !== true || o.equipo.marca !== 'MARCA' || o.equipo.modelo !== 'SERIE 12' || o.equipo.titulo !== 'Aerotermia 12 kW') return 'equipo ' + JSON.stringify(o.equipo);
+    return o.caldera_retirada?.combustible === 'GASÓLEO' || 'caldera ' + JSON.stringify(o.caldera_retirada);
+  });
+  await t('rca', '/api/instalador-app/obras/26RES060_OP902', 200, js => {
+    const o = js.obra;
+    if (o.se_puede_corregir !== false || o.propuesta.estado !== 'aceptada') return `corregir=${o.se_puede_corregir} propuesta=${o.propuesta.estado}`;
+    if (o.equipo?.previsto) return 'el equipo INSTALADO sale como previsto';
+    return o.papeles.filter(p => p.tono === 'tu').map(p => p.key).join(',') === 'factura,cifo,rite' || 'tu: ' + JSON.stringify(o.papeles);
+  });
   await t('rca', '/api/instalador-app/obras/26RES060_OP904', 200, js => {
     const o = js.obra;
     if (o.es_instaladora !== false) return 'es_instaladora=' + o.es_instaladora;
+    if (o.papeles.some(p => p.key === 'cifo' || p.key === 'rite')) return 'a quien NO instala se le enseña el certificado o el RITE';
     const f = o.facturas || []; // la ve (es su obra), con su referencia opaca y sin enlace
     return (f.length === 1 && /^[0-9a-f]{12}$/.test(f[0].ref) && f[0].revisada === false) || 'facturas ' + JSON.stringify(f);
   });
@@ -268,6 +338,7 @@ const srv = app.listen(0, async () => {
   // ── Fase 2: las acciones dentro de la obra ────────────────────────────────
   const P = '/api/instalador-app';
   const NUEVAS = [
+    'GET /obras/26RES060_OP902/propuesta/pdf', 'POST /obras/26RES060_OP902/propuesta/pasada',
     'GET /obras/26RES060_OP902/presupuesto', 'GET /obras/26RES060_OP902/presupuesto/f-presu-1234567', 'POST /obras/26RES060_OP902/presupuesto',
     'GET /obras/26RES060_OP902/factura', 'GET /obras/26RES060_OP902/factura/word', 'POST /obras/26RES060_OP902/factura/vista-previa',
     'POST /obras/26RES060_OP902/factura/generar', 'POST /obras/26RES060_OP902/factura/subir', 'GET /obras/26RES060_OP902/factura/fichero/abcdef012345',
@@ -364,6 +435,29 @@ const srv = app.listen(0, async () => {
   const ref904 = fakeFactura.refFactura({ drive_id: 'd-fac-1234567890' });
   await pide('rca', `GET ${P}/obras/26RES060_OP904/factura/fichero/${ref904}`, 200, (_, r) => r.headers.get('content-type') === 'application/pdf' || r.headers.get('content-type'));
   await pide('rca', `GET ${P}/obras/26RES060_OP902/factura/fichero/${ref904}`, 404); // la factura de OTRA obra
+
+  console.log('— La propuesta: su PDF por proxy y «ya se la he pasado»');
+  await pide('rca', `GET ${P}/obras/26RES060_OP905/propuesta/pdf`, 200, (_, r) =>
+    (r.headers.get('content-type') === 'application/pdf' && DRIVE_LLAMADAS.at(-1) === 'd-prop-v2-123456') || `tipo ${r.headers.get('content-type')} fichero ${DRIVE_LLAMADAS.at(-1)}`);
+  await pide('rca', `GET ${P}/obras/26RES060_OP905/propuesta/pdf?driveId=d-ajeno-1234567`, 200, () => DRIVE_LLAMADAS.at(-1) === 'd-prop-v2-123456' || 'sirvió el fichero que pidió el navegador');
+  await pide('rca', `GET ${P}/obras/26RES060_OP900/propuesta/pdf`, 404); // aún no hay propuesta
+  await pide('rca', `POST ${P}/obras/26RES060_OP900/propuesta/pasada`, 409, null, {});
+  const nRpc = RPC.length;
+  await pide('rca', `POST ${P}/obras/26RES060_OP905/propuesta/pasada`, 200, () => {
+    const c = RPC.at(-1);
+    if (RPC.length !== nRpc + 1 || c.nombre !== 'propuesta_version_merge' || c.args.p_v !== 2 || c.args.p_id !== '66666666-6666-6666-6666-666666666666') return JSON.stringify(c);
+    const e = c.args.p_patch.envios; // la lista que había MÁS el suyo: el merge la sustituye
+    return (e.length === 2 && e[0].modo === 'PARTNER' && e[1].modo === 'CLIENTE' && e[1].channel === 'instalador' && e[1].status === 'ok') || JSON.stringify(e);
+  }, {});
+  // Con ese envío apuntado, la obra deja de tocarle: lo decide la MISMA función del listado interno.
+  {
+    const v = JSON.parse(JSON.stringify(DB.oportunidades.find(o => o.id_oportunidad === '26RES060_OP905').datos_calculo.propuesta_versiones));
+    v[1].envios = RPC.at(-1).args.p_patch.envios;
+    const ent = require(path.join(B, 'utils/entregaPropuesta')).entregaPropuesta(v);
+    n++; const bien = ent.cliente === true && A.pasoDeObra({ estadoCaptacion: 'ENVIADA', entrega: ent }).quien === 'cli';
+    if (!bien) fallos++; console.log(`${bien ? '✓' : '✗'} tras «ya se la he pasado», la obra espera al cliente`);
+  }
+  await pide('rca', `POST ${P}/obras/26RES060_OP902/propuesta/pasada`, 200, () => RPC.length === nRpc + 1 || 'apuntó un envío en una obra ya aceptada', {});
 
   console.log('— BD caída (regla 38)');
   FALLA_OPORTUNIDADES = true;

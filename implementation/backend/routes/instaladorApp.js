@@ -20,6 +20,7 @@ const supabase = require('../services/supabaseClient');
 const { enforceAuth } = require('../middleware/auth');
 const { instaladorIdDe } = require('../utils/consejoFactura');
 const A = require('../utils/appInstalador');
+const { entregaPropuesta } = require('../utils/entregaPropuesta');
 
 // Los dos módulos ESM del frontend que deciden por todos: qué le falta al
 // instalador (`estadoInstalador`) y qué economía se aceptó (`propuestaGuardada`).
@@ -59,8 +60,39 @@ const SEL_OP = [
     'in_hibridacion:datos_calculo->inputs->hibridacion',
     'in_presu:datos_calculo->inputs->>presupuesto', 'in_presu_est:datos_calculo->inputs->presupuestoEstimado',
     'kwh080:datos_calculo->result->res080->>ahorroEnergiaFinalTotal',
+    // Solo metadatos (regla 25: ni el HTML ni el PDF viven aquí). Dice a quién le ha
+    // llegado la propuesta y cuál es su PDF; NUNCA sale tal cual hacia el navegador
+    // (lleva teléfonos y correos de los destinatarios): ver `propuestaDe`.
+    'versiones:datos_calculo->propuesta_versiones',
     FIN('f', 'financials'), FIN('g', 'financialsRes080'),
 ].join(',').replace(/\s+/g, ' ');
+
+// El detalle de una obra SIN expediente enseña el equipo PREVISTO (el del cálculo).
+const SEL_OP_DETALLE = SEL_OP + ',' + [
+    'in_aero:datos_calculo->inputs->>aerothermiaModel',
+    'in_marca:datos_calculo->inputs->>customBrandName', 'in_modelo:datos_calculo->inputs->>customModelName',
+    'in_potencia:datos_calculo->inputs->>potenciaBomba', 'in_acs:datos_calculo->inputs->changeAcs',
+    'in_fuel:datos_calculo->inputs->>fuelType', 'in_solido:datos_calculo->inputs->>combustibleSolido',
+].join(',');
+const COMBUSTIBLE = { gasoleo: 'GASÓLEO', gas_natural: 'GAS NATURAL', butano: 'BUTANO', propano: 'PROPANO', glp: 'GLP', carbon: 'CARBÓN', lena: 'LEÑA', pellets: 'PELLETS', electricidad: 'ELECTRICIDAD' };
+
+/** El equipo del CÁLCULO (aún no instalado): el del catálogo o el tecleado a mano. */
+async function equipoPrevisto(op) {
+    let marca = (op.in_marca || '').trim() || null;
+    let modelo = (op.in_modelo || '').trim() || null;
+    if (/^\d{1,9}$/.test(String(op.in_aero || ''))) {
+        const { data, error } = await supabase.from('aerotermia').select('marca, modelo_comercial').eq('id', Number(op.in_aero)).maybeSingle();
+        if (error) throw new BdCaida(error.message);
+        if (data) { marca = data.marca || marca; modelo = data.modelo_comercial || modelo; }
+    }
+    const kw = num(op.in_potencia);
+    const equipo = (marca || modelo || kw) ? {
+        titulo: ['Aerotermia', kw ? `${String(kw).replace('.', ',')} kW` : null].filter(Boolean).join(' '),
+        marca, modelo, serie: null, acs: null, con_acs: si(op.in_acs), previsto: true,
+    } : null;
+    const fuel = COMBUSTIBLE[String(op.in_solido || op.in_fuel || '').toLowerCase()] || null;
+    return { equipo, caldera_retirada: fuel ? { combustible: fuel, marca: null, modelo: null, tipo: 'Caldera', prevista: true } : null };
+}
 
 const DOC = (k) => `${k}:documentacion->>${k}`;
 const SEL_EXP = [
@@ -131,15 +163,41 @@ const nombreDe = (op, cli) => {
  * se SUBE.
  */
 function destinoDe(tarea, { op, conPlantilla }) {
-    if (tarea.key === 'propuesta') return { tipo: 'oportunidad', id: op.id_oportunidad };
-    if (tarea.key === 'cifo' || tarea.key === 'rite') return { tipo: 'accion', accion: tarea.key };
+    if (tarea.key === 'propuesta' || tarea.key === 'cifo' || tarea.key === 'rite') return { tipo: 'accion', accion: tarea.key };
     if (tarea.key === 'factura') return { tipo: 'accion', accion: 'factura', modo: conPlantilla && !esRes080(op) ? 'plantilla' : 'subir' };
     return null;
 }
 
+/**
+ * La versión de la propuesta que se enseña: la que ACEPTÓ el cliente si está sellada
+ * (`aceptada_at`, regla 25); si no, la vigente (la última enviada).
+ */
+function versionQueSeEnsena(versiones) {
+    const vs = (Array.isArray(versiones) ? versiones : []).filter(v => v && v.v).sort((a, b) => Number(a.v) - Number(b.v));
+    return vs.filter(v => v.aceptada_at).pop() || vs[vs.length - 1] || null;
+}
+
+/**
+ * Lo que la obra enseña de su propuesta, en lista BLANCA: ni destinatarios, ni
+ * teléfonos, ni correos, ni el enlace de Drive (regla 1). El PDF se pide aparte, por
+ * proxy (`GET /obras/:id/propuesta/pdf`).
+ */
+function propuestaDe(op, { paso, conExpediente, entrega }) {
+    const v = versionQueSeEnsena(op.versiones);
+    return {
+        estado: conExpediente || paso >= 3 ? 'aceptada' : paso === 2 ? 'enviada' : 'preparando',
+        version: v ? Number(v.v) : null,
+        fecha: v?.fecha || null,
+        aceptada_el: v?.aceptada_at || null,
+        tiene_pdf: !!v?.drive_id,
+        // A quién le ha llegado (regla 136): si solo a él, le toca pasársela.
+        la_tiene: !entrega ? null : entrega.cliente ? 'cliente' : entrega.instalador ? 'instalador' : entrega.enlace ? 'enlace' : 'otro',
+    };
+}
+
 /** Carga sus oportunidades (y sus expedientes y clientes). `filtro` acota a una. */
 async function cargarObras(user, { id = null, detalle = false } = {}) {
-    let q = supabase.from('oportunidades').select(SEL_OP).order('updated_at', { ascending: false });
+    let q = supabase.from('oportunidades').select(detalle ? SEL_OP_DETALLE : SEL_OP).order('updated_at', { ascending: false });
     if (id) q = UUID_RE.test(id) ? q.eq('id', id) : q.eq('id_oportunidad', id);
     const { data: ops, error } = await soloLoSuyo(q, user);
     if (error) throw new BdCaida(error.message);
@@ -190,7 +248,8 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
                 rite_recibido: est.rite.recibido,
             };
         }
-        const p = A.pasoDeObra({ estadoCaptacion: op.dc_estado, exp: expEsc, est, esInstaladora });
+        const entrega = exp ? null : entregaPropuesta(op.versiones);
+        const p = A.pasoDeObra({ estadoCaptacion: op.dc_estado, exp: expEsc, est, esInstaladora, entrega });
         if (!p) continue;
 
         const f = A.financialsDeLaObra({
@@ -231,6 +290,24 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
             obra.es_instaladora = esInstaladora;
             obra.factura_modo = conPlantilla && !esRes080(op) ? 'plantilla' : 'subir';
             if (exp) Object.assign(obra, detalleExpediente(exp, est, { esInstaladora }));
+            // Sin expediente (o sin equipo apuntado aún en él): el del cálculo, dicho como PREVISTO.
+            if (!obra.equipo && p.paso < 4) {
+                const prev = await equipoPrevisto(op);
+                obra.equipo = prev.equipo;
+                if (!obra.caldera_retirada) obra.caldera_retirada = prev.caldera_retirada;
+            }
+            obra.propuesta = propuestaDe(op, { paso: p.paso, conExpediente: !!exp, entrega });
+            // TODO lo de la obra en una lista, tenga o no expediente (`caminoDeObra`).
+            const camino = A.caminoDeObra({
+                paso: p.paso, quien: p.quien, conExpediente: !!exp, esInstaladora,
+                presupuesto: obra.presupuesto, exp: expEsc, est,
+                fac: exp ? resumenFacturas(exp.facturas) : null, cobrado: !!exp?.cobro_at,
+            });
+            obra.papeles = camino.filas;
+            obra.papeles_listos = camino.listos;
+            obra.papeles_total = camino.total;
+            // El cálculo se puede corregir mientras el cliente no haya aceptado.
+            obra.se_puede_corregir = !exp && p.paso <= 2;
         }
         out.push(obra);
     }
@@ -240,8 +317,6 @@ async function cargarObras(user, { id = null, detalle = false } = {}) {
 /** Lo que la ficha nueva enseña de un expediente: escalares en lista blanca. */
 function detalleExpediente(e, est, { esInstaladora }) {
     const fac = resumenFacturas(e.facturas);
-    const cifo = est?.cifo || {};
-    const rite = est?.rite || {};
     const equipo = (e.aero_marca || e.aero_modelo) ? {
         titulo: ['Aerotermia', e.potencia_bomba ? `${String(e.potencia_bomba).replace('.', ',')} kW` : null].filter(Boolean).join(' '),
         marca: e.aero_marca || null, modelo: e.aero_modelo || null, serie: e.aero_serie || null,
@@ -252,32 +327,8 @@ function detalleExpediente(e, est, { esInstaladora }) {
         combustible: e.cal_combustible || null, marca: e.cal_marca || null, modelo: e.cal_modelo || null, tipo: e.cal_tipo || null,
     } : null;
 
-    const papeles = [];
-    if (esInstaladora) {
-        papeles.push({
-            key: 'cifo', nombre: 'Certificado de la instalación',
-            estado: cifo.recibido ? 'Firmado' : cifo.bloqueado ? 'Lo estamos corrigiendo' : (cifo.borrador && (cifo.sentAt || cifo.refirma)) ? 'Falta tu firma' : 'Lo preparamos nosotros',
-            tono: cifo.recibido ? 'ok' : (cifo.borrador && (cifo.sentAt || cifo.refirma) && !cifo.bloqueado) ? 'tu' : 'nos',
-        });
-        papeles.push({
-            key: 'rite', nombre: 'Legalización RITE',
-            estado: rite.recibido ? 'Recibida' : (rite.sentAt || cifo.sentAt) ? 'Falta que la subas' : 'Aún no toca',
-            tono: rite.recibido ? 'ok' : (rite.sentAt || cifo.sentAt) ? 'tu' : 'nos',
-        });
-    }
-    papeles.push({
-        key: 'factura', nombre: 'Factura de la obra',
-        estado: fac.n ? (fac.validadas === fac.n ? `${fac.n === 1 ? 'Revisada' : `${fac.n} revisadas`}` : 'Subida · la estamos revisando') : (A.ceeInicialRegistrado(e) ? 'Todavía no está hecha' : 'Aún no toca'),
-        tono: fac.n ? (fac.validadas === fac.n ? 'ok' : 'nos') : (A.ceeInicialRegistrado(e) && esInstaladora ? 'tu' : 'nos'),
-    });
-    papeles.push({
-        key: 'cee_ini', nombre: 'Certificado energético inicial',
-        estado: (e.fecha_reg_ini || e.seg_cee_ini === 'REGISTRADO') ? 'Registrado' : 'Lo hacemos nosotros', tono: (e.fecha_reg_ini || e.seg_cee_ini === 'REGISTRADO') ? 'ok' : 'nos',
-    });
-    papeles.push({
-        key: 'cee_fin', nombre: 'Certificado energético final',
-        estado: (e.fecha_reg_fin || e.seg_cee_fin === 'REGISTRADO') ? 'Registrado' : 'Lo hacemos nosotros', tono: (e.fecha_reg_fin || e.seg_cee_fin === 'REGISTRADO') ? 'ok' : 'nos',
-    });
+    // Los papeles (qué hay hecho, qué le toca, qué llevamos nosotros) los pone
+    // `caminoDeObra` (utils/appInstalador.js), para las obras con y sin expediente.
 
     // Las facturas, para verlas desde la obra: una referencia opaca (la MISMA de
     // `refFactura`, la del «sustituye a…» de la factura en la app), nunca el enlace.
@@ -291,7 +342,6 @@ function detalleExpediente(e, est, { esInstaladora }) {
         factura: { n: fac.n, validadas: fac.validadas, hecha_en_app: fac.generada },
         facturas,
         equipo, caldera_retirada: caldera,
-        papeles, papeles_listos: papeles.filter(p => p.tono === 'ok').length,
         cobrado: !!e.cobro_at,
     };
 }
@@ -487,6 +537,51 @@ router.post('/obras/:id/presupuesto', enforceAuth, soloBetaInstalador, obraSuya,
     if (String(base64).length > 28 * 1024 * 1024) return res.status(413).json({ error: 'El archivo es demasiado grande (máximo 20 MB).' });
     req.body = { fileName: String(fileName || 'presupuesto.pdf').slice(0, 120), mimeType, base64, isBudget: true, budgetSlot: 'AEROTERMIA' };
     despachar(req, res, 'oportunidades', `/${encodeURIComponent(req.obra.op.id_oportunidad)}/anexos`, { transformar: () => ({ ok: true }) });
+});
+
+// ── La PROPUESTA: su PDF, por proxy ──────────────────────────────────────────
+// El instalador VE la propuesta que BROKERGY ya envió (la que aceptó el cliente si
+// está sellada; si no, la vigente). El fichero es el `drive_id` que consta en ESA
+// versión de ESA oportunidad: del navegador no llega ningún id. Enviarla sigue
+// siendo del equipo interno (regla 102): aquí solo se LEE. Lo que él hace con ella
+// —pasársela a su cliente— sale de SU WhatsApp, con el enlace de aceptación de
+// siempre (`/firma/:uuid`), no de nuestro número.
+router.get('/obras/:id/propuesta/pdf', enforceAuth, soloBetaInstalador, obraSuya, async (req, res) => {
+    try {
+        const { data, error } = await supabase.from('oportunidades').select('versiones:datos_calculo->propuesta_versiones').eq('id', req.obra.op.id).maybeSingle();
+        if (error) return res.status(503).json(NO_DISPONIBLE);
+        const v = versionQueSeEnsena(data?.versiones);
+        if (!v?.drive_id || !/^[\w-]{10,200}$/.test(String(v.drive_id))) return res.status(404).json({ error: 'Esta obra todavía no tiene la propuesta en PDF.' });
+        await servirFichero(res, v.drive_id);
+    } catch (e) {
+        console.error('[instalador-app] propuesta/pdf:', e.message);
+        if (!res.headersSent) res.status(502).json({ error: 'No hemos podido abrir la propuesta.' });
+    }
+});
+
+// «Ya se la he pasado»: lo que el instalador hace con su WhatsApp no lo vemos, así
+// que lo DICE él. Se apunta como un envío más de la versión vigente (modo CLIENTE,
+// canal `instalador`), que es donde consta a quién le ha llegado (regla 136): la obra
+// deja de «tocarle» y el listado interno pasa a «→ cliente + instalador». No cambia
+// el estado ni manda nada. `propuesta_version_merge` SUSTITUYE la lista de envíos:
+// va la que había más este.
+router.post('/obras/:id/propuesta/pasada', enforceAuth, soloBetaInstalador, obraSuya, async (req, res) => {
+    try {
+        if (req.obra.exp) return res.json({ ok: true }); // ya aceptada: nada que apuntar
+        const { data, error } = await supabase.from('oportunidades').select('versiones:datos_calculo->propuesta_versiones').eq('id', req.obra.op.id).maybeSingle();
+        if (error) return res.status(503).json(NO_DISPONIBLE);
+        const v = versionQueSeEnsena(data?.versiones);
+        if (!v) return res.status(409).json({ error: 'Todavía no hay ninguna propuesta enviada en esta obra.' });
+        const envios = Array.isArray(v.envios) ? v.envios : [];
+        if (envios.some(e => e?.channel === 'instalador' && e?.status === 'ok')) return res.json({ ok: true });
+        const nuevo = { channel: 'instalador', status: 'ok', modo: 'CLIENTE', text: 'Cliente → se la ha pasado el instalador (lo dice él, desde su app)', at: new Date().toISOString() };
+        const hecho = await require('../services/propuestaVersiones').merge(req.obra.op.id, Number(v.v), { envios: [...envios, nuevo] });
+        if (!hecho) return res.status(503).json(NO_DISPONIBLE);
+        res.json({ ok: true });
+    } catch (e) {
+        console.error('[instalador-app] propuesta/pasada:', e.message);
+        res.status(503).json(NO_DISPONIBLE);
+    }
 });
 
 // ── La factura: en su plantilla (routes/facturaInstalador.js) o subida ───────

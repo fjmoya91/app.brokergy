@@ -97,8 +97,13 @@ export const CSS = `
 .ia-baldosa.c{width:36px;height:36px;border-radius:999px}
 .ia-baldosa.ok{background:rgba(177,209,62,.22);color:var(--verde-txt)}
 .ia-baldosa.nos{background:var(--neutro);color:var(--gris)}
+.ia-baldosa.luego{background:transparent;border:1.5px dashed rgba(20,17,17,.22);color:var(--gris2)}
 .ia-fila-txt{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
 .ia-fila-txt b{font-size:15.5px;line-height:1.3}
+.ia-fila-txt b.luego{color:var(--gris);font-weight:600}
+.ia-todo-cab{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:0 12px 6px}
+.ia-todo-cab span{font-size:13px;color:var(--gris);white-space:nowrap}
+.ia-corregir{display:flex;align-items:center;gap:12px;min-height:56px;width:100%;text-align:left;font-family:inherit;cursor:pointer;border-style:dashed}
 .ia-fila-txt span{font-size:13.5px;color:var(--gris);line-height:1.35}
 .ia-fila-txt span.corta{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .ia-fila-txt span.tu{color:var(--ambar-txt)}

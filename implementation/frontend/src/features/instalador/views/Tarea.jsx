@@ -22,4 +22,4 @@ export function Destino({ destino, onAbrirOportunidad, onAccion, className, chil
 }
 
 /** El verbo del botón de cada tarea. */
-export const VERBO = { propuesta: 'Enviarla', cifo: 'Firmar ahora', rite: 'Subirla', factura: 'Hacerla' };
+export const VERBO = { propuesta: 'Pasársela', cifo: 'Firmar ahora', rite: 'Subirla', factura: 'Hacerla' };

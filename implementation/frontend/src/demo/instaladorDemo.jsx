@@ -114,8 +114,48 @@ const P = {
     ceeFinOk: { key: 'cee_fin', nombre: 'Certificado energético final', estado: 'Registrado', tono: 'ok' },
     ceeFinNos: { key: 'cee_fin', nombre: 'Certificado energético final', estado: 'Lo hacemos nosotros', tono: 'nos' },
 };
-const listos = (papeles) => papeles.filter((x) => x.tono === 'ok').length;
-const conPapeles = (o) => ({ ...o, papeles_listos: listos(o.papeles || []) });
+// «Todo lo de esta obra»: la MISMA lista que arma el servidor (`caminoDeObra` en
+// backend/utils/appInstalador.js), rehecha aquí con los datos de mentira.
+const milesD = (n) => `${String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '.')} €`;
+const filaObra = (key, nombre, estado, tono, accion = null) => ({ key, nombre, estado, tono, accion });
+function camino(o, viejos = []) {
+    const de = (k) => viejos.find((x) => x.key === k);
+    const exp = !!o.con_expediente;
+    const f = [];
+    f.push(exp || o.paso >= 3 ? filaObra('propuesta', 'La propuesta', 'Aceptada por tu cliente', 'ok', 'propuesta')
+        : o.paso === 2 && o.quien === 'tu' ? filaObra('propuesta', 'La propuesta', 'Te la hemos mandado: pásasela a tu cliente', 'tu', 'propuesta')
+            : o.paso === 2 ? filaObra('propuesta', 'La propuesta', 'Enviada · falta que tu cliente la acepte', 'nos', 'propuesta')
+                : filaObra('propuesta', 'La propuesta', 'La estamos preparando nosotros', 'nos', 'propuesta'));
+    const imp = o.presupuesto?.importe;
+    f.push(imp && !o.presupuesto.estimado ? filaObra('presupuesto', 'Tu presupuesto', milesD(imp), 'ok', 'presupuesto')
+        : imp ? filaObra('presupuesto', 'Tu presupuesto', `${milesD(imp)} · estimado: sube el tuyo`, 'tu', 'presupuesto')
+            : filaObra('presupuesto', 'Tu presupuesto', 'Falta: súbelo cuando lo tengas', 'tu', 'presupuesto'));
+    f.push(exp ? { ...(de('cee_ini') || P.ceeIniNos), accion: null } : filaObra('cee_ini', 'Certificado energético inicial', 'Cuando tu cliente acepte', 'luego'));
+    const fac = de('factura');
+    f.push(!exp || !fac || fac.estado === 'Aún no toca' ? filaObra('factura', 'Tu factura', 'Se hace al terminar la obra', 'luego')
+        : { ...fac, nombre: 'Tu factura', accion: 'factura' });
+    f.push(exp ? { ...(de('cifo') || P.cifoNos), accion: 'cifo' } : filaObra('cifo', 'Certificado de la instalación', 'Al terminar la obra', 'luego'));
+    const rite = de('rite') || P.riteNo;
+    f.push(exp ? { ...rite, tono: rite.estado === 'Aún no toca' ? 'luego' : rite.tono, accion: 'rite' } : filaObra('rite', 'Legalización RITE', 'Al terminar la obra', 'luego'));
+    f.push(filaObra('fotos', 'Fotos de la obra', 'Súbelas aquí y mira qué falta', 'info', 'docs'));
+    const fin = de('cee_fin');
+    f.push(exp && fin?.tono === 'ok' ? { ...fin, accion: null } : exp && o.paso >= 4 ? { ...P.ceeFinNos, accion: null } : filaObra('cee_fin', 'Certificado energético final', 'Al terminar la obra', 'luego'));
+    const pagado = o.cobrado || o.paso === 5;
+    f.push(filaObra('bono', 'El bono de tu cliente', pagado ? 'Cobrado' : o.paso >= 4 ? 'Lo estamos tramitando' : 'Cuando esté todo presentado', pagado ? 'ok' : o.paso >= 4 ? 'nos' : 'luego'));
+    return f;
+}
+const cuentan = (papeles) => papeles.filter((x) => x.tono !== 'info');
+const listos = (papeles) => cuentan(papeles).filter((x) => x.tono === 'ok').length;
+const conPapeles = (o) => {
+    const papeles = camino(o, o.papeles || []);
+    const propuesta = o.propuesta || {
+        estado: o.con_expediente || o.paso >= 3 ? 'aceptada' : o.paso === 2 ? 'enviada' : 'preparando',
+        version: o.paso >= 2 || o.con_expediente ? 1 : null, fecha: o.paso >= 2 || o.con_expediente ? '2026-11-03T10:00:00Z' : null,
+        aceptada_el: o.con_expediente ? '2026-11-06T18:20:00Z' : null, tiene_pdf: o.paso >= 2 || !!o.con_expediente,
+        la_tiene: o.paso === 2 ? (o.quien === 'tu' ? 'instalador' : 'cliente') : null,
+    };
+    return { ...o, papeles, papeles_listos: listos(papeles), papeles_total: cuentan(papeles).length, propuesta, se_puede_corregir: !o.con_expediente && o.paso <= 2 };
+};
 
 const OBRAS = [
     conPapeles({
@@ -131,13 +171,15 @@ const OBRAS = [
         caldera_retirada: { combustible: 'GASÓLEO', marca: 'OTRA', modelo: '', tipo: 'Caldera' },
         papeles: [P.cifoFirma, P.riteOk, P.facFalta, P.ceeIniOk, P.ceeFinNos], cobrado: false,
     }),
-    {
+    conPapeles({
         id: '26RES060_OP902', uuid: 'u-902', numero_expediente: null, con_expediente: false,
         cliente: 'Andrés Molina Ruiz', cliente_id: 'c-2', direccion: 'Avda. de la Constitución, 3', municipio: 'Pozo Alto', provincia: 'Ciudad Real',
-        bono: 1850, paso: 1, fase: 'Simulada', quien: 'tu', tipo: 'Aerotermia · cambio de caldera',
-        tareas: [t('propuesta', 'Envía la propuesta al cliente', { tipo: 'oportunidad', id: '26RES060_OP902' })],
-        telefono: '600000002', cuentas: LINEAS(8200, 1850), presupuesto: { importe: 8200, estimado: true },
-    },
+        bono: 1850, paso: 1, fase: 'Simulada', quien: 'nos', tipo: 'Aerotermia · cambio de caldera', tareas: [],
+        telefono: '600000002', direccion_completa: 'Avda. de la Constitución, 3 · 13000 Pozo Alto · (Ciudad Real)',
+        cuentas: LINEAS(8200, 1850), presupuesto: { importe: 8200, estimado: true }, es_instaladora: false, factura_modo: 'plantilla',
+        equipo: { titulo: 'Aerotermia 8 kW', marca: null, modelo: null, serie: null, acs: null, con_acs: true, previsto: true },
+        caldera_retirada: { combustible: 'GASÓLEO', marca: null, tipo: 'Caldera', prevista: true },
+    }),
     conPapeles({
         id: '26RES080_OP903', uuid: 'u-903', numero_expediente: '26RES080_903', con_expediente: true,
         cliente: 'Carmen Vidal Ortega', cliente_id: 'c-3', direccion: 'C/ Mayor, 52', municipio: 'Santa Olalla de Abajo', provincia: 'Toledo',
@@ -147,11 +189,22 @@ const OBRAS = [
         equipo: null, caldera_retirada: { combustible: 'GAS NATURAL', marca: '', tipo: 'Caldera' },
         papeles: [P.cifoNos, P.riteNo, P.facNo, P.ceeIniNos, P.ceeFinNos], cobrado: false,
     }),
-    {
+    conPapeles({
         id: '26RES060_OP904', uuid: 'u-904', numero_expediente: null, con_expediente: false,
         cliente: 'José Antonio Serrano Gil', cliente_id: 'c-4', direccion: 'Pza. de España, 1', municipio: 'Fuentenueva', provincia: 'Albacete',
-        bono: 2050, paso: 2, fase: 'Propuesta', quien: 'cli', tipo: 'Aerotermia · hibridación', tareas: [],
-    },
+        bono: 2050, paso: 2, fase: 'Propuesta', quien: 'tu', tipo: 'Aerotermia · cambio de caldera',
+        tareas: [t('propuesta', 'Pásale la propuesta a tu cliente', acc('propuesta'))],
+        telefono: '600000004', direccion_completa: 'Pza. de España, 1 · 02000 Fuentenueva · (Albacete)',
+        cuentas: LINEAS(9400, 2050, 390, 1500, 400), presupuesto: { importe: 9400, estimado: false }, es_instaladora: false, factura_modo: 'plantilla',
+        equipo: { titulo: 'Aerotermia 10 kW', marca: 'MARCA A', modelo: 'Aire-agua Serie Dos 10 bibloc', serie: null, acs: null, con_acs: true, previsto: true },
+        caldera_retirada: { combustible: 'GASÓLEO', marca: null, tipo: 'Caldera', prevista: true },
+    }),
+    conPapeles({
+        id: '26RES060_OP909', uuid: 'u-909', numero_expediente: null, con_expediente: false,
+        cliente: 'Pilar Rubio Sanz', cliente_id: null, direccion: 'C/ del Río, 9', municipio: 'Pozo Alto', provincia: 'Ciudad Real',
+        bono: 1720, paso: 2, fase: 'Propuesta', quien: 'cli', tipo: 'Aerotermia · hibridación', tareas: [],
+        telefono: '600000009', cuentas: LINEAS(7900, 1720), presupuesto: { importe: null, estimado: false }, es_instaladora: false, factura_modo: 'plantilla',
+    }),
     conPapeles({
         id: '25RES060_OP905', uuid: 'u-905', numero_expediente: '25RES060_905', con_expediente: true,
         cliente: 'Lucía Prado Torres', cliente_id: 'c-1', direccion: 'C/ Real, 8 (casa del pueblo)', municipio: 'Villanueva del Campo', provincia: 'Ciudad Real',
@@ -225,7 +278,7 @@ const quitarTarea = (id, key, papel) => {
     const o = obraDe(id);
     if (!o) return;
     o.tareas = o.tareas.filter((x) => x.key !== key);
-    if (papel) o.papeles = o.papeles.map((x) => (x.key === papel.key ? papel : x));
+    if (papel) o.papeles = o.papeles.map((x) => (x.key === papel.key ? { ...x, estado: papel.estado, tono: papel.tono } : x));
     o.papeles_listos = listos(o.papeles || []);
     if (!o.tareas.length && o.quien === 'tu') o.quien = 'nos';
 };
@@ -280,6 +333,16 @@ const api = {
     obras: () => espera({ obras: copia(LISTA), resumen: resumen(LISTA) }),
     obra: (id) => espera(obraDe(id) ? copia(obraDe(id)) : Promise.reject(new Error('404')), 250),
     clientes: () => espera(VACIO ? [] : CLIENTES),
+    propuestaPdf: (id) => espera(pdfDeMentira('Propuesta de ayuda CAE', [
+        ['Cliente', obraDe(id)?.cliente || ''], ['Bono CAE', milesD(obraDe(id)?.bono || 0)], ['Presupuesto de la obra', obraDe(id)?.presupuesto?.importe ? milesD(obraDe(id).presupuesto.importe) : 'Estimado'],
+    ])),
+    propuestaPasada: (id) => envia(() => {
+        const o = obraDe(id);
+        o.tareas = o.tareas.filter((x) => x.key !== 'propuesta');
+        o.quien = 'cli';
+        o.propuesta = { ...o.propuesta, la_tiene: 'cliente' };
+        o.papeles = o.papeles.map((x) => (x.key === 'propuesta' ? { ...x, estado: 'Enviada · falta que tu cliente la acepte', tono: 'nos' } : x));
+    }, 500),
     presupuesto: (id) => espera(copia(PRESUS[id] || { estado: 'falta', importe: null, ficheros: [] })),
     presupuestoPdf: () => espera(pdfDeMentira('Presupuesto de la instalación', [
         ['Bomba de calor aire-agua 8 kW', '7.450,00 €'], ['Desmontaje de la caldera', '350,00 €'], ['Material y puesta en marcha', '300,00 €'], ['Total con IVA', '9.800,00 €'],

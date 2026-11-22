@@ -57,6 +57,9 @@ export function apiReal(axios) {
         obras: () => axios.get(`${B}/obras`).then((r) => r.data),
         obra: (id) => axios.get(obra(id)).then((r) => r.data),
         clientes: () => axios.get('/api/clientes').then((r) => (Array.isArray(r.data) ? r.data : [])),
+        // ── La propuesta: verla y decir que ya se la ha pasado a su cliente ──
+        propuestaPdf: (id) => axios.get(`${obra(id)}/propuesta/pdf`, { responseType: 'arraybuffer' }).then((r) => r.data),
+        propuestaPasada: (id) => axios.post(`${obra(id)}/propuesta/pasada`).then((r) => r.data),
         // ── Fase 2 ──
         presupuesto: (id) => axios.get(`${obra(id)}/presupuesto`).then((r) => r.data),
         presupuestoPdf: (id, fileId) => axios.get(`${obra(id)}/presupuesto/${e(fileId)}`, { responseType: 'arraybuffer' }).then((r) => r.data),
@@ -219,9 +222,10 @@ export default function AppInstalador({
         arriba();
     };
 
-    // Una obra SIN expediente se abre en la página de su oportunidad (la de
-    // siempre, dentro de esta cáscara); con expediente, en la ficha nueva.
-    const abrirObra = (o) => (o.con_expediente ? abrirFicha({ tipo: 'obra', obra: o }) : onAbrirOportunidad(o.id));
+    // TODA obra se abre en su ficha, tenga o no expediente (Fran, 21/11/2026: «cuando
+    // pulso sobre una de mis obras me lleva a la vista de la oportunidad»). La
+    // calculadora de siempre queda detrás de «Corregir el cálculo», dentro de la ficha.
+    const abrirObra = (o) => abrirFicha({ tipo: 'obra', obra: o });
 
     // ── Abrir donde dice la dirección (recargar, un enlace directo, el banco) ──
     // Recargando, el historial ya tiene las entradas de la ficha (`iaFicha`): se abre
@@ -269,13 +273,6 @@ export default function AppInstalador({
         if (!a?.obra || !obras.datos) return;
         const o = obras.datos.obras?.find((x) => x.id === a.obra || x.numero_expediente === a.obra);
         if (!o) { noEsta('obra'); return; }
-        if (!o.con_expediente) {
-            // Sin expediente se abre su oportunidad (quien nos aloja pone `?op=`).
-            alEmpezar.current = null;
-            setTickUrl((n) => n + 1);
-            onAbrirOportunidad?.(o.id);
-            return;
-        }
         const acc = !a.accion ? null
             : a.accion === 'factura' ? { tipo: 'accion', accion: 'factura', modo: o.factura_modo }
                 : { tipo: 'accion', accion: a.accion };
