@@ -34,7 +34,7 @@
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
-| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 12,8 KB | 3 |
+| `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 14,6 KB | 4 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 17,3 KB | 7 |
 | `whatsapp` | WhatsApp — sesión, entrega (ACK), adjuntos, etiquetas, agenda y bot de clientes | `.claude/rules/whatsapp.md` · 44,4 KB | 22 |
 
@@ -329,6 +329,7 @@
 - **239** → `.claude/rules/transversal-frontend.md` — En el móvil, el equipo navega con la BARRA DE ABAJO y todo lo fijo abajo se sube con `--barra-movil`
 - **240** → `.claude/rules/instalador-app.md` — El CATÁLOGO por DISTRIBUIDOR: cada tarifa es de UN distribuidor, el instalador ve las de los distribuidores …
 - **241** → `.claude/rules/instalador-app.md` — «Tu asistente»: el presupuesto se hace por el MISMO motor desde el grupo de WhatsApp y desde el chat de la a…
+- **242** → `.claude/rules/transversal-backend.md` — Una entrada al historial del expediente se añade con `anadirAlHistorial` ([utils/historialExpediente.js](imp…
 
 ## Documentos por área
 
@@ -737,6 +738,7 @@
 ### transversal-backend
 
 - `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md` — El CORS: la web pública (brokergy.es) lee el marketplace, y un origen desconocido recibe un 403, no un 500 (2026-11-21)
+- `docs/conocimiento/transversal-backend/historial-del-expediente-siempre-una-lista.md` — El historial del expediente es siempre una lista (2026-11-23)
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md` — Rutas públicas por enlace: el token vale para UNA obra, y lo que escriben en `documentacion` va clave a clave (2026-11-21)
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md` — Tabla nueva en Supabase: GRANT a `service_role` y RLS en el mismo script (2026-10-20)
 

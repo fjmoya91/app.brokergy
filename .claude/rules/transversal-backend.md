@@ -29,11 +29,14 @@ Guardianes de las rutas, Supabase (JSONB, listados, escrituras atómicas) y BD c
 
 235. **El CORS de la API lo decide `crearCors` ([utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.js)); brokergy.es solo LEE el marketplace y un origen desconocido recibe 403, nunca 500** (2026-11-21). El `origin` de `cors` hacía `cb(new Error(…))` y, sin manejador de errores, Express contestaba **500** a la web pública. Ahora: la app (sin `Origin`, `FRONTEND_URL`, `CERTAPP_URL`, `localhost`, LAN privada fuera de producción) como siempre, con credenciales; `https://brokergy.es` y `https://www.brokergy.es`, **solo GET/HEAD (y su preflight), sin credenciales y solo bajo `/api/public/marketplace/`**; cualquier otro caso, **403 `ORIGEN_NO_PERMITIDO`** sin cabeceras de CORS y sin ejecutar la ruta (no `cb(null,false)`: un POST simple llegaría a ejecutarse). La web no va en `FRONTEND_URL` (base de los enlaces y daría credenciales). Siempre `Vary: Origin`. Tras tocarlo: `node implementation/backend/scripts/test_cors_web.js` y `auditar_rutas_sin_guardian.js`. Ver "El CORS: la web pública (brokergy.es) lee el marketplace".
 
+242. **Una entrada al historial del expediente se añade con `anadirAlHistorial` ([utils/historialExpediente.js](implementation/backend/utils/historialExpediente.js)), que va por la RPC `expediente_historial_append` y deja SIEMPRE una lista; nunca con `set_expediente_doc_field`** (2026-11-23). Tres servicios (`aceptacionAgente.registrarPedido`, `expedienteService.cambiarViaFm`, `loteVerificados.anotarHistorialExpediente`) creaban el historial que aún no existía con `set_expediente_doc_field(…, 'historial', [entrada])`, y esa RPC hace `to_jsonb(p_value text)`: la lista quedaba guardada como TEXTO y la pestaña del CEE caía con «((intermediate value) || []).filter is not a function» (26RES060_303 y siete más, enderezados ese día). La RPC añade a la lista que haya, convierte la que quedó como texto y crea la que falta (`merge_expediente_doc_json` sobre una clave ausente dejaría un `{}` delante). El frontend lee el historial con `Array.isArray` (ComunicacionesCertificador, HistorialModal, el modal de ExpedientesView). SQL: `implementation/backend/scripts/expediente_historial_append.sql` (solo `service_role`). Comprobación: ninguna fila con `jsonb_typeof(documentacion->'historial') <> 'array'`. Ver "El historial del expediente es siempre una lista".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md` — El CORS: la web pública (brokergy.es) lee el marketplace, y un origen desconocido recibe un 403, no un 500 (2026-11-21) · 2,9 KB
+- `docs/conocimiento/transversal-backend/historial-del-expediente-siempre-una-lista.md` — El historial del expediente es siempre una lista (2026-11-23) · 3,0 KB
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md` — Rutas públicas por enlace: el token vale para UNA obra, y lo que escriben en `documentacion` va clave a clave (2026-11-21) · 7,5 KB
 - `docs/conocimiento/transversal-backend/tabla-nueva-en-supabase-grant-y-rls.md` — Tabla nueva en Supabase: GRANT a `service_role` y RLS en el mismo script (2026-10-20) · 3,3 KB
 
@@ -44,6 +47,10 @@ Guardianes de las rutas, Supabase (JSONB, listados, escrituras atómicas) y BD c
 - `docs/conocimiento/transversal-backend/cors-la-web-publica-lee-el-marketplace.md`
   - **REGLA — el CORS de la API lo decide `crearCors` en [utils/corsOrigenes.js](implementation/backend/utils/corsOrigenes.js),
 y brokergy.es solo LEE el marketplace: GET/HEAD, sin credenciales y solo bajo `/api/public/marketplace/`.**
+- `docs/conocimiento/transversal-backend/historial-del-expediente-siempre-una-lista.md`
+  - **REGLA — Una entrada al historial del expediente se añade con `anadirAlHistorial(supabase, expedienteId,
+entrada)` ([utils/historialExpediente.js](implementation/backend/utils/historialExpediente.js)), que llama a
+la RPC `expediente_historial_append` y deja siempre una lista.**
 - `docs/conocimiento/transversal-backend/rutas-publicas-solo-lo-de-esa-obra.md`
   - **REGLA — con un token válido solo se borra un fichero de ESA obra y de ESE apartado; si no, 404 y
 no se toca ni Drive ni `reforma_uploads`.**

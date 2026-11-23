@@ -64,11 +64,18 @@ const FILTERS = [
     { id: 'recv',  label: 'Recibido del cert.' },
 ];
 
+// El historial es una LISTA; si llega otra cosa (un texto, como el que dejaba
+// `set_expediente_doc_field` antes de la regla 242), la pestaña no se cae: se lee vacía.
+const listaHistorial = (exp) => {
+    const h = exp?.documentacion?.historial;
+    return Array.isArray(h) ? h : [];
+};
+
 export function ComunicacionesCertificador({ expediente }) {
     const [filter, setFilter] = useState('all');
 
     const entries = useMemo(() => {
-        const hist = expediente?.documentacion?.historial || [];
+        const hist = listaHistorial(expediente);
         return hist
             .filter(h => COMM_TIPOS.includes(normTipo(h.tipo)))
             .filter(h => {
@@ -82,11 +89,11 @@ export function ComunicacionesCertificador({ expediente }) {
             .reverse(); // más reciente primero
     }, [expediente?.documentacion?.historial, filter]);
 
-    const totalComms = (expediente?.documentacion?.historial || []).filter(h => COMM_TIPOS.includes(normTipo(h.tipo))).length;
+    const totalComms = listaHistorial(expediente).filter(h => COMM_TIPOS.includes(normTipo(h.tipo))).length;
 
     // Última comunicación (de cualquier dirección) para el resumen superior.
     const lastEntry = useMemo(() => {
-        const hist = (expediente?.documentacion?.historial || []).filter(h => COMM_TIPOS.includes(normTipo(h.tipo)));
+        const hist = listaHistorial(expediente).filter(h => COMM_TIPOS.includes(normTipo(h.tipo)));
         return hist.length ? hist[hist.length - 1] : null;
     }, [expediente?.documentacion?.historial]);
     const lastDays = lastEntry ? daysSince(lastEntry.fecha) : null;

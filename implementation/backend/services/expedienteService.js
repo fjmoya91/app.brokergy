@@ -1,6 +1,7 @@
 const path = require('path');
 const { pathToFileURL } = require('url');
 const supabase = require('./supabaseClient');
+const { anadirAlHistorial } = require('../utils/historialExpediente');
 const { getCoordinatesByRC } = require('./catastroService');
 const driveService = require('./driveService');
 const { syncExpedienteFolder } = require('./expedienteFolderSync');
@@ -932,7 +933,7 @@ function bloqueoCambioVia(exp) {
 async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {}) {
     const { data: exp, error } = await supabase
         .from('expedientes')
-        .select('id, numero_expediente, estado, lote_id, oportunidad_id, cliente_id, historial:documentacion->historial')
+        .select('id, numero_expediente, estado, lote_id, oportunidad_id, cliente_id')
         .eq('id', expedienteId)
         .maybeSingle();
     if (error) throw Object.assign(new Error(`No se pudo leer el expediente: ${error.message}`), { status: 503 });
@@ -968,16 +969,14 @@ async function cambiarViaFm(expedienteId, { activar, usuario = 'Sistema' } = {})
         .eq('numero_expediente', exp.numero_expediente); // nadie lo ha cambiado entretanto
     if (upErr) throw new Error(`Error en base de datos: ${upErr.message}`);
 
-    // Historial sin reescribir `documentacion` (RPC de MERGE: una lista se AÑADE).
+    // Historial sin reescribir `documentacion` y siempre como LISTA (regla 242).
     const entrada = {
         id: `${Date.now()}_via_fm`, tipo: 'sistema', fecha: new Date().toISOString(), usuario,
         texto: activar
             ? `Vía del FACTOR MULTIPLICADOR: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`
             : `Vuelve a la vía VIGENTE: ${exp.numero_expediente} pasa a ${nuevo}${mismo ? ' (conserva su número)' : ''}.`,
     };
-    const { error: hErr } = Array.isArray(exp.historial)
-        ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: expedienteId, p_field: 'historial', p_value: [entrada] })
-        : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'historial', p_value: [entrada] });
+    const { error: hErr } = await anadirAlHistorial(supabase, expedienteId, entrada);
     if (hErr) console.warn('[ExpedienteService] via FM historial:', hErr.message);
 
     // Cuándo pasó a la vía: un Convenio firmado ANTES no lleva la cláusula del IRPF

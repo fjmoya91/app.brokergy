@@ -37,6 +37,7 @@
 // ============================================================================
 
 const supabase = require('./supabaseClient');
+const { anadirAlHistorial } = require('../utils/historialExpediente');
 
 const CLAVE_DOC = 'aceptacion_agente';
 const CLAVE_INDICE = 'aceptacion_agente_seguimiento';
@@ -275,16 +276,12 @@ async function revisarPorSeguimiento(expedienteId) {
 async function registrarPedido({ expedienteId, oportunidadId, numero, lineas, tel, saludo, a = 'cliente', espera = true, texto = null }) {
     const ahora = ahoraIso();
     await sellar(expedienteId, { pedido_at: ahora, pedido: lineas, pedido_a: tel, pedido_quien: a, programado: null });
-    // Historial, sin reescribir `documentacion`: la RPC de MERGE con una lista
-    // AÑADE (jsonb `||`); solo si aún no hay historial se crea la lista.
+    // Historial, sin reescribir `documentacion` y siempre como LISTA (regla 242).
     // `texto`: el recordatorio del seguimiento se apunta como tal, no como un pedido nuevo.
     const aQuien = `${saludo || (a === 'instalador' ? 'el instalador' : 'el cliente')}${a === 'instalador' ? ' (instalador)' : ''}`;
     const entrada = { id: `${Date.now()}_pedido_aceptacion`, tipo: 'pedido_aceptacion', fecha: ahora, usuario: 'CLAUDE',
         texto: texto ? `${texto} a ${aQuien}: ${lineas.join(' · ')}` : `Pedido por WhatsApp a ${aQuien} para el CEE inicial: ${lineas.join(' · ')}` };
-    const { data: h } = await supabase.from('expedientes').select('historial:documentacion->historial').eq('id', expedienteId).maybeSingle();
-    const { error } = Array.isArray(h?.historial)
-        ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: expedienteId, p_field: 'historial', p_value: [entrada] })
-        : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: oportunidadId, p_field: 'historial', p_value: [entrada] });
+    const { error } = await anadirAlHistorial(supabase, expedienteId, entrada);
     if (error) console.warn('[aceptacion-agente] historial:', error.message);
     await apuntar(expedienteId, { numero, oportunidad_id: oportunidadId, tels: [tel] });
     // Y queda esperando respuesta: se cierra sola si contesta o sube, y si no,

@@ -2551,7 +2551,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                                     </button>
                                 ))}
                             </div>
-                            {(historyModalExp.documentacion?.historial || []).length > 0 && user?.rol === 'ADMIN' && (
+                            {Array.isArray(historyModalExp.documentacion?.historial) && historyModalExp.documentacion.historial.length > 0 && user?.rol === 'ADMIN' && (
                                 <button
                                     onClick={() => setShowHistoryDeleteConfirm(true)}
                                     className="text-[10px] font-black uppercase px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg transition-all"
@@ -2625,7 +2625,7 @@ export function ExpedientesView({ onNavigate, initialSelectedId, onClearInitialS
                             <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
                                 {(() => {
                                     const histOp = (historyModalExp.oportunidades?.datos_calculo?.historial || []).map(h => ({ ...h, phase: 'CAPTACIÓN', canDelete: true }));
-                                    const histExp = (historyModalExp.documentacion?.historial || []).map(h => ({ ...h, phase: 'TRAMITACIÓN', canDelete: true }));
+                                    const histExp = (Array.isArray(historyModalExp.documentacion?.historial) ? historyModalExp.documentacion.historial : []).map(h => ({ ...h, phase: 'TRAMITACIÓN', canDelete: true }));
                                     
                                     const combined = [...histOp, ...histExp]
                                         .filter(h => {

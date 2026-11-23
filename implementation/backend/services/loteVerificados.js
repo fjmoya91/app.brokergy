@@ -22,6 +22,7 @@
  */
 
 const supabase = require('./supabaseClient');
+const { anadirAlHistorial } = require('../utils/historialExpediente');
 
 const nowIso = () => new Date().toISOString();
 
@@ -235,19 +236,17 @@ function casarDictamen(actuaciones, expedientes) {
 // expediente: `instalacion.verificacion` guarda solo la última cifra, y sin esto
 // no quedaría dónde ver qué había antes, de qué informe salió y quién lo puso
 // (Fran, 20/11/2026: «no quiero perder la trazabilidad del expediente»).
-// Se AÑADE por la RPC de merge (una lista se concatena), nunca reescribiendo
+// Se AÑADE con `anadirAlHistorial` (siempre una LISTA, regla 242), nunca reescribiendo
 // `documentacion`. Nunca lanza: la cifra ya está escrita y un fallo aquí se avisa.
 const kwhEs = (n) => Number(n).toLocaleString('es-ES');
 const eurEs = (n) => `${Number(n).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 async function anotarHistorialExpediente(expedienteId, { texto, tipo = 'verificacion', usuario = 'SISTEMA', ...extra }) {
     try {
         const { data: exp } = await supabase.from('expedientes')
-            .select('id, oportunidad_id, historial:documentacion->historial').eq('id', expedienteId).maybeSingle();
+            .select('id').eq('id', expedienteId).maybeSingle();
         if (!exp) return false;
         const entrada = { id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}_verif`, tipo, texto, fecha: nowIso(), usuario, ...extra };
-        const { error } = Array.isArray(exp.historial)
-            ? await supabase.rpc('merge_expediente_doc_json', { p_expediente_id: exp.id, p_field: 'historial', p_value: [entrada] })
-            : await supabase.rpc('set_expediente_doc_field', { p_oportunidad_id: exp.oportunidad_id, p_field: 'historial', p_value: [entrada] });
+        const { error } = await anadirAlHistorial(supabase, exp.id, entrada);
         if (error) throw new Error(error.message);
         return true;
     } catch (e) {

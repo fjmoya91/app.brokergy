@@ -133,7 +133,7 @@ export function HistorialModal({ isOpen, onClose, idOportunidad, referenciaClien
     // comentarios del expediente para no chocar con los endpoints de edición/borrado de notas,
     // que son los de la oportunidad.
     const opHistorial = historial.map(h => ({ ...h, _src: 'op' }));
-    const expHistorial = (expediente?.documentacion?.historial || [])
+    const expHistorial = (Array.isArray(expediente?.documentacion?.historial) ? expediente.documentacion.historial : [])
         .filter(h => normTipo(h.tipo) !== 'comentario')
         .map(h => ({ ...h, _src: 'exp' }));
 
