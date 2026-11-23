@@ -559,13 +559,14 @@ async function guionDemo(texto, memoria, emitir, signal) {
         await pausa(600);
         emitir({ t: 'paso', texto: 'Haciendo el presupuesto…' });
         await pausa(800);
-        const o = obraPr({ direccion: '', codigo_postal: '', municipio: 'Pozo Alto', acs: true, extras: [{ clave: 'deposito_acs', litros: 200 }] });
+        const o = obraPr({ direccion: 'CL Mayor 12', codigo_postal: '', municipio: 'Pozo Alto', acs: true, extras: [{ clave: 'deposito_acs', litros: 200 }] });
         const ent = { numero: sugeridoPr(), fecha: new Date().toISOString().slice(0, 10), cliente: { nombre: 'Carmen', apellidos: 'López Gil', municipio: 'Pozo Alto' }, obra: o, conceptos: conceptosDe(o), modo: 'total', total: '9500', con_iva: true, partidas: [], iva_pct: 21 };
         const nuevo = filaDeEntrada(`aaaaaaaa-0000-4000-8000-${String(Date.now()).slice(-12)}`, ent);
         PRS.unshift(nuevo);
         const x = nuevo.presupuesto;
         await decir(`Listo, Ramón: el **${x.numero}** para Carmen López, ${milesD(x.total)} con IVA.\nNo la tenía entre tus clientes y la he dado de alta. ¿Te lo mando a tu WhatsApp para que se lo reenvíes?\n`);
-        emitir({ t: 'tarjeta', tarjeta: tarjetaPrDemo(x) });
+        // Con calle y pueblo, detrás la casa del Catastro (dijo el depósito: el agua caliente, dicha).
+        emitir({ t: 'tarjeta', tarjeta: { ...tarjetaPrDemo(x), ver_casa: true, dichas: { emisor: false, acs: true } } });
         emitir({ t: 'memoria', memoria: { presupuesto: { id: x.id, numero: x.numero, cliente: 'Carmen López Gil' }, candidatos: null } });
         emitir({ t: 'sugerencias', opciones: ['Bájale 300 €', 'Otro presupuesto', '¿Cómo va la de Lucía?'] });
         return;
@@ -600,7 +601,49 @@ async function guionDemo(texto, memoria, emitir, signal) {
     await decir('Te puedo hacer un presupuesto, decirte cómo va una obra o buscarte el precio de un equipo. ¿Qué necesitas?\n');
     emitir({ t: 'sugerencias', opciones: ['Hazme un presupuesto', '¿Cómo va una obra?', 'Precio de un equipo'] });
 }
+// La casa y el bono tras el presupuesto: la MISMA forma que `/asistente/paso` ({ casa, tarjeta? }).
+// ?casa=varias (un edificio), ?casa=ninguna (no la encuentra), ?casa=caida (el paso falla).
+const CASA = p.get('casa');
+const RC_DEMO = '9999901VJ0099N0001ZZ';
+const VIV_DEMO = { rc: RC_DEMO, texto: 'CL MAYOR 12, Pozo Alto · vivienda de 132 m², año 1984', linea: 'CL MAYOR 12 · 132 m²' };
+const EMISORES_DEMO = [{ valor: 'radiadores', texto: 'Radiadores' }, { valor: 'suelo', texto: 'Suelo radiante' }, { valor: 'fancoils', texto: 'Fancoils' }];
+const fotoCasaDemo = () => `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="640" height="360" fill="#e8e3da"/><rect x="170" y="120" width="300" height="200" fill="#d9cfc0"/><path d="M150 130 320 40 490 130Z" fill="#b8664a"/><rect x="290" y="230" width="60" height="90" fill="#7a5a44"/><rect x="200" y="160" width="60" height="50" fill="#9fb4c4"/><rect x="380" y="160" width="60" height="50" fill="#9fb4c4"/><text x="320" y="350" font-family="sans-serif" font-size="14" text-anchor="middle" fill="#55585f">Fachada (banco)</text></svg>')}`;
+function pasoDemo(c) {
+    if (CASA === 'caida') return Promise.reject(errorDemo(503, 'El servicio no está disponible ahora mismo.'));
+    const x = prPorId(c.presupuesto_id)?.presupuesto;
+    if (!x) return Promise.reject(errorDemo(404, 'Presupuesto no encontrado.'));
+    const dichas = c.dichas || {};
+    if (c.accion === 'buscar') {
+        if (CASA === 'ninguna' && !c.numero && !c.rc) return espera({ casa: { fase: 'bono', rc: null, aviso: 'No he encontrado la casa en el Catastro con la dirección del presupuesto. Si quieres el bono, la confirmas al calcularlo.', dichas } }, 900);
+        if (CASA === 'varias' && !c.numero && !c.rc) {
+            return espera({ casa: { fase: 'vivienda', foto_rc: RC_DEMO.slice(0, 14), donde: 'CL MAYOR 12, Pozo Alto', dichas, viviendas: [
+                { rc: RC_DEMO, texto: '', linea: 'bajo, puerta A · 88 m²' }, { rc: '9999901VJ0099N0002XB', texto: '', linea: 'planta 1, puerta A · 90 m²' }, { rc: '9999901VJ0099N0003MZ', texto: '', linea: 'planta 1, puerta B · 74 m²' }] } }, 900);
+        }
+        const n = c.numero || null;
+        return espera({ casa: { fase: 'vivienda', viviendas: [n ? { ...VIV_DEMO, texto: VIV_DEMO.texto.replace('12', n) } : VIV_DEMO], foto_rc: RC_DEMO, donde: 'CL MAYOR 12, Pozo Alto', dichas } }, 900);
+    }
+    if (c.accion === 'confirmar') {
+        x.obra = { ...x.obra, ref_catastral: c.rc };
+        return espera({ casa: { fase: 'bono', rc: c.rc, aviso: `Apuntada en el presupuesto su referencia catastral, ${c.rc}.`, dichas } }, 500);
+    }
+    const r = c.respuestas || {};
+    if (!dichas.emisor && !r.emisor) return espera({ casa: { fase: 'pregunta', pregunta: 'emisor', texto: '¿Qué tiene la casa para dar la calefacción?', opciones: EMISORES_DEMO, respuestas: r, dichas, rc: x.obra.ref_catastral || null } }, 400);
+    if (!dichas.acs && r.acs === undefined && !x.obra.acs) return espera({ casa: { fase: 'pregunta', pregunta: 'acs', texto: '¿La aerotermia da también el agua caliente?', opciones: [{ valor: true, texto: 'Sí, también el agua caliente' }, { valor: false, texto: 'No, solo la calefacción' }], respuestas: r, dichas, rc: x.obra.ref_catastral || null } }, 400);
+    if (!x.obra.caldera?.combustible && !r.caldera) return espera({ casa: { fase: 'pregunta', pregunta: 'caldera', texto: '¿Qué caldera tiene ahora la casa?', opciones: COMBUSTIBLES.map((k) => ({ valor: k.clave, texto: k.texto })), respuestas: r, dichas, rc: x.obra.ref_catastral || null } }, 400);
+    const cambia = r.emisor && r.emisor !== x.obra.emisor;
+    if (r.emisor) x.obra = { ...x.obra, emisor: r.emisor };
+    if (r.caldera) x.obra = { ...x.obra, caldera: { combustible: r.caldera } };
+    const em = EMISORES_DEMO.find((e) => e.valor === x.obra.emisor)?.texto || 'Radiadores';
+    const co = COMBUSTIBLES.find((k) => k.clave === x.obra.caldera?.combustible);
+    return espera({
+        casa: { fase: 'listo', rc: x.obra.ref_catastral || null, resumen: [em, x.obra.acs ? 'también el agua caliente' : 'solo la calefacción', co ? `ahora ${co.texto.toLowerCase()}` : null].filter(Boolean).join(' · '), dichas },
+        ...(cambia ? { tarjeta: tarjetaPrDemo(x, true) } : {}),
+    }, 600);
+}
+
 const apiAsistente = {
+    asistentePaso: pasoDemo,
+    fotoCasa: fotoCasaDemo,
     asistente: () => (ASISTENTE === 'off'
         ? new Promise((ok, ko) => setTimeout(() => ko(Object.assign(new Error('403'), { response: { status: 403, data: { code: 'ASISTENTE_OFF', error: 'El asistente no está disponible ahora mismo.' } } })), 300))
         : espera(preparadoDemo(), 500)),
@@ -920,7 +963,7 @@ function Demo() {
             onNueva={(o) => {
                 if (o?.presupuesto) {
                     const { alCrear, ...lo } = o.presupuesto;
-                    window.alert(`Banco de pruebas: «Nueva simulación» desde el presupuesto ${lo.numero}.\n\nCliente: ${[lo.cliente.nombre, lo.cliente.apellidos].join(' ')} · ${lo.cliente.tlf || 'sin teléfono'}\nBuscador (dirección): ${lo.direccion}\nEquipo: ${[lo.equipo.marca, lo.equipo.modelo].filter(Boolean).join(' ') || '—'} (catálogo ${lo.equipo.aerotermia_id ?? 'no'})\nPresupuesto con IVA: ${lo.total_con_iva} €\n\nAl aceptar, se simula que se creó la oportunidad 26RES060_OP999 y se liga.`);
+                    window.alert(`Banco de pruebas: «Nueva simulación» desde el presupuesto ${lo.numero}.\n\nCliente: ${[lo.cliente.nombre, lo.cliente.apellidos].join(' ')} · ${lo.cliente.tlf || 'sin teléfono'}\nBuscador (dirección): ${lo.direccion}\nEquipo: ${[lo.equipo.marca, lo.equipo.modelo].filter(Boolean).join(' ') || '—'} (catálogo ${lo.equipo.aerotermia_id ?? 'no'})\nPresupuesto con IVA: ${lo.total_con_iva} €\nLa casa: ${lo.rc ? `${lo.rc} (se busca sola)` : 'sin confirmar (se busca por la dirección)'}\nMarcado: emisor ${lo.emisor || '—'} · agua caliente ${lo.acs === true ? 'sí' : lo.acs === false ? 'no' : '—'} · caldera ${lo.combustible || '—'}\n\nAl aceptar, se simula que se creó la oportunidad 26RES060_OP999 y se liga.`);
                     alCrear?.({ id_oportunidad: '26RES060_OP999' });
                     return;
                 }

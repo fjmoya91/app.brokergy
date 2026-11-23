@@ -78,14 +78,14 @@ const MSG = {
     direccion: '¿En qué dirección es la obra? Dime calle, número y municipio.',
     noEncuentro: 'No encuentro esa dirección en el Catastro. Pásame la referencia catastral o la dirección completa con el municipio.',
     numeroCorrecto: 'Dime el número correcto de la calle o pásame la referencia catastral.',
-    caldera: '¿Qué caldera tiene ahora la casa: gasóleo, gas natural, propano, eléctrica, leña, pellets o no tiene?',
+    bono: '¿Te calculo el bono energético (CAE) de esta obra? Contesta SÍ o NO.',
     audio: 'No he podido escuchar el audio. ¿Me lo mandas otra vez o me lo escribes?',
     confirmada: 'Vivienda confirmada. Ya lo tenemos en BROKERGY para calcular el bono; en cuanto esté te pasamos la propuesta para tu cliente.',
 };
 
 // ─── La lógica pura y el MOTOR común con el asistente de la app (fase 6) ──────
 const M = require('./presupuestoMotor');
-const { logica, limpio, nombreDe, titulo, hoy, eleccionDe,
+const { logica, limpio, nombreDe, titulo, hoy, eleccionDe, siNoDe,
     fusionar, hayAlgo, faltaObra, entradaDe, cambiaElPresupuesto } = M;
 
 /** Lo que se le pasa al cerebro como «pedido en curso»: lo que sabemos y qué le preguntamos. Pura. */
@@ -98,7 +98,8 @@ function resumenParaCerebro(fila) {
         importe: p.importe ?? null,
         con_iva: p.con_iva ?? null,
         presupuesto_hecho: p.presupuesto ? p.presupuesto.numero : null,
-        le_hemos_preguntado: fila.espera ? `${fila.espera}${p.pregunta ? ` (${p.pregunta})` : ''}` : (p.pregunta || null),
+        le_hemos_preguntado: fila.espera === 'bono' && p.pregunta_bono ? `bono: ${M.TEXTO_BONO[p.pregunta_bono] || p.pregunta_bono}`
+            : fila.espera ? `${fila.espera}${p.pregunta ? ` (${p.pregunta})` : ''}` : (p.pregunta || null),
         lista_numerada: p.lista ? p.lista.map((x, i) => `${i + 1}) ${x}`) : null,
     };
 }
@@ -112,8 +113,11 @@ function impresoDe(f) {
     };
 }
 
-/** La burbuja para el instalador tras el PDF. Pura. */
-function burbuja(fila, { eur, actualizado = false, conSimulacion = false, cambios = null }) {
+/**
+ * La burbuja para el instalador tras el PDF. Pura. Con `verCasa` no pregunta nada: lo siguiente es la
+ * foto de la casa del Catastro (23/11/2026); sin ella, pregunta por el bono (o dice que lo mira).
+ */
+function burbuja(fila, { eur, actualizado = false, conSimulacion = false, cambios = null, verCasa = false }) {
     const quien = titulo(nombreDe(fila.cliente)) || 'tu cliente';
     const cifras = `${eur(fila.base)} + IVA = ${eur(fila.total)}`;
     return [
@@ -121,8 +125,16 @@ function burbuja(fila, { eur, actualizado = false, conSimulacion = false, cambio
         actualizado && cambios?.length ? `He cambiado ${cambios.join(' · ')}.` : null,
         'Reenvíaselo tal cual.',
         'Si quieres cambiar algo, dímelo aquí («ponle 9.500», «añade depósito de inercia») o cámbialo en la app.',
-        conSimulacion ? 'Ahora miro la vivienda para calcular el bono CAE.' : (actualizado ? null : '¿Te calculo también el bono CAE de esta obra?'),
+        actualizado || verCasa ? null : conSimulacion ? 'Ahora miro la vivienda para calcular el bono CAE.' : MSG.bono,
     ].filter(Boolean).join(' ');
+}
+
+/** Una pregunta del bono, con su lista numerada (o SÍ/NO). Pura. */
+function textoPreguntaBono(pregunta, L, { otraVez = false } = {}) {
+    const base = `${otraVez ? 'No te he entendido. ' : ''}${M.TEXTO_BONO[pregunta]}`;
+    if (pregunta === 'acs') return `${base} Contesta SÍ o NO.`;
+    const ops = M.opcionesBono(pregunta, L);
+    return `${base}\n${ops.map((o, i) => `${i + 1}) ${o.texto}`).join('\n')}\nContesta con el número.`;
 }
 
 /**
@@ -133,14 +145,16 @@ function burbuja(fila, { eur, actualizado = false, conSimulacion = false, cambio
 function textoSimulacion({ partner, cliente, vivienda, obra, presupuesto, eur, combustibles }) {
     const s = (v, n = 120) => limpio(v).replace(/["'$\\]/g, '').slice(0, n);
     const comb = (combustibles || []).find(c => c.clave === obra?.caldera?.combustible);
-    const acs = obra?.acs === true ? 'sí, la aerotermia da también el agua caliente' : 'no lo ha dicho: sin ACS (regla 163)';
+    const acs = obra?.acs === true ? 'sí, la aerotermia da también el agua caliente'
+        : obra?.acs === false ? 'no, solo la calefacción (lo ha dicho)' : 'no lo ha dicho: sin ACS (regla 163)';
+    const emisor = obra?.emisor ? s(obra.emisor, 20) : 'radiadores (no lo ha dicho)';
     const eq = obra?.equipo || {};
     return [
         'SIMULACIÓN PEDIDA POR UN INSTALADOR desde su grupo de WhatsApp (la ha preparado el agente de presupuestos; este texto lo compone el código, no el instalador).',
         `- Partner: ${s(partner.nombre)} (id_empresa ${s(partner.id, 40)}).`,
         `- Cliente: ${s(nombreDe(cliente))}${cliente?.dni || cliente?.nif ? ` · DNI ${s(cliente.dni || cliente.nif, 12)}` : ''}${cliente?.tlf ? ` · tlf ${s(cliente.tlf, 16)}` : ''}${cliente?.direccion ? ` · ${s(cliente.direccion)}${cliente.municipio ? `, ${s(cliente.municipio, 60)}` : ''}` : ''}.`,
         `- Vivienda CONFIRMADA por el instalador con la foto del Catastro: RC ${s(vivienda.rc, 20)} (${s(vivienda.direccion)}${vivienda.municipio ? `, ${s(vivienda.municipio, 60)}` : ''}).`,
-        `- Caldera que se quita: ${comb ? comb.texto.toLowerCase() : 'no la ha dicho'}. Emisor: ${s(obra?.emisor || 'radiadores', 20)}. ACS: ${acs}.`,
+        `- Caldera que se quita: ${comb ? comb.texto.toLowerCase() : 'no la ha dicho'}. Emisor: ${emisor}. ACS: ${acs}.`,
         `- Aerotermia: ${[s(eq.marca, 60), s(eq.modelo, 60)].filter(Boolean).join(' ') || 'sin marca ni modelo'}${eq.potencia_kw ? ` de ${eq.potencia_kw} kW` : ''}.`,
         `- Presupuesto ${s(presupuesto.numero, 20)} (id ${s(presupuesto.id, 40)}): ${eur(presupuesto.total)} con IVA (${eur(presupuesto.base)} + IVA).`,
         '',
@@ -270,6 +284,9 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     const ext = r.datos;
     out.extraccion = ext;
     if (!ext.eleccion && nuevos.length === 1) ext.eleccion = eleccionDe(nuevos[0].texto);
+    // Un «sí»/«no» a secas a lo que le preguntamos (la casa, el bono, el agua caliente).
+    if (!ext.respuesta_vivienda && fila?.espera && nuevos.length === 1) ext.respuesta_vivienda = siNoDe(nuevos[0].texto);
+    if (!ext.respuesta_vivienda && fila?.pedido?.pregunta === 'bono' && nuevos.length === 1) ext.respuesta_vivienda = siNoDe(nuevos[0].texto);
 
     if (!fila && (ext.quiere === 'nada' || ext.quiere === 'cancelar' || ext.quiere === 'confirmar')) {
         return { ...out, ignorado: 'nada que hacer' };
@@ -310,6 +327,9 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     // compone igual, para que Fran vea lo que habría salido.
     const S = cfg.modo === 'real' || deps.presupuestos?.sinGuardar ? deps.presupuestos : servicioSinGuardar(deps.presupuestos, L);
     if (!S) return fallo('el servicio de presupuestos no está en este servidor');
+    // En copia, el presupuesto de un turno anterior no está guardado: se rehace con su entrada.
+    if (S.sembrar && p.presupuesto?.id && p.entrada) S.sembrar(p.presupuesto.id, p.entrada);
+    const entradaDesdeFila = deps.entradaDesdeFila || ((f) => require('./presupuestoInstaladorService').entradaDesdeFila(f));
     const opciones = async () => (p.opciones ||= await M.opcionesDe(S, prescriptorId));
 
     try {
@@ -366,12 +386,17 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             // Los cambios van sobre ESTE cliente (buscarlo otra vez por el nombre podría dar otro).
             if (filaP.cliente_id) p.cliente_id = filaP.cliente_id;
             presupuestoId = filaP.id;
-            p.pregunta = p.quiere_sim ? null : 'bono';
+            // Tras el PDF, la CASA del Catastro (si tiene calle y pueblo): con el SÍ, su RC queda en
+            // el presupuesto aunque no pida el bono. Sin ella, la pregunta del bono de siempre.
+            const verCasa = M.conVivienda(p.obra, p.cliente);
+            p.pregunta = p.quiere_sim || verCasa ? null : 'bono';
             espera = null;
             await guardar();
-            await enviarPdf(filaP, buffer, { conSimulacion: !!p.quiere_sim });
+            await enviarPdf(filaP, buffer, { conSimulacion: !!p.quiere_sim, verCasa });
+            if (verCasa) return { ...(await pasoVivienda({ trasPdf: true })), presupuesto: filaP };
             if (!p.quiere_sim) return { ...out, estado, presupuesto: filaP };
-        } else if (ext.quiere === 'cambiar' || (!espera && !p.simulacion_pedida && cambiaElPresupuesto(ext, p.presupuesto.impreso || fila.pedido))) {
+        } else if (ext.quiere === 'cambiar' || ((!espera || espera === 'bono' || (espera === 'vivienda' && p.viviendas?.length))
+            && !p.simulacion_pedida && cambiaElPresupuesto(ext, p.presupuesto.impreso || fila.pedido))) {
             // ── 5. CAMBIAR el presupuesto reciente (mismo nº) ──────────────────
             if (ahora - new Date(p.presupuesto.at) > CADUCA_H * 3_600_000) {
                 return preguntar('Ese presupuesto ya tiene más de un día: cámbialo en la app, o pídeme uno nuevo.', null);
@@ -397,7 +422,8 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             return { ...out, estado, presupuesto: filaP, actualizado: true, cambios };
         }
 
-        // ── 2. La SIMULACIÓN ────────────────────────────────────────────────
+        // ── 2. La CASA (lo que conteste a la foto) y la SIMULACIÓN ───────────
+        if (espera === 'vivienda' && !p.vivienda?.confirmada) return await pasoVivienda();
         if (p.pregunta === 'bono' && !p.quiere_sim) {
             const si = ['confirmar', 'simulacion', 'ambos'].includes(ext.quiere) || ext.respuesta_vivienda === 'si';
             if (!si) {
@@ -415,78 +441,128 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     }
 
     // ── helpers con el contexto del turno ───────────────────────────────────
-    async function enviarPdf(filaP, buffer, { actualizado = false, conSimulacion = false, cambios = null } = {}) {
+    async function enviarPdf(filaP, buffer, { actualizado = false, conSimulacion = false, cambios = null, verCasa = false } = {}) {
         const op = await opciones();
         const caption = L.mensajeParaCliente({ cliente: filaP.cliente, obra: filaP.obra, total: filaP.total, emisor: op.emisor || deps.prescriptor?.nombre || '' });
         const nombreFich = `Presupuesto ${String(filaP.numero).replace(/\//g, '-')} - ${titulo(nombreDe(filaP.cliente)) || 'Cliente'}.pdf`.replace(/[\\:*?"<>|]/g, '');
         await enviar('documento', { buffer, filename: nombreFich, mimetype: 'application/pdf' }, {
-            caption, textoDespues: burbuja(filaP, { eur: L.eur, actualizado, conSimulacion, cambios }),
+            caption, textoDespues: burbuja(filaP, { eur: L.eur, actualizado, conSimulacion, cambios, verCasa }),
         });
     }
 
-    async function pasoVivienda() {
+    /**
+     * La CASA y, con el bono pedido, sus PREGUNTAS. Lo que decide va al motor común (`M.buscarVivienda`,
+     * `M.elegirVivienda`, `M.apuntarVivienda`, `M.siguientePreguntaBono`, `M.leerRespuestaBono`,
+     * `M.completarObra`): el asistente de la app hace lo mismo con botones (regla 241).
+     * `trasPdf`: justo después del PDF, sin que lo haya pedido: si el Catastro no la encuentra, no se
+     * le insiste; se le pregunta por el bono como siempre.
+     */
+    async function pasoVivienda({ trasPdf = false } = {}) {
         const V = deps.vivienda;
         if (!p.vivienda?.confirmada) {
             const cands = p.viviendas || null;
             let elegida = null;
             if (espera === 'vivienda' && cands?.length) {
-                if (ext.eleccion && cands[ext.eleccion - 1]) elegida = cands[ext.eleccion - 1];
-                else if ((ext.respuesta_vivienda === 'si' || ext.quiere === 'confirmar') && cands.length === 1 && !ext.numero_otro && !ext.referencia_catastral) elegida = cands[0];
+                elegida = M.elegirVivienda(cands, {
+                    eleccion: ext.eleccion, rc: ext.referencia_catastral,
+                    si: (ext.respuesta_vivienda === 'si' || ext.quiere === 'confirmar') && !ext.numero_otro && !ext.referencia_catastral,
+                });
             }
             if (!elegida) {
-                let res;
                 const baseDir = p.vivienda_dir || p.obra?.direccion || p.cliente?.direccion || null;
                 const muni = p.obra?.municipio || p.cliente?.municipio || null;
-                if (ext.referencia_catastral) res = await V.porRc(ext.referencia_catastral);
-                else if (ext.numero_otro && baseDir) { p.vivienda_dir = V.cambiarNumero(baseDir, ext.numero_otro); res = await V.candidatos({ direccion: p.vivienda_dir, municipio: muni, provincia: p.cliente?.provincia }); }
-                else if (espera === 'vivienda' && cands?.length && ext.respuesta_vivienda === 'no') return preguntar(MSG.numeroCorrecto, 'vivienda');
-                else if (espera === 'vivienda' && cands?.length) { await guardar(); return { ...out, estado, espera }; }
-                else if (!baseDir) return preguntar(MSG.direccion, 'vivienda');
-                else { p.vivienda_dir = baseDir; res = await V.candidatos({ direccion: baseDir, municipio: muni, provincia: p.cliente?.provincia }); }
-
-                if (!res || res.tipo === 'ninguna') { p.viviendas = null; return preguntar(MSG.noEncuentro, 'vivienda'); }
-                const foto = res.rcFachada ? await V.fachada(res.rcFachada) : null;
-                let texto;
-                if (res.tipo === 'una') {
-                    p.viviendas = [res.vivienda];
-                    texto = `Según el Catastro es ${V.describir(res.vivienda)}. ¿Es esta la casa? Contesta SÍ, o dime el número correcto o pásame la referencia catastral.`;
-                } else {
-                    p.viviendas = res.viviendas;
-                    const donde = [res.direccion || res.viviendas[0].direccion, res.viviendas[0].municipio].filter(Boolean).join(', ');
-                    texto = `Según el Catastro, en ${limpio(donde).replace(/\s+\d{5}\b.*$/, '')} hay ${res.viviendas.length} viviendas:\n`
-                        + res.viviendas.map((v, i) => `${i + 1}) ${v.planta}${v.superficie ? ` · ${v.superficie} m²` : ''}`).join('\n')
-                        + '\n¿Cuál es? Contesta con el número, o dime el número correcto de la calle o la referencia catastral.';
+                const rc = ext.referencia_catastral || null;
+                if (espera === 'vivienda' && cands?.length && !ext.referencia_catastral && !ext.numero_otro) {
+                    if (ext.respuesta_vivienda === 'no') return preguntar(MSG.numeroCorrecto, 'vivienda');
+                    await guardar();
+                    return { ...out, estado, espera };
                 }
-                p.lista = p.viviendas.length > 1 ? p.viviendas.map(v => `${v.planta}${v.superficie ? ` · ${v.superficie} m²` : ''}`) : null;
+                if (!baseDir && !rc) return preguntar(MSG.direccion, 'vivienda');
+                const res = await M.buscarVivienda(V, { direccion: baseDir, municipio: muni, provincia: p.cliente?.provincia, rc, numeroOtro: ext.numero_otro });
+                if (res.dir) p.vivienda_dir = res.dir;
+                if (res.tipo !== 'una' && res.tipo !== 'varias') {
+                    p.viviendas = null; p.lista = null;
+                    if (trasPdf && !p.quiere_sim) { p.pregunta = 'bono'; espera = null; await guardar(); await decir(MSG.bono); return { ...out, estado, espera }; }
+                    return preguntar(MSG.noEncuentro, 'vivienda');
+                }
+                const foto = res.rcFachada ? await V.fachada(res.rcFachada) : null;
+                p.viviendas = res.viviendas;
+                const texto = res.tipo === 'una'
+                    ? `Según el Catastro es ${V.describir(res.viviendas[0])}. ¿Es esta la casa? Contesta SÍ, o dime el número correcto o pásame la referencia catastral.`
+                    : `Según el Catastro, en ${res.donde} hay ${res.viviendas.length} viviendas:\n`
+                        + res.viviendas.map((v, i) => `${i + 1}) ${M.lineaVivienda(v)}`).join('\n')
+                        + '\n¿Cuál es? Contesta con el número, o dime el número correcto de la calle o la referencia catastral.';
+                p.lista = p.viviendas.length > 1 ? p.viviendas.map(M.lineaVivienda) : null;
                 espera = 'vivienda';
                 await guardar();
                 if (foto) await enviar('imagen', { buffer: foto.buffer, mimetype: foto.mimetype, filename: `fachada_${res.rcFachada}.jpg` }, { caption: texto });
                 else await decir(texto);
                 return { ...out, estado, espera, candidatos: p.viviendas };
             }
+            // Con el SÍ: la RC queda en el presupuesto, pida o no el bono.
             p.vivienda = { ...elegida, confirmada: true };
             delete p.viviendas; delete p.lista;
             espera = null;
+            await M.apuntarVivienda(S, { prescriptorId, id: p.presupuesto.id, vivienda: p.vivienda });
             // ¿Esa casa ya la tenemos? Entonces no se duplica.
             const previas = await deps.oportunidadesDeLaRc(p.vivienda.rc);
             if (previas?.length) {
                 const ops = previas.slice(0, 3).map(o => o.id_oportunidad).filter(Boolean).join(', ');
                 estado = 'HECHO'; await guardar();
                 await decir(`Esa casa ya la tenemos calculada (${ops}). La miramos y te decimos.`);
-                await avisar(`Presupuesto por WhatsApp: el instalador del ${grupo} ha pedido el bono de una vivienda que YA tiene oportunidad (${ops}, RC ${p.vivienda.rc}). Presupuesto ${p.presupuesto.numero} (id ${p.presupuesto.id}). No se ha encargado otra simulación; mira si hay que ligarlo: node scripts/presupuesto_instalador_cli.js vincular ${p.presupuesto.id} <id_oportunidad> --escribir`);
+                await avisar(`Presupuesto por WhatsApp: el instalador del ${grupo} ha confirmado una vivienda que YA tiene oportunidad (${ops}, RC ${p.vivienda.rc}). Presupuesto ${p.presupuesto.numero} (id ${p.presupuesto.id}). No se ha encargado otra simulación; mira si hay que ligarlo: node scripts/presupuesto_instalador_cli.js vincular ${p.presupuesto.id} <id_oportunidad> --escribir`);
                 return { ...out, estado, duplicada: previas };
             }
+            if (!p.quiere_sim) {
+                p.pregunta = 'bono';
+                await guardar();
+                await decir(`Apuntada en el presupuesto su referencia catastral, ${p.vivienda.rc}. ${MSG.bono}`);
+                return { ...out, estado, espera, vivienda: p.vivienda };
+            }
         }
-        // La caldera que se quita (para el bono hace falta).
-        if ((p.obra?.tipo || 'aerotermia') === 'aerotermia' && !p.obra?.caldera?.combustible) return preguntar(MSG.caldera, 'caldera');
 
-        // Vivienda confirmada: se apunta en el presupuesto y se ENCARGA.
+        // ── Las PREGUNTAS del bono: solo lo que falta, de una en una ──
+        if (espera === 'bono' && p.pregunta_bono) {
+            const v = M.leerRespuestaBono(p.pregunta_bono, {
+                eleccion: ext.eleccion, si: ext.respuesta_vivienda, ext, texto: nuevos.map(m => m.texto).join(' '),
+            }, L);
+            if (v === null) return preguntar(textoPreguntaBono(p.pregunta_bono, L, { otraVez: true }), 'bono');
+            p.obra = p.obra || {};
+            if (p.pregunta_bono === 'emisor') p.obra.emisor = v;
+            else if (p.pregunta_bono === 'acs') p.obra.acs = v;
+            else p.obra.caldera = { combustible: v };
+            p.respuestas_bono = { ...(p.respuestas_bono || {}), [p.pregunta_bono]: v };
+        }
+        const dichas = { emisor: !!p.obra?.emisor, acs: p.obra?.acs === true || p.obra?.acs === false };
+        const sig = M.siguientePreguntaBono(p.obra || {}, dichas);
+        if (sig) {
+            p.pregunta_bono = sig;
+            p.lista = sig === 'acs' ? null : M.opcionesBono(sig, L).map(o => o.texto);
+            return preguntar(textoPreguntaBono(sig, L), 'bono');
+        }
+        delete p.pregunta_bono; delete p.lista;
+
+        // Lo contestado sale en la 1.ª línea del presupuesto: se rehace y, si el PDF cambia, se reenvía.
+        const respuestas = { emisor: p.obra?.emisor || null, acs: p.obra?.acs, caldera: p.obra?.caldera?.combustible || null };
+        let filaP = null;
+        if (S.obtener) {
+            const r = await M.completarObra(S, { prescriptorId, id: p.presupuesto.id, respuestas, L, eur: L.eur, entradaDesdeFila });
+            filaP = r.filaP;
+            if (!Array.isArray(r.cambios) || r.cambios.length) {
+                const { buffer } = await S.pdfDe(prescriptorId, filaP);
+                p.presupuesto = { ...p.presupuesto, base: filaP.base, total: filaP.total, at: ahora.toISOString(), impreso: impresoDe(filaP) };
+                await guardar();
+                await enviarPdf(filaP, buffer, { actualizado: true, cambios: r.cambios });
+            }
+        }
+
+        // Y se ENCARGA la simulación (el bono se calcula con las mismas funciones que la Nueva simulación).
         const op = await opciones();
-        const entrada = {
-            ...entradaDe(p, op, ahora), numero: p.presupuesto.numero, fecha: p.presupuesto.fecha,
-            simulacion: { estado: 'PEDIDA', por: 'whatsapp', rc: p.vivienda.rc, direccion_catastro: V_desc(p.vivienda), pedida_at: ahora.toISOString() },
+        const simulacion = {
+            estado: 'PEDIDA', por: 'whatsapp', rc: p.vivienda.rc, direccion_catastro: V_desc(p.vivienda), pedida_at: ahora.toISOString(),
+            emisor: respuestas.emisor, acs: respuestas.acs, combustible: respuestas.caldera,
         };
-        const filaP = await S.actualizar({ prescriptorId, id: p.presupuesto.id, entrada });
+        if (S.marcarSimulacion) await S.marcarSimulacion({ prescriptorId, id: p.presupuesto.id, simulacion });
         const texto = textoSimulacion({
             partner: { id: prescriptorId, nombre: op.emisor || deps.prescriptor?.nombre || prescriptorId },
             cliente: { ...(filaP?.cliente || {}), ...p.cliente }, vivienda: p.vivienda, obra: p.obra,
@@ -551,6 +627,12 @@ function servicioSinGuardar(real, L, { pdfSimulado = false } = {}) {
             filas.set(id, f);
             return f;
         },
+        // El de un turno anterior no está guardado: se rehace con la entrada que quedó en el pedido.
+        sembrar(id, entrada) { if (!filas.has(id)) { try { filas.set(id, calcular(entrada, id)); } catch { /* se queda sin él */ } } },
+        async obtener(prescriptorId, id) {
+            if (!filas.has(id)) throw Object.assign(new Error('Presupuesto no encontrado.'), { status: 404 });
+            return filas.get(id);
+        },
         async pdfDe(prescriptorId, presu) {
             if (!pdfSimulado && real?.pdfDe) return real.pdfDe(prescriptorId, presu);
             return { buffer: Buffer.from(`%PDF-1.4\n% presupuesto simulado ${presu.numero}\n`), desborda: false, numeroLargo: false, simulado: true };
@@ -589,26 +671,6 @@ function pedidosSupabase(supabase) {
     };
 }
 
-// `actualizar` del servicio recalcula desde la entrada y NO escribe la columna `simulacion`: la marca
-// de «simulación pedida» se escribe aparte, en el mismo presupuesto y solo del mismo instalador.
-function conSimulacion(real, supabase) {
-    if (!real) return real;
-    return {
-        ...real,
-        async actualizar(a) {
-            const fila = await real.actualizar(a);
-            const sim = a?.entrada?.simulacion;
-            if (sim && fila?.id) {
-                const r = await supabase.from('instalador_presupuestos').update({ simulacion: sim })
-                    .eq('id', fila.id).eq('prescriptor_id', a.prescriptorId).select('id').maybeSingle();
-                if (r.error) throw Object.assign(new Error(`no he podido marcar la simulación (${r.error.message})`), { status: 503 });
-                fila.simulacion = sim;
-            }
-            return fila;
-        },
-    };
-}
-
 function depsReales(cfg = config()) {
     const supabase = require('./supabaseClient');
     const wa = require('./whatsappService');
@@ -618,7 +680,10 @@ function depsReales(cfg = config()) {
     return {
         cfg,
         cerebro: require('./presupuestoPedidoCerebro'),
-        presupuestos: conSimulacion(real, supabase), // en copia, `procesar` lo envuelve en el «sin guardar»
+        // En copia, `procesar` lo envuelve en el «sin guardar». La marca de «simulación pedida» y la
+        // RC confirmada van por `marcarSimulacion` y `apuntarVivienda` del propio servicio.
+        presupuestos: real,
+        entradaDesdeFila: real ? real.entradaDesdeFila : null,
         autorizado: (pid, tel) => autorizado(pid, tel, cfg),
         nombreGrupo: async (pid) => { await telefonosDeLaFicha(pid); return autorizadosCache.get(pid)?.nombre || ''; },
         vivienda: V,

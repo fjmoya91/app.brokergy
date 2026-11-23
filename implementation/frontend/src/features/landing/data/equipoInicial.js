@@ -117,3 +117,18 @@ export function docDelPresupuesto(presupuesto) {
         files: [],
     };
 }
+
+// Lo contestado para el bono en el PRESUPUESTO (asistente o grupo de WhatsApp, 23/11/2026) → las
+// claves del embudo (useFunnelState), para dejarlo MARCADO: los pasos se ven igual y se cambian.
+// Lo que el embudo no tiene igual (el GLP) se deja sin marcar; leña y pellet son su «biomasa».
+const EMISOR_EMBUDO = { radiadores: 'radiadores_convencionales', suelo: 'suelo_radiante', fancoils: 'fancoils' };
+const COMBUSTIBLE_EMBUDO = { gas: 'gas', gasoleo: 'gasoleo', electrica: 'electrica', carbon: 'carbon', lena: 'biomasa', pellets: 'biomasa', ninguna: 'no_tiene' };
+/** `presupuesto` = lo que arma `simulacionDesde`. Pura. */
+export function embudoDesdePresupuesto(presupuesto) {
+    const s = presupuesto || {};
+    const o = {};
+    if (EMISOR_EMBUDO[s.emisor]) o.emisor_tipo = EMISOR_EMBUDO[s.emisor];
+    if (s.acs === true || s.acs === false) o.incluir_acs = s.acs;
+    if (COMBUSTIBLE_EMBUDO[s.combustible]) o.combustible_actual = COMBUSTIBLE_EMBUDO[s.combustible];
+    return o;
+}

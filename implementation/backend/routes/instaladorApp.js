@@ -1460,6 +1460,8 @@ function datosDelAsistente(req) {
         },
         catalogo: () => catalogoDe(req),
         presupuestos: PI(),
+        // La casa del Catastro (Google → Catastro EN SERIE, reglas 15-17), la misma del grupo.
+        vivienda: require('../services/viviendaCandidata'),
     };
 }
 
@@ -1501,6 +1503,25 @@ router.post('/asistente/mensaje', enforceAuth, soloBetaInstalador, soloConAsiste
         emitir({ t: 'error', mensaje: 'Algo ha fallado y no he podido terminar. Vuelve a intentarlo.' });
     }
     if (!res.writableEnded) res.end();
+});
+
+// La CASA y el BONO tras el presupuesto, con botones (23/11/2026): sin modelo, por el motor común.
+// Solo SU presupuesto (404); escribe solo la RC confirmada y lo contestado, en el propio presupuesto.
+router.post('/asistente/paso', enforceAuth, soloBetaInstalador, soloConAsistente, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    const b = req.body || {};
+    try {
+        const r = await AI.pasoCasa({
+            accion: b.accion, presupuesto_id: b.presupuesto_id, numero: b.numero, rc: b.rc,
+            respuestas: b.respuestas, dichas: b.dichas,
+        }, { empresa, deps: { datos: datosDelAsistente(req) } });
+        res.json(sanear(r));
+    } catch (e) {
+        const s = Number(e?.status);
+        if ([400, 404, 409].includes(s)) return res.status(s).json({ error: e.message, ...(e.code ? { code: e.code } : {}) });
+        console.error('[instalador-app] asistente · paso:', e.message);
+        res.status(503).json(NO_DISPONIBLE);
+    }
 });
 
 // La nota de voz grabada en el navegador → texto (el MISMO transcriptor del WhatsApp).

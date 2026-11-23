@@ -630,6 +630,21 @@ export const CSS = `
 .ia-asi-fila b{font-weight:600}
 .ia-asi-fila.tu b{color:var(--naranja-txt);font-weight:700}
 .ia-asi-fila.ok b{color:var(--verde-txt)}
+/* La casa y el bono tras el presupuesto: foto de la fachada, respuestas como botones */
+.ia-asi-fachada{display:block;width:100%;max-height:260px;object-fit:cover;border-radius:16px;background:#f1efeb}
+.ia-asi-opciones{display:grid;grid-template-columns:1fr;gap:8px}
+@media (min-width:600px){.ia-asi-opciones{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.ia-asi-opcion{min-height:52px;padding:10px 16px;border-radius:14px;background:#fff;border:1.5px solid rgba(20,17,17,.16);font:inherit;font-size:15px;font-weight:700;color:var(--tinta);cursor:pointer;text-align:left;line-height:1.3}
+.ia-asi-opcion:hover{border-color:var(--tinta)}
+.ia-asi-opcion:active{transform:scale(.99)}
+.ia-asi-opcion:disabled{opacity:.55;cursor:default}
+.ia-asi-opcion.sec{background:transparent;color:var(--gris);font-weight:600}
+.ia-asi-otro{display:flex;flex-direction:column;gap:8px}
+.ia-asi-otro label{display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--gris);font-weight:600}
+.ia-asi-otro input{min-height:52px;padding:0 14px;border-radius:14px;border:1.5px solid rgba(20,17,17,.18);font:inherit;font-size:16px;color:var(--tinta);background:#fff}
+.ia-asi-otro input:focus{outline:2px solid var(--tinta);outline-offset:1px}
+@media (min-width:600px){.ia-asi-otro{flex-direction:row;align-items:flex-end}.ia-asi-otro label{flex:1 1 auto}.ia-asi-otro .ia-btn{min-height:52px;padding:0 22px}}
+.ia-asi-enlace{background:none;border:0;padding:0;font:inherit;font-weight:700;color:inherit;text-decoration:underline;cursor:pointer}
 .ia-asi-ayuda ul{margin:10px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:14px;color:var(--gris);line-height:1.4}
 .ia-asi-ayuda b{color:var(--tinta);font-weight:600}
 /* El compositor */

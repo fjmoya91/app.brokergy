@@ -534,8 +534,12 @@ async function actualizar({ prescriptorId, usuarioId = null, id, entrada, correg
     const rc = await resolverCliente({ prescriptorId, usuarioId, clienteId: entrada?.cliente_id || (entrada?.cliente ? null : antes.cliente_id), cliente: entrada?.cliente });
     if (!rc.cliente) throw fallo('Hay varios clientes que se parecen: elige cuál es.', 409, { code: 'CLIENTE_AMBIGUO', candidatos: rc.candidatos || [] });
     rc.cliente = await corregirFicha(prescriptorId, rc.cliente, corregirCliente);
-    // Lo que no es de la entrada (el vínculo con la oportunidad y su fichero) se conserva.
-    const obra = { ...fila.obra, ...(antes.obra?.vinculo ? { vinculo: antes.obra.vinculo } : {}) };
+    // Lo que no es de la entrada (el vínculo con la oportunidad y su fichero) se conserva, y la
+    // referencia catastral CONFIRMADA (`apuntarVivienda`) también si la entrada no trae ninguna.
+    const obra = {
+        ...fila.obra, ...(antes.obra?.vinculo ? { vinculo: antes.obra.vinculo } : {}),
+        ...(!fila.obra.ref_catastral && antes.obra?.ref_catastral ? { ref_catastral: antes.obra.ref_catastral } : {}),
+    };
     const r = await supabase.from(TABLA).update({
         ...fila, obra, cliente_id: rc.cliente.id_cliente, cliente: fotoCliente(rc.cliente), updated_at: new Date().toISOString(),
     }).eq('id', id).eq('prescriptor_id', prescriptorId).select('*').maybeSingle();
@@ -543,6 +547,50 @@ async function actualizar({ prescriptorId, usuarioId = null, id, entrada, correg
     const hecha = ok(r);
     if (!hecha) throw fallo('Presupuesto no encontrado.', 404);
     return { ...hecha, cliente_creado: rc.creado };
+}
+
+// La referencia catastral: 14 (parcela) o 20 (inmueble) caracteres.
+const RC_RE = /^[0-9A-Z]{14}([0-9A-Z]{6})?$/;
+
+/**
+ * La VIVIENDA confirmada por el instalador con la foto del Catastro (23/11/2026, Fran: «cuando se
+ * haga el presupuesto ya se quede registrada la referencia catastral»): solo `obra.ref_catastral`,
+ * sin recalcular nada (la RC no sale en el PDF). Solo el SUYO (404); uno ANULADO no se toca.
+ */
+async function apuntarVivienda({ prescriptorId, id, rc }) {
+    const r = limpio(rc).toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (!RC_RE.test(r)) throw fallo('La referencia catastral no es válida.', 400, { code: 'RC_NO_VALIDA' });
+    const antes = await obtener(prescriptorId, id);
+    if (antes.estado === 'ANULADO') throw fallo('Este presupuesto está anulado.', 409, { code: 'ANULADO' });
+    if (antes.obra?.ref_catastral === r) return antes;
+    const hecha = ok(await supabase.from(TABLA).update({ obra: { ...(antes.obra || {}), ref_catastral: r }, updated_at: new Date().toISOString() })
+        .eq('id', id).eq('prescriptor_id', prescriptorId).select('*').maybeSingle());
+    if (!hecha) throw fallo('Presupuesto no encontrado.', 404);
+    return hecha;
+}
+
+/**
+ * La marca de «simulación pedida» del presupuesto (`simulacion`, JSONB): lista blanca de escalares.
+ * `actualizar` no la escribe (recalcula desde la entrada): va aparte, del mismo instalador.
+ */
+async function marcarSimulacion({ prescriptorId, id, simulacion }) {
+    const s = simulacion && typeof simulacion === 'object' ? simulacion : {};
+    const rc = limpio(s.rc).toUpperCase().replace(/[^0-9A-Z]/g, '');
+    const limpia = {
+        estado: ['PEDIDA', 'HECHA'].includes(s.estado) ? s.estado : 'PEDIDA',
+        por: ['whatsapp', 'app'].includes(s.por) ? s.por : 'app',
+        ...(RC_RE.test(rc) ? { rc } : {}),
+        ...(limpio(s.direccion_catastro) ? { direccion_catastro: corto(s.direccion_catastro, 200) } : {}),
+        ...(limpio(s.emisor) ? { emisor: corto(s.emisor, 20).toLowerCase() } : {}),
+        ...(s.acs === true || s.acs === false ? { acs: s.acs } : {}),
+        ...(limpio(s.combustible) ? { combustible: corto(s.combustible, 20).toLowerCase() } : {}),
+        pedida_at: /^\d{4}-\d{2}-\d{2}T/.test(String(s.pedida_at || '')) ? String(s.pedida_at).slice(0, 30) : new Date().toISOString(),
+    };
+    await obtener(prescriptorId, id);
+    const hecha = ok(await supabase.from(TABLA).update({ simulacion: limpia })
+        .eq('id', id).eq('prescriptor_id', prescriptorId).select('*').maybeSingle());
+    if (!hecha) throw fallo('Presupuesto no encontrado.', 404);
+    return hecha;
 }
 
 /** Lo anula (libera su nº). Idempotente. */
@@ -1012,7 +1060,7 @@ async function ligadoAObra(prescriptorId, oportunidadUuid) {
 }
 
 module.exports = {
-    opcionesNuevo, resolverCliente, pdfDe, vistaPrevia, crear, actualizar, anular, borrar, obtener, listar,
+    opcionesNuevo, resolverCliente, pdfDe, vistaPrevia, crear, actualizar, anular, borrar, obtener, listar, apuntarVivienda, marcarSimulacion,
     enviarAlInstaladorPorWhatsapp, vincularOportunidad, entradaDesdeFila, filaParaApp, paraApp,
     nombreFichero, ligadoAObra, numeroSugerido, hojaGenerica,
     _internos: { calcularEntrada, obraDeEntrada, datosImpresos, direccionObraAparte, seguro, oportunidadSuya, fotoCliente },

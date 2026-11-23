@@ -367,7 +367,11 @@ async function ejecutar(nombre, input, ctx) {
         const { filaP } = await M.crearDelPedido(S, { prescriptorId: empresa, usuarioId: usuario?.id_usuario || null, origen: 'app', p, op, ahora });
         contar('presupuesto', empresa, ahora);
         const pa = await S.paraApp(empresa, filaP);
-        emitir({ t: 'tarjeta', tarjeta: tarjetaPresupuesto({ ...pa, cliente_creado: filaP.cliente_creado }) });
+        // Detrás del presupuesto, la CASA del Catastro (la busca la tarjeta por `/asistente/paso`, sin frenar
+        // la respuesta) y lo que ya dijo para el bono, para no volver a preguntarlo.
+        const casa = M.conVivienda(filaP.obra, filaP.cliente)
+            ? { ver_casa: true, dichas: { emisor: !!ext.obra?.emisor, acs: ext.obra?.acs === true || ext.obra?.acs === false } } : {};
+        emitir({ t: 'tarjeta', tarjeta: { ...tarjetaPresupuesto({ ...pa, cliente_creado: filaP.cliente_creado }), ...casa } });
         emitir({ t: 'memoria', memoria: { presupuesto: { id: pa.id, numero: pa.numero, cliente: pa.cliente?.nombre || '' }, candidatos: null } });
         return { hecho: { numero: pa.numero, cliente: pa.cliente?.nombre, obra: pa.resumen, base: pa.base, total: pa.total, cliente_nuevo: !!filaP.cliente_creado }, tarjeta: 'pintada con sus botones' };
     }
@@ -391,6 +395,123 @@ async function ejecutar(nombre, input, ctx) {
         emitir({ t: 'memoria', memoria: { presupuesto: { id: pa.id, numero: pa.numero, cliente: pa.cliente?.nombre || '' } } });
         return { cambiado: { numero: pa.numero, cliente: pa.cliente?.nombre, base: pa.base, total: pa.total }, tarjeta: 'pintada con sus botones' };
     }
+}
+
+// ─── La CASA y el BONO tras el presupuesto, con BOTONES (23/11/2026) ─────────
+// Fran: «tras el presupuesto, la fachada del Catastro… con el SÍ la RC se queda en el presupuesto…
+// ¿quieres que te calcule el bono? Y solo lo que falte». Lo mismo que el grupo de WhatsApp, por el
+// MISMO motor (`M.buscarVivienda`, `M.apuntarVivienda`, `M.siguientePreguntaBono`, `M.completarObra`):
+// aquí con botones y sin modelo. El estado lo lleva la tarjeta (`casa`); el servidor no guarda nada
+// más que la RC y lo contestado EN EL PRESUPUESTO, y todo id se revalida como SUYO (404).
+// El bono no se calcula aquí: el último botón abre la «Nueva simulación» de siempre ya rellena
+// (rc, emisor, agua caliente y caldera del presupuesto), que confirma la casa y liga el presupuesto.
+const RC_RE = /^[0-9A-Z]{14}([0-9A-Z]{6})?$/;
+const limpiaRc = (v) => String(v || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+const fallo = (msg, status, code) => Object.assign(new Error(msg), { status, ...(code ? { code } : {}) });
+
+/** Lo que se le enseña de cada vivienda: lista blanca (la foto va por `/api/catastro/image/<rc>`). */
+function viviendasCortas(V, vs) {
+    return (vs || []).slice(0, 30).map(v => ({ rc: v.rc, texto: V.describir(v), linea: M.lineaVivienda(v) }));
+}
+
+/** «Radiadores · solo la calefacción · gasóleo»: lo que llevará el cálculo. Pura. */
+function resumenBono(obra, L) {
+    const em = (L.EMISORES || []).find(e => e.clave === obra.emisor);
+    const co = (L.COMBUSTIBLES || []).find(c => c.clave === obra.caldera?.combustible);
+    return [em?.texto || 'Radiadores', obra.acs ? 'también el agua caliente' : 'solo la calefacción', co ? `ahora ${co.texto.toLowerCase()}` : null].filter(Boolean).join(' · ');
+}
+
+/** Lo contestado, solo si es una de SUS opciones. Pura. */
+function respuestasValidas(r, L) {
+    const x = r && typeof r === 'object' ? r : {};
+    const vale = (p, v) => M.opcionesBono(p, L).some(o => o.valor === v);
+    return {
+        ...(vale('emisor', x.emisor) ? { emisor: x.emisor } : {}),
+        ...(x.acs === true || x.acs === false ? { acs: x.acs } : {}),
+        ...(vale('caldera', x.caldera) ? { caldera: x.caldera } : {}),
+    };
+}
+
+/**
+ * Un paso de la casa o del bono. `entrada`: { accion: 'buscar'|'confirmar'|'bono', presupuesto_id,
+ * numero?, rc?, respuestas?, dichas? }. Devuelve `{ casa, tarjeta? }`: el estado nuevo de la tarjeta
+ * y, si el PDF ha cambiado con lo contestado, la tarjeta del presupuesto actualizada.
+ * deps: { datos: { presupuestos, vivienda }, logica? }
+ */
+async function pasoCasa(entrada, { empresa, deps }) {
+    const S = deps.datos.presupuestos;
+    const V = deps.datos.vivienda;
+    const L = deps.logica || await M.logica();
+    const e = entrada && typeof entrada === 'object' ? entrada : {};
+    const id = String(e.presupuesto_id || '');
+    if (!UUID_RE.test(id)) throw fallo('No sé de qué presupuesto me hablas.', 400, 'PRESUPUESTO_NO_VALIDO');
+    if (!empresa) throw fallo('Tu cuenta no tiene empresa.', 400, 'SIN_EMPRESA');
+    const fila = await S.obtener(empresa, id);            // 404 a lo ajeno
+    if (fila.estado === 'ANULADO') throw fallo('Ese presupuesto está anulado.', 409, 'ANULADO');
+    const obra = fila.obra || {};
+    const cli = fila.cliente || {};
+    const dichas = { emisor: !!e.dichas?.emisor, acs: !!e.dichas?.acs };
+
+    if (e.accion === 'buscar') {
+        const rc = limpiaRc(e.rc);
+        const numero = String(e.numero || '').replace(/[^0-9a-zA-Z]/g, '').slice(0, 6) || null;
+        if (e.rc && !RC_RE.test(rc)) return { casa: { fase: 'vivienda', viviendas: [], aviso: 'Esa referencia catastral no está bien: son 20 letras y números.', dichas } };
+        const aMano = !!(rc || numero);
+        let res;
+        try {
+            res = await M.buscarVivienda(V, {
+                direccion: obra.direccion || cli.direccion, municipio: obra.municipio || cli.municipio,
+                provincia: obra.provincia || cli.provincia, rc: rc || null, numeroOtro: numero,
+            });
+        } catch (err) {
+            console.warn('[asistente-instalador] casa:', err.message);
+            res = { tipo: 'caido' };
+        }
+        if (res.tipo === 'una' || res.tipo === 'varias') {
+            return { casa: { fase: 'vivienda', viviendas: viviendasCortas(V, res.viviendas), foto_rc: res.rcFachada || null, donde: res.donde || null, dichas } };
+        }
+        const aviso = res.tipo === 'caido' ? 'El Catastro no me contesta ahora mismo.'
+            : aMano ? 'Con eso no la encuentro en el Catastro.' : 'No he encontrado la casa en el Catastro con la dirección del presupuesto.';
+        // Buscada por él: que pruebe otra vez. La de después del PDF no se insiste: la pregunta del bono.
+        if (aMano) return { casa: { fase: 'vivienda', viviendas: [], aviso: `${aviso} Prueba con otro número o con la referencia catastral.`, dichas } };
+        return { casa: { fase: 'bono', rc: null, aviso: `${aviso} Si quieres el bono, la confirmas al calcularlo.`, dichas } };
+    }
+
+    if (e.accion === 'confirmar') {
+        const rc = limpiaRc(e.rc);
+        if (!RC_RE.test(rc)) throw fallo('Esa referencia catastral no es válida.', 400, 'RC_NO_VALIDA');
+        await M.apuntarVivienda(S, { prescriptorId: empresa, id, vivienda: { rc } });
+        return { casa: { fase: 'bono', rc, aviso: `Apuntada en el presupuesto su referencia catastral, ${rc}.`, dichas } };
+    }
+
+    if (e.accion === 'bono') {
+        const resp = respuestasValidas(e.respuestas, L);
+        const rc = obra.ref_catastral || null;
+        const ahoraObra = {
+            ...obra,
+            ...(resp.emisor ? { emisor: resp.emisor } : {}),
+            ...(resp.acs !== undefined ? { acs: resp.acs } : {}),
+            ...(resp.caldera ? { caldera: { ...(obra.caldera || {}), combustible: resp.caldera } } : {}),
+        };
+        const sig = M.siguientePreguntaBono(ahoraObra, { emisor: dichas.emisor || !!resp.emisor, acs: dichas.acs || resp.acs !== undefined });
+        if (sig) {
+            return { casa: { fase: 'pregunta', pregunta: sig, texto: M.TEXTO_BONO[sig], opciones: M.opcionesBono(sig, L), respuestas: resp, dichas, rc } };
+        }
+        // Lo contestado sale en la 1.ª línea del presupuesto: se escribe en él (solo si cambia algo).
+        let tarjeta = null;
+        const cambia = (resp.emisor && resp.emisor !== obra.emisor) || (resp.acs !== undefined && resp.acs !== !!obra.acs)
+            || (resp.caldera && resp.caldera !== obra.caldera?.combustible);
+        if (cambia) {
+            const r = await M.completarObra(S, {
+                prescriptorId: empresa, id,
+                respuestas: { emisor: resp.emisor || null, acs: resp.acs, caldera: resp.caldera || null },
+                L, eur: L.eur, entradaDesdeFila: S.entradaDesdeFila,
+            });
+            if (!Array.isArray(r.cambios) || r.cambios.length) tarjeta = tarjetaPresupuesto(await S.paraApp(empresa, r.filaP), { actualizado: true });
+        }
+        return { casa: { fase: 'listo', rc, resumen: resumenBono(ahoraObra, L), dichas }, ...(tarjeta ? { tarjeta } : {}) };
+    }
+    throw fallo('No sé qué hacer con eso.', 400, 'ACCION_NO_VALIDA');
 }
 
 // ─── El modelo (inyectable en las pruebas) ───────────────────────────────────
@@ -529,8 +650,9 @@ async function conversar({ mensajes, memoria, usuario, empresa, nombreEmpresa = 
 }
 
 module.exports = {
-    conversar, preparado, config,
+    conversar, preparado, config, pasoCasa,
     // Puros, para las pruebas:
+    resumenBono, respuestasValidas,
     limpiarMemoria, notaMemoria, limpiarHistorial, leerMarcas, tarjetaObra, tarjetaPresupuesto, herramientas, textoSistema,
     _contadores: contadores,
 };

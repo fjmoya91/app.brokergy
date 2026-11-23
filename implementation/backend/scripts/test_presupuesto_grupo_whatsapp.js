@@ -23,7 +23,7 @@ const prueba = (nombre, fn) => pruebas.push({ nombre, fn });
 
 // ── Dobles ───────────────────────────────────────────────────────────────────
 function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas = [], topeHoy = 0, cerebroFalla = false, autorizados = [AUTOR], horario = '' } = {}) {
-    const llamadas = { cerebro: 0, crear: [], actualizar: [], resolver: [], pdf: 0, candidatos: [], porRc: [], tarea: [], texto: [], documento: [], imagen: [], copiar: [], avisos: [] };
+    const llamadas = { cerebro: 0, crear: [], actualizar: [], resolver: [], pdf: 0, apuntar: [], marcar: [], candidatos: [], porRc: [], tarea: [], texto: [], documento: [], imagen: [], copiar: [], avisos: [] };
     const filas = new Map();
     const ficha = { direccion: null, municipio: null };      // la ficha del cliente cli-1 (lo que sale IMPRESO)
     let nPed = 0;
@@ -74,6 +74,8 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
                 return f;
             },
             async obtener(pid, id) { return filas.has(id) ? JSON.parse(JSON.stringify(filas.get(id))) : null; },
+            async apuntarVivienda(a) { llamadas.apuntar.push(a); const f = filas.get(a.id); f.obra = { ...f.obra, ref_catastral: a.rc }; return f; },
+            async marcarSimulacion(a) { llamadas.marcar.push(a); const f = filas.get(a.id); f.simulacion = a.simulacion; return f; },
             async pdfDe() { llamadas.pdf += 1; return { buffer: Buffer.from('%PDF-1.4 prueba') }; },
         },
         vivienda: {
@@ -87,6 +89,7 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
             describir: V.describir,
             cambiarNumero: V.cambiarNumero,
         },
+        entradaDesdeFila: (f) => require('../services/presupuestoInstaladorService').entradaDesdeFila(f),
         oportunidadesDeLaRc: async () => previas,
         pedirTarea: async (a) => { llamadas.tarea.push(a); return { ok: false, motivo: 'sin ASISTENTE_URL (prueba)' }; },
         enviar: {
@@ -114,6 +117,7 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
 const COMPLETO = 'Hazme un presupuesto para Antonio González, 611222333, CL Murcia 2 Tomelloso. Aerotermia Panasonic WH-WXG09ME5 de 9 kW cambiando caldera de gasóleo, 9200 más IVA';
 const GREGORIA = 'presupuesto para Gregoria González, Calle Alhambra 15, La Macía de Alba, Panasonic 12 kW cambiando caldera de gasóleo, 9200 más IVA';
 const GREGORIA2 = 'Haz un presupuesto para Gregoria González que está en Argamasilla de Alba, calle Alhambra 15, 9300 más IVA, Panasonic de 12 kW, cambio de caldera de gasoil';
+const SIN_DIR = 'presupuesto para Pepe Ruiz, 622333444, aerotermia Daikin 8 kW por 8.000 con IVA';
 const G = {
     [COMPLETO]: {
         quiere: 'presupuesto',
@@ -127,6 +131,10 @@ const G = {
     'presupuesto de aerotermia Daikin 8 kW por 8.000 con IVA': { quiere: 'presupuesto', obra: { tipo: 'aerotermia', equipo: { marca: 'Daikin', potencia_kw: 8 } }, importe: 8000, con_iva: true },
     'Antonio González, 611222333, CL Murcia 2 Tomelloso': { quiere: 'nada', cliente: { nombre: 'Antonio', apellidos: 'González', tlf: '611222333', direccion: 'CL Murcia 2', municipio: 'Tomelloso' } },
     '2': { quiere: 'confirmar' },
+    '1': { quiere: 'confirmar' },
+    'no': { quiere: 'nada' },
+    'suelo radiante': { quiere: 'nada', obra: { emisor: 'suelo' } },
+    [SIN_DIR]: { quiere: 'presupuesto', cliente: { nombre: 'Pepe', apellidos: 'Ruiz', tlf: '622333444' }, obra: { tipo: 'aerotermia', equipo: { marca: 'Daikin', potencia_kw: 8 } }, importe: 8000, con_iva: true },
     'déjalo': { quiere: 'cancelar' },
     // 40/26 de RCA (22/11/2026): el audio entendió «La Macía de Alba» y el instalador lo corrige.
     [GREGORIA]: {
@@ -182,8 +190,10 @@ prueba('pedido completo en un mensaje → cliente + presupuesto + PDF al grupo +
     assert.ok(/^Presupuesto 40-26 - /.test(d.f.filename), d.f.filename);
     assert.ok(/^Hola Antonio, te paso el presupuesto de la aerotermia: 11\.132,00 €/.test(d.o.caption), d.o.caption);
     assert.ok(d.o.textoDespues.startsWith('Presupuesto 40/26 para Antonio González Ruiz: 9.200,00 € + IVA = 11.132,00 €. Reenvíaselo tal cual.'), d.o.textoDespues);
-    assert.ok(/¿Te calculo también el bono CAE de esta obra\?$/.test(d.o.textoDespues));
+    assert.ok(!/¿Te calculo/.test(d.o.textoDespues), 'con calle y pueblo no pregunta el bono: lo siguiente es la casa');
     assert.strictEqual(r.estado, 'ABIERTO');
+    assert.strictEqual(r.espera, 'vivienda');
+    assert.strictEqual(e.llamadas.imagen.length, 1, 'la foto de la casa, detrás del PDF');
     assert.ok(!/[\u{1F300}-\u{1FAFF}☀-➿]/u.test(d.o.caption + d.o.textoDespues), 'sin emojis');
 });
 
@@ -272,51 +282,125 @@ prueba('el presupuesto del pedido se BORRÓ en la app → el nuevo audio hace ot
     assert.ok(!/actualizado/.test(e.llamadas.documento[1].o.textoDespues), e.llamadas.documento[1].o.textoDespues);
 });
 
-prueba('simulación → foto + pregunta; «sí» → encargo con la RC y texto del CÓDIGO', async () => {
+prueba('simulación → la CASA justo tras el PDF; «sí» → RC apuntada; bono «sí» → emisor y ACS numerados; encargo con todo', async () => {
     const e = entorno({ guion: G });
-    await e.decir(COMPLETO);
-    const r1 = await e.decir('sí');           // ¿te calculo el bono? → sí
-    assert.strictEqual(r1.espera, 'vivienda');
+    const r0 = await e.decir(COMPLETO);
+    // El presupuesto PRIMERO; detrás, la foto de la casa (sin que lo pida).
+    assert.strictEqual(e.llamadas.documento.length, 1);
+    assert.strictEqual(r0.espera, 'vivienda');
     assert.strictEqual(e.llamadas.imagen.length, 1);
     assert.ok(/^Según el Catastro es CL MURCIA 2, Tomelloso · vivienda de 145 m², año 1978\. ¿Es esta la casa\?/.test(e.llamadas.imagen[0].o.caption), e.llamadas.imagen[0].o.caption);
     assert.strictEqual(e.llamadas.imagen[0].c, GRUPO);
-    const r2 = await e.decir('sí');           // ¿es esta la casa? → sí
-    assert.strictEqual(r2.estado, 'HECHO');
+    // «sí» → la RC queda en el presupuesto aunque no pida el bono, y se le pregunta.
+    const r1 = await e.decir('sí');
+    assert.deepStrictEqual(e.llamadas.apuntar.map(a => [a.id, a.rc]), [['pre-40', '1234567VJ0002N0001AB']]);
+    assert.ok(/Apuntada en el presupuesto su referencia catastral, 1234567VJ0002N0001AB\. ¿Te calculo el bono energético \(CAE\) de esta obra\? Contesta SÍ o NO\./.test(e.llamadas.texto.at(-1).t), e.llamadas.texto.at(-1).t);
+    assert.strictEqual(e.llamadas.tarea.length, 0);
+    assert.ok(!r1.espera);
+    // «sí» al bono → SOLO lo que falta: el emisor (numerado)…
+    const r2 = await e.decir('sí');
+    assert.strictEqual(r2.espera, 'bono');
+    assert.ok(/^¿Qué tiene la casa para dar la calefacción\?\n1\) Radiadores\n2\) Suelo radiante\n3\) Fancoils\nContesta con el número\.$/.test(e.llamadas.texto.at(-1).t), e.llamadas.texto.at(-1).t);
+    // …una respuesta que no se entiende se vuelve a preguntar…
+    await e.decir('no');
+    assert.ok(/^No te he entendido\. ¿Qué tiene la casa/.test(e.llamadas.texto.at(-1).t), e.llamadas.texto.at(-1).t);
+    // …«2» → suelo radiante; luego el agua caliente (SÍ/NO); la caldera ya la dijo (gasóleo).
+    await e.decir('2');
+    assert.strictEqual(e.llamadas.texto.at(-1).t, '¿La aerotermia da también el agua caliente? Contesta SÍ o NO.');
+    const r4 = await e.decir('no');
+    assert.strictEqual(r4.estado, 'HECHO');
+    // El emisor sale en la 1.ª línea: el presupuesto se rehace y se reenvía como actualizado.
+    const act = e.llamadas.actualizar.at(-1);
+    assert.strictEqual(act.entrada.obra.emisor, 'suelo');
+    assert.strictEqual(act.entrada.obra.acs, false);
+    assert.strictEqual(act.entrada.numero, '40/26');
+    assert.strictEqual(e.llamadas.documento.length, 2);
+    assert.ok(/actualizado/.test(e.llamadas.documento[1].o.textoDespues) && /lo que incluye/.test(e.llamadas.documento[1].o.textoDespues), e.llamadas.documento[1].o.textoDespues);
+    // La marca de la simulación, con lo contestado.
+    const m = e.llamadas.marcar.at(-1);
+    assert.strictEqual(m.simulacion.estado, 'PEDIDA');
+    assert.strictEqual(m.simulacion.por, 'whatsapp');
+    assert.strictEqual(m.simulacion.rc, '1234567VJ0002N0001AB');
+    assert.strictEqual(m.simulacion.emisor, 'suelo');
+    assert.strictEqual(m.simulacion.acs, false);
+    // El encargo, compuesto por el CÓDIGO.
     assert.strictEqual(e.llamadas.tarea.length, 1);
     const enc = e.llamadas.tarea[0];
     assert.strictEqual(enc.clave, 'sim-ppto:pre-40');
     assert.ok(enc.texto.includes('RC 1234567VJ0002N0001AB'), enc.texto);
+    assert.ok(enc.texto.includes('Emisor: suelo') && enc.texto.includes('ACS: no, solo la calefacción (lo ha dicho)'), enc.texto);
     assert.ok(enc.texto.includes('presupuesto_instalador_cli.js vincular pre-40 <id_oportunidad> --escribir'));
-    assert.ok(enc.texto.includes('11.132,00 € con IVA'));
     assert.ok(enc.texto.includes('gasóleo'));
     assert.ok(!enc.texto.includes(COMPLETO) && !enc.texto.includes('Hazme un presupuesto'), 'el texto libre del instalador NO va en el encargo');
-    const act = e.llamadas.actualizar.at(-1);
-    assert.strictEqual(act.entrada.simulacion.estado, 'PEDIDA');
-    assert.strictEqual(act.entrada.simulacion.por, 'whatsapp');
-    assert.strictEqual(act.entrada.obra.ref_catastral, '1234567VJ0002N0001AB');
     assert.strictEqual(e.llamadas.texto.at(-1).t, A.MSG.confirmada);
-    // Sin ASISTENTE_URL el encargo no entra: se registra y se avisa al equipo con el texto.
-    assert.strictEqual(r2.encargo.ok, false);
+    assert.strictEqual(r4.encargo.ok, false);
     assert.ok(e.llamadas.avisos.some(a => a.includes('no he podido encargar la simulación')));
 });
 
-prueba('«no, es el 4» → se prueba con ese número', async () => {
+prueba('«no» al bono → se queda la RC apuntada y no se encarga nada', async () => {
     const e = entorno({ guion: G });
     await e.decir(COMPLETO);
     await e.decir('sí');
+    await e.decir('no');
+    assert.strictEqual(e.llamadas.apuntar.length, 1);
+    assert.strictEqual(e.llamadas.tarea.length, 0);
+    assert.strictEqual(e.llamadas.marcar.length, 0);
+    assert.strictEqual(e.llamadas.texto.at(-1).t, 'Vale.');
+});
+
+prueba('la palabra vale como el número: «suelo radiante»', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(COMPLETO); await e.decir('sí'); await e.decir('sí');
+    await e.decir('suelo radiante');
+    assert.strictEqual(e.llamadas.texto.at(-1).t, '¿La aerotermia da también el agua caliente? Contesta SÍ o NO.');
+});
+
+prueba('sin dirección → no se busca la casa: la pregunta del bono de siempre; «sí» → se pide la dirección', async () => {
+    const e = entorno({ guion: G });
+    const r = await e.decir(SIN_DIR);
+    assert.strictEqual(e.llamadas.imagen.length, 0);
+    assert.strictEqual(e.llamadas.candidatos.length, 0);
+    assert.ok(e.llamadas.documento[0].o.textoDespues.endsWith(A.MSG.bono), e.llamadas.documento[0].o.textoDespues);
+    assert.ok(!r.espera);
+    const r2 = await e.decir('sí');
+    assert.strictEqual(r2.espera, 'vivienda');
+    assert.strictEqual(e.llamadas.texto.at(-1).t, A.MSG.direccion);
+});
+
+prueba('tras el PDF el Catastro no la encuentra → no se insiste: la pregunta del bono', async () => {
+    const e = entorno({ guion: G });
+    e.deps.vivienda.candidatos = async (q) => { e.llamadas.candidatos.push(q); return { tipo: 'ninguna' }; };
+    const r = await e.decir(COMPLETO);
+    assert.strictEqual(e.llamadas.imagen.length, 0);
+    assert.strictEqual(e.llamadas.texto.at(-1).t, A.MSG.bono);
+    assert.ok(!r.espera);
+});
+
+prueba('«ponle 9.500» mientras espera la casa → se cambia el presupuesto y la casa sigue preguntada', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(COMPLETO);
+    const r = await e.decir('ponle 9.500');
+    assert.ok(r.actualizado, JSON.stringify(r));
+    assert.strictEqual(e.llamadas.documento.length, 2);
+    await e.decir('sí');
+    assert.strictEqual(e.llamadas.apuntar.length, 1);
+});
+
+prueba('«no, es el 4» → se prueba con ese número y se apunta esa', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(COMPLETO);
     const r = await e.decir('no, es el 4');
     assert.strictEqual(r.espera, 'vivienda');
     assert.strictEqual(e.llamadas.candidatos.at(-1).direccion, 'CL Murcia 4');
     assert.ok(/CL MURCIA 4/.test(e.llamadas.imagen.at(-1).o.caption));
-    assert.strictEqual(e.llamadas.tarea.length, 0);
     await e.decir('sí');
-    assert.ok(e.llamadas.tarea[0].texto.includes('1234567VJ0004N0001AB'));
+    assert.strictEqual(e.llamadas.apuntar[0].rc, '1234567VJ0004N0001AB');
+    assert.strictEqual(e.llamadas.tarea.length, 0);
 });
 
 prueba('vivienda con oportunidad previa → no se duplica', async () => {
     const e = entorno({ guion: G, previas: [{ id_oportunidad: '26RES060_OP400', ref_catastral: '1234567VJ0002N0001AB' }] });
     await e.decir(COMPLETO);
-    await e.decir('sí');
     const r = await e.decir('sí');
     assert.ok(r.duplicada);
     assert.strictEqual(e.llamadas.tarea.length, 0);
@@ -331,13 +415,15 @@ prueba('modo copia → no envía al grupo, no guarda ni encarga; lo copia a Fran
     assert.strictEqual(e.llamadas.crear.length, 0, 'no se crea de verdad');
     assert.strictEqual(e.llamadas.resolver.length, 0, 'no se da de alta el cliente');
     assert.ok(e.llamadas.pdf >= 1, 'el PDF se compone igual');
-    assert.strictEqual(e.llamadas.copiar.length, 1);
+    assert.strictEqual(e.llamadas.copiar.length, 2, 'el PDF y la foto de la casa');
     assert.ok(e.llamadas.copiar[0].includes('modo copia') && e.llamadas.copiar[0].includes('Presupuesto 40/26'));
+    assert.ok(e.llamadas.copiar[1].includes('Según el Catastro'));
     // El grupo se nombra por su instalador, nunca por su id (WhatsApp pinta el «@g.us» como una tarjeta).
     assert.ok(e.llamadas.copiar[0].includes('· grupo de RCA*'), e.llamadas.copiar[0].split('\n')[0]);
     assert.ok(!e.llamadas.copiar.some(t => t.includes('@g.us')), 'el id del grupo no sale en la copia');
     assert.ok(r.enviados[0].copia);
-    await e.decir('sí'); await e.decir('sí');
+    await e.decir('sí'); await e.decir('sí'); await e.decir('1'); await e.decir('no');
+    assert.strictEqual(e.llamadas.apuntar.length + e.llamadas.marcar.length + e.llamadas.actualizar.length, 0, 'en copia no se guarda nada');
     assert.strictEqual(e.llamadas.tarea.length, 0, 'en copia no se encarga');
     assert.ok(e.llamadas.copiar.some(t => t.includes('encargaría la simulación')));
 });

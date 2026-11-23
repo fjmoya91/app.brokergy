@@ -117,7 +117,11 @@ app no escribe al cliente del instalador (regla 237: el instalador pasa las cosa
 **REGLA — «Calcular el bono CAE» abre la «Nueva simulación» de SIEMPRE, ya rellena con el cliente, la
 dirección, el equipo y el importe del presupuesto, y la vivienda se CONFIRMA en su paso de siempre
 (`ConfirmationCard`: la foto de la fachada y los vecinos ±números).** Es justo el problema de Fran: «las
-direcciones… en catastro suele bailar unos números». Al crearse la oportunidad, el presupuesto se liga
+direcciones… en catastro suele bailar unos números». **Desde el 23/11/2026, si la casa ya se confirmó con
+la foto tras el presupuesto** (ver «La casa y el bono tras el presupuesto»), la RC viaja apuntada
+(`obra.ref_catastral` → `simulacionDesde().rc`), el embudo la busca sola (`rcInicial` en
+`LandingFunnelView`) y, con una RC de 20, se salta `ConfirmationCard`: ya se confirmó. Emisor, ACS y
+combustible llegan marcados (`embudoDesdePresupuesto` en [equipoInicial.js](implementation/frontend/src/features/landing/data/equipoInicial.js)). Al crearse la oportunidad, el presupuesto se liga
 (`POST …/vincular`): su PDF sube al apartado `DOC_PRESUPUESTO` y el historial de la oportunidad lo dice
 («📄 Presupuesto 40/26 de … hecho en la app: 9.200,00 € + IVA = 11.132,00 €») para que BROKERGY lo
 identifique. **Ligar un presupuesto a una oportunidad que ya existía NO cambia `inputs.presupuesto`**:
@@ -259,17 +263,28 @@ encontrada solo por el nombre podría ser otra persona, así que esa no se toca:
 hace uno nuevo con lo que sabe.** (23/11/2026) RCA borró el 40/26 desde la app y volvió a pedirlo por audio
 en el mismo pedido abierto: el agente intentó CAMBIAR el borrado, recibió «Presupuesto no encontrado» y al
 grupo solo llegó «Ahora mismo no puedo hacerlo, te lo hacemos nosotros en un rato».
-4. **Simulación → se confirma la VIVIENDA**: dirección → Google → Catastro, EN SERIE (reglas 15-17,
+Tras el PDF (desde el 23/11/2026; antes la vivienda iba solo si pedía la simulación):
+
+4. **La CASA**: dirección → Google → Catastro, EN SERIE (reglas 15-17,
    [viviendaCandidata.js](implementation/backend/services/viviendaCandidata.js)) → al grupo, la FOTO de la
    fachada del Catastro con «Según el Catastro es CL MURCIA 2(A), Tomelloso · vivienda de 133 m², año
    1999. ¿Es esta la casa? Contesta SÍ, o dime el número correcto o pásame la referencia catastral».
-   «No, es el 4» → se prueba ese. Una parcela con varias viviendas → se listan para elegir. Si esa casa
-   ya tiene oportunidad, se dice y no se duplica.
-5. Vivienda confirmada → se **encarga** la simulación a BROKERGY (`asistenteCanal.pedirTarea`, clave
-   `sim-ppto:<id>`), con un texto COMPUESTO POR EL CÓDIGO (partner, cliente, RC confirmada, caldera,
-   aerotermia, importe con IVA y la orden de ligarlo: `presupuesto_instalador_cli.js vincular`). El alta
-   la hace el asistente con la skill `alta-oportunidad`, como las demás; **la propuesta no sale sin el
-   «sí» de Fran**. Al grupo: «Vivienda confirmada. Ya lo tenemos en BROKERGY para calcular el bono…».
+   «No, es el 4» → se prueba ese. Una parcela con varias viviendas → se listan NUMERADAS para elegir. Si
+   esa casa ya tiene oportunidad, se dice y no se duplica. Con el SÍ, la RC se apunta en el presupuesto
+   (`apuntarVivienda` → `obra.ref_catastral`). Sin casa (no la encuentra, Catastro caído) se sigue: **la
+   vivienda nunca frena el presupuesto**, que ya salió.
+5. **«¿Quieres que te calcule el bono energético?»** (SÍ / NO). Con el SÍ se pregunta SOLO lo que falta
+   y de UNA en una, numerado: emisor (1 radiadores · 2 suelo radiante · 3 fancoils), si también da el
+   agua caliente, y la caldera de hoy (`siguientePreguntaBono` / `opcionesBono` / `leerRespuestaBono` del
+   motor). Una respuesta que no se entiende se vuelve a preguntar.
+6. Todo contestado → lo dicho se escribe en la obra del presupuesto (`completarObra`; si cambia la 1.ª
+   línea, se reenvía el PDF), se marca la simulación PEDIDA (`marcarSimulacion`) y se **encarga** a
+   BROKERGY (`asistenteCanal.pedirTarea`, clave `sim-ppto:<id>`), con un texto COMPUESTO POR EL CÓDIGO
+   (partner, cliente, RC confirmada, caldera, emisor, ACS, aerotermia, importe con IVA y la orden de
+   ligarlo: `presupuesto_instalador_cli.js vincular`). El alta la hace el asistente con la skill
+   `alta-oportunidad`, como las demás; **la propuesta no sale sin el «sí» de Fran**. **La cifra del bono
+   NO se calcula en el servidor** (el contenedor va en `node:20-slim` y el cálculo es ESM del frontend):
+   es un encargo.
 
 **REGLA — solo se atiende a los grupos de `PRESUPUESTO_WA_GRUPOS` y, dentro, a los teléfonos de la ficha
 de ese instalador y a los de `PRESUPUESTO_WA_PROBADORES`; solo se escribe al `chatId` del grupo
@@ -307,6 +322,51 @@ PRESUPUESTO_WA_PROBADORES=<teléfono de quien prueba>
 PRESUPUESTO_WA_SOLO_PROBADORES=true
 PRESUPUESTO_WA_MODO=copia
 ```
+
+### La casa y el bono tras el presupuesto (23/11/2026)
+
+Fran: el presupuesto sale PRIMERO y la vivienda nunca lo frena; después, la fachada del Catastro «¿Es esta
+la casa?», con el SÍ la RC queda en el presupuesto y luego «¿Quieres que te calcule el bono energético?»,
+preguntando solo lo que falta. En WhatsApp, respuestas numeradas y SÍ/NO; en la app, botones de verdad.
+
+**REGLA — la casa y el bono van DESPUÉS del presupuesto, por el MISMO motor en los dos canales, y no lo
+frenan.** Las piezas viven en [presupuestoMotor.js](implementation/backend/services/presupuestoMotor.js):
+`conVivienda`, `buscarVivienda` (Google → Catastro EN SERIE, solo WCF JSON), `lineaVivienda`,
+`elegirVivienda`, `apuntarVivienda`, `TEXTO_BONO`, `siguientePreguntaBono(obra, dichas)`,
+`opcionesBono`, `leerRespuestaBono` y `completarObra`. El grupo (`pasoVivienda`) y la app
+(`pasoCasa` de [asistenteInstalador.js](implementation/backend/services/asistenteInstalador.js)) solo
+cambian cómo se pregunta.
+
+**REGLA — «lo que falta» lo deciden lo DICHO, no la obra guardada.** En la BD `emisor` siempre lleva valor
+(por defecto radiadores) y `acs` siempre es booleano, así que mirando la obra nunca faltaría nada. Por eso
+la tarjeta que crea `hacer_presupuesto` lleva `dichas: { emisor, acs }` sacado de lo que extrajo el modelo
+(`ext.obra`), y el grupo lo guarda en su pedido.
+
+En la app: tras la tarjeta del presupuesto (con `ver_casa`), `PasoCasa` en
+[AsistenteView.jsx](implementation/frontend/src/features/instalador/views/AsistenteView.jsx) llama a
+`POST /api/instalador-app/asistente/paso` (`enforceAuth` + beta + `soloConAsistente`, campos en lista
+blanca y `sanear`), **sin modelo y sin estado en el servidor**: la tarjeta lleva `t.casa` y el servidor
+devuelve `{ casa, tarjeta? }`. Acciones `buscar` · `confirmar` · `bono`; fases `vivienda` (foto
+`/api/catastro/image/<rc>`, «Sí, es esta», «Es otro número» con número o RC, la lista si hay varias,
+«Seguir sin la casa») · `bono` («Sí, calcúlamelo» / «Ahora no») · `pregunta` (las opciones, botones) ·
+`listo` (resumen, «Suelo radiante · solo la calefacción · ahora gasóleo», y «Calcular el bono CAE») · `no`.
+El presupuesto tiene que ser SUYO (404) y no ANULADO (409); una RC mal escrita no va al Catastro (400
+`RC_NO_VALIDA`). No la encuentra o el Catastro está caído: si la buscó él, se queda en la casa con un aviso
+para que pruebe otra; si era la búsqueda automática, pasa al bono con el aviso. **La app NO usa
+`marcarSimulacion`** (marcaría «pedido» y escondería «Calcular el bono» si no se termina): lo contestado va
+a la obra del presupuesto con `completarObra` y, si cambia la 1.ª línea, vuelve la tarjeta «actualizado».
+«Calcular el bono CAE» abre la Nueva simulación con la RC (se busca sola y, con 20 caracteres, se salta la
+confirmación) y emisor, ACS y combustible marcados.
+
+**La cifra del bono no sale al momento**: el backend corre en Node 20 y el cálculo es ESM del frontend. En
+el grupo es un encargo; en la app, la Nueva simulación de siempre. Darla al momento por WhatsApp pediría
+Node 22 en el contenedor o arreglar esos imports (decisión de Fran).
+
+Pruebas: `test_asistente_instalador.js` (26: la tarjeta con `ver_casa` y `dichas`, una vivienda, otro
+número, RC, varias, ninguna, Catastro caído, confirmar, preguntas y escritura, ajeno 404, anulado 409, los
+guardianes de la ruta), `test_presupuesto_grupo_whatsapp.js` (29) y `test_navegacion_instalador.mjs`
+(`simulacionDesde` con rc, emisor, acs y combustible; `embudoDesdePresupuesto`). Banco:
+`?seccion=asistente` y `&casa=varias|ninguna|caida`.
 
 ### Para el equipo
 

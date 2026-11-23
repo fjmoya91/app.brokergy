@@ -42,7 +42,7 @@ import { Step8_Presupuesto } from '../steps/Step8_Presupuesto';
 import { Step9_Contacto } from '../steps/Step9_Contacto';
 import { LandingResultView } from './LandingResultView';
 import { ReformaSubFlow, AvisoEquipoInicial, AvisoPresupuestoInicial } from './ReformaSubFlow';
-import { aplicarEquipoInicial, totalConIvaEquipo } from '../data/equipoInicial';
+import { aplicarEquipoInicial, totalConIvaEquipo, embudoDesdePresupuesto } from '../data/equipoInicial';
 import { LeadDeliveryView } from './LeadDeliveryView';
 import { LandingPropertyReview } from './LandingPropertyReview';
 import { buildAccentVars } from '../../../utils/partnerTheme';
@@ -130,7 +130,9 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
     useEffect(() => {
         // Desde un PRESUPUESTO de la app del instalador, su total con IVA (es el de verdad, no estimado).
         const total = !isInternal ? 0 : presuIni?.total_con_iva > 0 ? presuIni.total_con_iva : totalConIvaEquipo(equipoInicial);
-        if (total > 0) updateFunnel({ presupuesto_modo: 'tengo', presupuesto_eur: total });
+        // Y lo contestado para el bono en el presupuesto (emisor, agua caliente, caldera), ya marcado.
+        const marcado = presuIni ? embudoDesdePresupuesto(presuIni) : {};
+        if (total > 0 || Object.keys(marcado).length) updateFunnel({ ...(total > 0 ? { presupuesto_modo: 'tengo', presupuesto_eur: total } : {}), ...marcado });
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Sincronizar phase+catastro con sessionStorage (solo en modo público)
@@ -240,7 +242,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
             }
             else msg = 'No pudimos completar la búsqueda. Inténtalo de nuevo.';
             setCatastroError(opts.desdeCee
-                ? `No hemos podido buscar la vivienda del certificado (${query}). ${msg} La referencia ya está escrita en el buscador.`
+                ? `No hemos podido buscar la vivienda ${deQue} (${query}). ${msg} La referencia ya está escrita en el buscador.`
                 : msg);
         } finally {
             setCatastroLoading(false);
@@ -260,13 +262,17 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
         const primera = String(cruda).toUpperCase().split(/[;,\n]/)[0] || '';
         return primera.replace(/[^A-Z0-9]/g, '');
     }, [isInternal, initialCeeData]);
+    // Desde un PRESUPUESTO del instalador, la casa que ya CONFIRMÓ con la foto del Catastro (23/11/2026):
+    // se busca sola igual que la del certificado. Sin RC confirmada, se busca a mano como siempre.
+    const rcInicial = rcDelCee || presuIni?.rc || '';
+    const deQue = rcDelCee ? 'del certificado' : 'del presupuesto';
     const ceePrefillRan = useRef(false);
     useEffect(() => {
-        if (!rcDelCee || ceePrefillRan.current) return;
+        if (!rcInicial || ceePrefillRan.current) return;
         ceePrefillRan.current = true;
-        handleSearch(rcDelCee, { desdeCee: true });
+        handleSearch(rcInicial, { desdeCee: true });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rcDelCee]);
+    }, [rcInicial]);
 
     const handleAddressSelect = async (suggestion) => {
         setCatastroLoading(true);
@@ -766,7 +772,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     // pago a un LLM): el partner en «Nueva simulación» sí; en la
                                     // landing pública el botón daría un 401.
                                     permiteFotoRc={isInternal}
-                                    initialQuery={rcDelCee}
+                                    initialQuery={rcInicial}
                                     direccionInicial={presuIni?.direccion || ''}
                                     // El cliente busca por dirección; la referencia catastral, en su pestaña.
                                     modoInicial={isInternal ? 'rc' : 'address'}
@@ -798,7 +804,7 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                             {catastroLoading && (
                                 <div className="mt-6 text-center text-amber-400 text-sm">
                                     {buscandoCee
-                                        ? <>Buscando en el Catastro la vivienda del certificado <span className="font-mono">{rcDelCee}</span>…</>
+                                        ? <>Buscando en el Catastro la vivienda {deQue} <span className="font-mono">{rcInicial}</span>…</>
                                         : 'Resolviendo dirección…'}
                                 </div>
                             )}

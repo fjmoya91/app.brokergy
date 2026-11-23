@@ -20,7 +20,8 @@ Carmen López, 8 kW con depósito, 9.500 con IVA», «¿cómo va lo de Lucía?»
 | El grupo de WhatsApp (solo el canal: sus textos, su copia) | [services/presupuestoGrupoWhatsapp.js](implementation/backend/services/presupuestoGrupoWhatsapp.js) |
 | El cerebro del chat: herramientas, lo preparado, la memoria, los topes | [services/asistenteInstalador.js](implementation/backend/services/asistenteInstalador.js) |
 | Quién lo tiene (beta + interruptor + llave) | `asistenteEncendido` en [utils/appInstalador.js](implementation/backend/utils/appInstalador.js) |
-| Las rutas `GET /asistente`, `POST /asistente/mensaje` (NDJSON), `POST /asistente/audio` | [routes/instaladorApp.js](implementation/backend/routes/instaladorApp.js) (sección FASE 6) |
+| Las rutas `GET /asistente`, `POST /asistente/mensaje` (NDJSON), `POST /asistente/audio` y, desde el 23/11/2026, `POST /asistente/paso` (la casa y el bono, sin modelo) | [routes/instaladorApp.js](implementation/backend/routes/instaladorApp.js) (sección FASE 6) |
+| La casa y el bono tras el presupuesto (`pasoCasa`) | [services/asistenteInstalador.js](implementation/backend/services/asistenteInstalador.js), `PasoCasa` en [views/AsistenteView.jsx](implementation/frontend/src/features/instalador/views/AsistenteView.jsx) |
 | `asistente_instalador` en `/api/usuarios/me` | [routes/usuarios.js](implementation/backend/routes/usuarios.js) |
 | La pantalla | [views/AsistenteView.jsx](implementation/frontend/src/features/instalador/views/AsistenteView.jsx) |
 | Lo puro (memoria, historial, lector NDJSON) y el WAV | [logic/asistente.js](implementation/frontend/src/features/instalador/logic/asistente.js), [logic/audioWav.js](implementation/frontend/src/features/instalador/logic/audioWav.js) |
@@ -135,6 +136,13 @@ Estilo «carta de pago» con prefijo `.ia-asi-` (regla 164), mobile first a 390 
   como cifra protagonista, «Envíamelo por WhatsApp» con `SendActionOverlay` —la MISMA llamada que la ficha—,
   «Ver el presupuesto» y, si aún no tiene, «Calcular el bono CAE»); la de la obra (barra de 5 pasos, quién
   tiene la pelota, Te toca / Lo llevamos nosotros / Hecho, y sus tareas como botones).
+- **La casa y el bono** (23/11/2026): detrás de la tarjeta del presupuesto, si tiene dirección
+  (`ver_casa`), la foto de la fachada del Catastro con «Sí, es esta» / «Es otro número» / la lista de
+  viviendas / «Seguir sin la casa»; con el SÍ, la RC queda en el presupuesto y «¿Te calculo el bono?»; con
+  el SÍ, solo lo que falta (emisor, agua caliente, caldera) como botones, de una en una, y al final el
+  resumen y «Calcular el bono CAE» (la Nueva simulación con la RC y lo marcado). Por `POST /asistente/paso`,
+  sin modelo ni estado en el servidor (el paso viaja en la tarjeta). El detalle: «La casa y el bono tras
+  el presupuesto» en [el-presupuesto-del-instalador.md](docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md).
 - Los errores, en ámbar dentro de la burbuja; sin conexión, «escríbemelo otra vez cuando vuelva».
 
 ### 8. El banco
@@ -144,6 +152,7 @@ modelo. «presupuesto … para … con un número» crea uno de verdad EN EL BAN
 el WhatsApp de mentira y calcular su bono); «bájale N» lo cambia; «cómo va / obra / Lucía», la tarjeta de
 la 901; «precio / kW», el catálogo. `?asistente=0` sin asistente (ni menú ni gota); `?asistente=off`, la
 pantalla de «no disponible»; `?fallo=1`, el error en la burbuja. El «audio» devuelve siempre la misma frase.
+La casa tras el presupuesto: una vivienda por defecto; `&casa=varias`, `&casa=ninguna`, `&casa=caida`.
 
 ### Pendiente / decisiones de Fran
 
@@ -153,6 +162,8 @@ pantalla de «no disponible»; `?fallo=1`, el error en la burbuja. El «audio» 
   PRODUCCIÓN y un «hazme un presupuesto» crearía uno de verdad. Primera prueba real: con Fran delante y un
   cliente de prueba, o pidiendo solo «¿cómo va…?» (no escribe).
 - Pasar el grupo de WhatsApp a modo real sigue siendo decisión de Fran (regla 238): esta fase no lo toca.
+- La cifra del bono al momento (en el grupo y en el chat) pide Node 22 en el backend o arreglar los
+  imports ESM del cálculo; hoy, en el grupo es un encargo y en la app la Nueva simulación.
 
 **Tras tocarlo:** `node implementation/backend/scripts/test_asistente_instalador.js`,
 `test_presupuesto_grupo_whatsapp.js`, `test_presupuesto_instalador.js`, `test_app_instalador.js`,

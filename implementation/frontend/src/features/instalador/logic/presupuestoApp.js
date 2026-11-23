@@ -233,6 +233,12 @@ export function simulacionDesde({ presupuesto: p, entrada } = {}) {
             marca: recorta(ob.equipo?.marca),
             modelo: recorta(ob.equipo?.modelo),
         },
+        // La casa CONFIRMADA con la foto del Catastro (asistente o grupo de WhatsApp, 23/11/2026) y lo
+        // contestado para el bono: el embudo busca esa RC sola y deja marcadas esas respuestas.
+        rc: /^[0-9A-Z]{14}([0-9A-Z]{6})?$/.test(recorta(ob.ref_catastral).toUpperCase()) ? recorta(ob.ref_catastral).toUpperCase() : '',
+        emisor: recorta(ob.emisor) || null,
+        acs: ob.acs === true || ob.acs === false ? ob.acs : null,
+        combustible: recorta(ob.caldera?.combustible) || null,
     };
 }
 

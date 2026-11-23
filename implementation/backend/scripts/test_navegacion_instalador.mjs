@@ -130,6 +130,17 @@ const sim = pa.simulacionDesde({ presupuesto: { id: 'p1', numero: '40/26', fecha
 t('simulación: total con IVA, dirección y equipo', sim.total_con_iva === 11132 && sim.direccion === 'C/ Las Eras, 14, 13000 Villanueva' && sim.equipo.aerotermia_id === 101);
 t('simulación: el cliente impreso (con DNI)', sim.cliente.nombre === 'Lucía Prado' && sim.cliente.dni === '00000000T');
 t('simulación: sin funciones (viaja limpia)', !Object.values(sim).some((v) => typeof v === 'function'));
+// La casa confirmada y lo contestado para el bono (23/11/2026): la RC se busca sola y las respuestas quedan marcadas.
+const simCasa = pa.simulacionDesde({ presupuesto: { id: 'p2', total: 9500, obra: { ref_catastral: '1234567vj0002n0001ab', emisor: 'suelo', acs: false, caldera: { combustible: 'gasoleo' } } } });
+t('simulación: la RC confirmada en mayúsculas, el emisor, el ACS y la caldera', simCasa.rc === '1234567VJ0002N0001AB' && simCasa.emisor === 'suelo' && simCasa.acs === false && simCasa.combustible === 'gasoleo');
+t('simulación: una RC mal formada no viaja', pa.simulacionDesde({ presupuesto: { id: 'p3', obra: { ref_catastral: 'CALLE MAYOR' } } }).rc === '');
+const eqi = await import(front('features/landing/data/equipoInicial.js'));
+const marcado = eqi.embudoDesdePresupuesto(simCasa);
+t('embudo: suelo → suelo_radiante, sin ACS, gasóleo', marcado.emisor_tipo === 'suelo_radiante' && marcado.incluir_acs === false && marcado.combustible_actual === 'gasoleo');
+t('embudo: el GLP no se marca (el embudo no lo tiene igual); la leña es biomasa', !('combustible_actual' in eqi.embudoDesdePresupuesto({ combustible: 'glp' })) && eqi.embudoDesdePresupuesto({ combustible: 'lena' }).combustible_actual === 'biomasa');
+t('embudo: sin nada, nada', Object.keys(eqi.embudoDesdePresupuesto(null)).length === 0);
+const funnelSrc = fs.readFileSync(path.join(raizFront, 'src/features/landing/views/LandingFunnelView.jsx'), 'utf8');
+t('embudo: la RC del presupuesto se busca sola, como la del certificado', /const rcInicial = rcDelCee \|\| presuIni\?\.rc/.test(funnelSrc) && /handleSearch\(rcInicial/.test(funnelSrc));
 t('obra ligada: la del listado', pa.obraDelPresupuesto({ obra: '26RES060_OP902' }) === '26RES060_OP902');
 t('obra ligada: el uuid no se toma por id de obra', pa.obraDelPresupuesto({ oportunidad_id: 'uuid-x' }) === null && pa.estaLigado({ oportunidad_id: 'uuid-x' }));
 

@@ -153,7 +153,7 @@ function construirPrompt({ mensajes = [], pedido = null, catalogos = {} } = {}) 
         `- obra.extras (lo que incluye además del equipo) y obra.extras_quitar (lo que pide quitar), con estas claves: ${lista(catalogos.EXTRAS, e => `${e.clave} (${e.etiqueta}${e.litros ? ', litros' : ''})`)}. Con litros si los dice. Nada fuera del catálogo.`,
         '- obra.descripcion: solo si es «otra obra» y dice qué incluye.',
         '- cliente: el cliente FINAL del instalador (nombre, apellidos, DNI, teléfono, dirección, CP, municipio, provincia). La dirección de la obra va en obra.direccion/obra.municipio solo si dice que es otra que la del cliente.',
-        '- respuesta_vivienda: «si»/«no» si le hemos preguntado si una casa es la suya y contesta.',
+        '- respuesta_vivienda: «si»/«no» si le hemos preguntado algo de sí o no (si una casa es la suya, si le calculamos el bono, si la aerotermia da también el agua caliente) y contesta.',
         '- eleccion: si le hemos dado una lista numerada y contesta con un número («el 2», «la segunda»), ese número.',
         '- numero_otro: si corrige el número de la calle («no, es el 4») → "4".',
         '- referencia_catastral: si la dicta o la escribe, sin espacios.',

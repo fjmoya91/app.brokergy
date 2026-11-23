@@ -145,6 +145,10 @@ export function apiReal(axios) {
         asistente: () => axios.get(`${B}/asistente`).then((r) => r.data),
         // La nota de voz, ya pasada a WAV en el navegador: el servidor la transcribe y devuelve `{ texto }`.
         asistenteAudio: (wav) => axios.post(`${B}/asistente/audio`, wav, { headers: { 'Content-Type': 'audio/wav' } }).then((r) => r.data),
+        // La casa y el bono tras el presupuesto: un paso cada vez, sin modelo (solo SU presupuesto).
+        asistentePaso: (cuerpo) => axios.post(`${B}/asistente/paso`, cuerpo).then((r) => r.data),
+        // La fachada del Catastro, la MISMA ruta de la Nueva simulación (pública, por la RC).
+        fotoCasa: (rc) => `/api/catastro/image/${encodeURIComponent(rc)}`,
         // NDJSON en streaming (axios no lo deja leer a trozos): fetch con la MISMA sesión de axios.
         asistenteMensaje: (cuerpo, { signal, onEvento } = {}) => leerNdjson(fetch(`${B}/asistente/mensaje`, {
             method: 'POST', signal,

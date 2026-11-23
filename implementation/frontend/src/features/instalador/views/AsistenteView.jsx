@@ -118,7 +118,8 @@ function TarjetaPresupuesto({ t, api, onAbrir, onBono }) {
         setBono(true);
         try { await onBono(p.id); } catch { setAviso('No he podido abrir el cálculo. Ábrelo desde el presupuesto.'); } finally { setBono(false); }
     };
-    const sinBono = !p.simulacion && !p.id_oportunidad;
+    // Con la casa y el bono en marcha debajo (PasoCasa), el botón del bono lo lleva esa tarjeta.
+    const sinBono = !p.simulacion && !p.id_oportunidad && (!t.ver_casa || t.casa?.fase === 'no');
     return (
         <section className="ia-card ia-asi-tarjeta">
             <div className="ia-asi-tarjeta-cab">
@@ -154,6 +155,184 @@ function TarjetaPresupuesto({ t, api, onAbrir, onBono }) {
             {guardado.overlay}
         </section>
     );
+}
+
+// ── La CASA y el BONO, tras el presupuesto (23/11/2026) ──────────────────────
+// Fran: «tras el PDF, la fachada del Catastro: ¿es esta la casa? Con el sí, la referencia queda en
+// el presupuesto. Después, ¿te calculo el bono? Y solo lo que falte, con botones». Lo decide el
+// servidor (`/asistente/paso`, el MISMO motor que el grupo de WhatsApp); aquí solo se pinta, y el
+// estado vive en la propia tarjeta (`t.casa`), así sobrevive a abrir una obra y volver.
+const empezadas = new Set();      // una búsqueda por tarjeta, también con el doble montaje de React
+
+function PasoCasa({ t, api, onCambiar, onBono }) {
+    const p = t.presupuesto || {};
+    const casa = t.casa || { fase: 'buscando' };
+    const [otro, setOtro] = useState(false);
+    const [valor, setValor] = useState('');
+    const [ocupado, setOcupado] = useState(null);
+    const [fallo, setFallo] = useState(null);
+    const [sinFoto, setSinFoto] = useState(false);
+    const ultima = useRef(null);
+
+    const pedir = async (cuerpo, clave) => {
+        ultima.current = { cuerpo, clave };
+        setFallo(null);
+        setOcupado(clave);
+        try {
+            const r = await api.asistentePaso({ presupuesto_id: p.id, dichas: casa.dichas || t.dichas || {}, ...cuerpo });
+            setOtro(false); setValor(''); setSinFoto(false);
+            onCambiar((x) => ({ ...x, casa: r.casa, ...(r.tarjeta ? { presupuesto: r.tarjeta.presupuesto, actualizado: true } : {}) }));
+        } catch (e) {
+            setFallo(e?.response?.data?.error || (e?.response ? 'No he podido hacerlo.' : 'Sin conexión.'));
+        } finally { setOcupado(null); }
+    };
+    useEffect(() => {
+        if (t.casa || empezadas.has(t.k)) return;
+        empezadas.add(t.k);
+        pedir({ accion: 'buscar' }, 'buscar');
+    }, [t.k]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const buscarOtro = (ev) => {
+        ev.preventDefault();
+        const v = valor.trim().toUpperCase().replace(/\s+/g, '');
+        if (!v) return;
+        pedir(/^[0-9A-Z]{14,}$/.test(v) && /[A-Z]/.test(v) ? { accion: 'buscar', rc: v } : { accion: 'buscar', numero: v }, 'otro');
+    };
+    const local = (fase) => onCambiar((x) => ({ ...x, casa: { ...casa, fase, aviso: null } }));
+    const abrirBono = async () => {
+        setFallo(null); setOcupado('abrir');
+        try { await onBono(p.id); } catch { setFallo('No he podido abrir el cálculo. Ábrelo desde el presupuesto.'); } finally { setOcupado(null); }
+    };
+
+    const vs = casa.viviendas || [];
+    const cab = (eyebrow, titulo) => (
+        <div className="ia-asi-tarjeta-cab">
+            <span className="ia-baldosa"><Icono n={casa.fase === 'vivienda' ? 'inicio' : 'chispa'} size={22} /></span>
+            <div><p className="ia-eyebrow n">{eyebrow}</p><b>{titulo}</b></div>
+        </div>
+    );
+    const formOtro = (
+        <form className="ia-asi-otro" onSubmit={buscarOtro}>
+            <label>
+                <span>El número de la calle o la referencia catastral</span>
+                <input type="text" value={valor} onChange={(e) => setValor(e.target.value)} maxLength={24} autoComplete="off"
+                    inputMode="text" placeholder="Ej.: 4  ·  1234567VJ0002N0001AB" autoFocus />
+            </label>
+            <button type="submit" className="ia-btn ia-btn-pri" disabled={!valor.trim() || !!ocupado}>
+                {ocupado === 'otro' ? 'Buscando…' : 'Buscar'}
+            </button>
+        </form>
+    );
+    const avisos = (
+        <>
+            {casa.aviso && <p className="ia-asi-resumen">{casa.aviso}</p>}
+            {fallo && (
+                <div className="ia-aviso tu" role="status">
+                    {fallo}{' '}
+                    {ultima.current && <button type="button" className="ia-asi-enlace" onClick={() => pedir(ultima.current.cuerpo, ultima.current.clave)}>Volver a intentarlo</button>}
+                </div>
+            )}
+        </>
+    );
+
+    if (casa.fase === 'buscando') {
+        return (
+            <section className="ia-card ia-asi-tarjeta ia-asi-casa" aria-busy={!fallo}>
+                {cab('La casa', 'Buscándola en el Catastro…')}
+                {!fallo && <Esqueleto alto={120} n={1} />}
+                {avisos}
+                {fallo && <div className="ia-asi-bts"><button type="button" className="ia-btn ia-btn-sec" onClick={() => local('bono')}>Seguir sin la casa</button></div>}
+            </section>
+        );
+    }
+
+    if (casa.fase === 'vivienda') {
+        const una = vs.length === 1 ? vs[0] : null;
+        return (
+            <section className="ia-card ia-asi-tarjeta ia-asi-casa">
+                {cab('La casa', una ? '¿Es esta la casa?' : vs.length ? `¿Cuál de estas ${vs.length} viviendas es?` : 'No la encuentro')}
+                {casa.foto_rc && !sinFoto && (
+                    <img className="ia-asi-fachada" src={api.fotoCasa(casa.foto_rc)} alt="Fachada según el Catastro" onError={() => setSinFoto(true)} />
+                )}
+                {una && <p className="ia-asi-resumen"><b>Según el Catastro:</b> {una.texto}</p>}
+                {!una && vs.length > 0 && casa.donde && <p className="ia-asi-resumen">En {casa.donde}:</p>}
+                {avisos}
+                {una && !otro && (
+                    <div className="ia-asi-bts">
+                        <button type="button" className="ia-btn ia-btn-pri" disabled={!!ocupado} onClick={() => pedir({ accion: 'confirmar', rc: una.rc }, 'si')}>
+                            <Icono n="ok" size={20} /> {ocupado === 'si' ? 'Apuntándola…' : 'Sí, es esta'}
+                        </button>
+                        <button type="button" className="ia-btn ia-btn-sec" disabled={!!ocupado} onClick={() => setOtro(true)}>Es otro número</button>
+                    </div>
+                )}
+                {!una && vs.length > 0 && (
+                    <div className="ia-asi-opciones" role="group" aria-label="Las viviendas">
+                        {vs.map((v) => (
+                            <button key={v.rc} type="button" className="ia-asi-opcion" disabled={!!ocupado} onClick={() => pedir({ accion: 'confirmar', rc: v.rc }, v.rc)}>
+                                {ocupado === v.rc ? 'Apuntándola…' : v.linea}
+                            </button>
+                        ))}
+                        {!otro && <button type="button" className="ia-asi-opcion sec" disabled={!!ocupado} onClick={() => setOtro(true)}>Es otro número</button>}
+                    </div>
+                )}
+                {(otro || !vs.length) && formOtro}
+                {!vs.length && (
+                    <div className="ia-asi-bts"><button type="button" className="ia-btn ia-btn-sec" onClick={() => local('bono')}>Seguir sin la casa</button></div>
+                )}
+            </section>
+        );
+    }
+
+    if (casa.fase === 'bono') {
+        return (
+            <section className="ia-card ia-asi-tarjeta ia-asi-casa">
+                {cab('El bono', '¿Te calculo el bono energético (CAE) de esta obra?')}
+                {avisos}
+                <div className="ia-asi-bts">
+                    <button type="button" className="ia-btn ia-btn-pri" disabled={!!ocupado} onClick={() => pedir({ accion: 'bono', respuestas: {} }, 'bono')}>
+                        <Icono n="chispa" size={20} /> {ocupado === 'bono' ? 'Un momento…' : 'Sí, calcúlamelo'}
+                    </button>
+                    <button type="button" className="ia-btn ia-btn-sec" disabled={!!ocupado} onClick={() => local('no')}>Ahora no</button>
+                </div>
+            </section>
+        );
+    }
+
+    if (casa.fase === 'pregunta') {
+        return (
+            <section className="ia-card ia-asi-tarjeta ia-asi-casa">
+                {cab('Para el bono', casa.texto)}
+                {avisos}
+                <div className="ia-asi-opciones" role="group" aria-label={casa.texto}>
+                    {(casa.opciones || []).map((o) => (
+                        <button key={String(o.valor)} type="button" className="ia-asi-opcion" disabled={!!ocupado}
+                            onClick={() => pedir({ accion: 'bono', respuestas: { ...(casa.respuestas || {}), [casa.pregunta]: o.valor } }, String(o.valor))}>
+                            {ocupado === String(o.valor) ? 'Un momento…' : o.texto}
+                        </button>
+                    ))}
+                </div>
+            </section>
+        );
+    }
+
+    if (casa.fase === 'listo') {
+        return (
+            <section className="ia-card ia-asi-tarjeta ia-asi-casa">
+                {cab('El bono', 'Listo para calcularlo')}
+                <p className="ia-asi-resumen">{casa.resumen}{casa.rc ? ` · referencia ${casa.rc}` : ''}</p>
+                {t.actualizado && <p className="ia-asi-resumen">Lo he puesto también en el presupuesto: mándatelo otra vez si ya se lo habías pasado.</p>}
+                {avisos}
+                <div className="ia-asi-bts">
+                    <button type="button" className="ia-btn ia-btn-pri" disabled={!!ocupado} onClick={abrirBono}>
+                        <Icono n="chispa" size={20} /> {ocupado === 'abrir' ? 'Abriendo…' : 'Calcular el bono CAE'}
+                    </button>
+                </div>
+            </section>
+        );
+    }
+
+    // «Ahora no»: el botón del bono vuelve a la tarjeta del presupuesto.
+    return <p className="ia-asi-otra">Vale. Si luego quieres el bono, lo tienes en el presupuesto.</p>;
 }
 
 function TarjetaObra({ t, onTarea, onAbrirObra }) {
@@ -356,6 +535,10 @@ export function AsistenteView({
         setPrepN((n) => n + 1);
     };
 
+    // Una tarjeta cambia su propio estado (la casa y el bono), dentro de su mensaje.
+    const cambiarTarjeta = (idMensaje, k, fn) => setMensajes((ms) => ms.map((m) => (m.id !== idMensaje ? m
+        : { ...m, tarjetas: m.tarjetas.map((x) => (x.k === k ? fn(x) : x)) })));
+
     const obraDe = (id) => obras.find((x) => x.id === id || x.numero_expediente === id) || null;
     const tarea = (idObra, t) => {
         const o = obraDe(idObra);
@@ -431,9 +614,14 @@ export function AsistenteView({
                                     </div>
                                 </div>
                             )}
-                            {m.tarjetas.map((t) => (t.tipo === 'presupuesto'
-                                ? <TarjetaPresupuesto key={t.k} t={t} api={api} onAbrir={onAbrirPresupuesto} onBono={onBono} />
-                                : t.tipo === 'obra' ? <TarjetaObra key={t.k} t={t} onTarea={tarea} onAbrirObra={onAbrirObra} /> : null))}
+                            {m.tarjetas.map((t) => (t.tipo === 'presupuesto' ? (
+                                <React.Fragment key={t.k}>
+                                    <TarjetaPresupuesto t={t} api={api} onAbrir={onAbrirPresupuesto} onBono={onBono} />
+                                    {t.ver_casa && api.asistentePaso && (
+                                        <PasoCasa t={t} api={api} onBono={onBono} onCambiar={(fn) => cambiarTarjeta(m.id, t.k, fn)} />
+                                    )}
+                                </React.Fragment>
+                            ) : t.tipo === 'obra' ? <TarjetaObra key={t.k} t={t} onTarea={tarea} onAbrirObra={onAbrirObra} /> : null))}
                         </div>
                     )))}
                     {!mensajes.length && chips?.length > 0 && <p className="ia-asi-otra">¿O quieres otra cosa?</p>}

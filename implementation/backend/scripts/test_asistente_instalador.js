@@ -68,6 +68,12 @@ function servicio({ candidatos = null } = {}) {
         async listar() { return [...filas.values()].map(f => ({ id: f.id, numero: f.numero, fecha: f.fecha, estado: f.estado, cliente: f.cliente.nombre, municipio: 'TOMELLOSO', resumen: L.resumenObra(f.obra), base: f.base, total: f.total, obra: null, simulacion: null })); },
         async paraApp(pid, f) { return { id: f.id, numero: f.numero, fecha: f.fecha, cliente: { nombre: f.cliente.nombre, municipio: 'TOMELLOSO' }, obra: f.obra, resumen: L.resumenObra(f.obra), base: Number(f.base), iva_pct: 21, total: Number(f.total), simulacion: null, id_oportunidad: null, vinculado: false }; },
         entradaDesdeFila: (f) => require('../services/presupuestoInstaladorService').entradaDesdeFila(f),
+        async apuntarVivienda(a) {
+            llamadas.apuntar = [...(llamadas.apuntar || []), a];
+            const f = await S.obtener(a.prescriptorId, a.id);
+            f.obra = { ...f.obra, ref_catastral: a.rc };
+            return f;
+        },
     };
     return { S, llamadas, filas };
 }
@@ -368,6 +374,136 @@ prueba('quién tiene el asistente: la beta, sin apagar y con la llave de la API 
     assert.match(ruta, /A\.asistenteEncendido\(req\.user\)/);
     const me = fs.readFileSync(path.join(__dirname, '../routes/usuarios.js'), 'utf8');
     assert.match(me, /asistente_instalador: AIN\.asistenteEncendido\(req\.user\)/);
+});
+
+// ── La CASA y el BONO tras el presupuesto, con botones (23/11/2026) ──────────
+const RC_CASA = '1234567VJ0002N0001AB';
+function catastroFalso({ tipo = 'una', lanza = false } = {}) {
+    const llamadas = { candidatos: [], porRc: [] };
+    const una = { rc: RC_CASA, direccion: 'CL MURCIA 2', municipio: 'Tomelloso', superficie: 145, anio: 1978 };
+    const V = {
+        async candidatos(q) {
+            llamadas.candidatos.push(q);
+            if (lanza) throw new Error('Catastro 403');
+            if (tipo === 'ninguna') return { tipo: 'ninguna' };
+            if (tipo === 'varias') return { tipo: 'varias', direccion: 'CL MURCIA 2', rcFachada: '1234567VJ0002N', viviendas: [{ ...una, planta: 'planta 1, puerta A', superficie: 85 }, { ...una, rc: '1234567VJ0002N0002BS', planta: 'planta 1, puerta B', superficie: 90 }] };
+            return { tipo: 'una', vivienda: una, rcFachada: RC_CASA };
+        },
+        async porRc(rc) { llamadas.porRc.push(rc); return { tipo: 'una', vivienda: { ...una, rc }, rcFachada: rc }; },
+        cambiarNumero: require('../services/viviendaCandidata').cambiarNumero,
+        describir: require('../services/viviendaCandidata').describir,
+    };
+    return { V, llamadas };
+}
+function conCasa(d, cat) {
+    const f = d.filas.get(SUYO_PRE);
+    f.obra = { ...f.obra, direccion: 'CL Murcia 2', municipio: 'Tomelloso', acs: false };
+    d.datos.vivienda = cat.V;
+    return d;
+}
+const paso = (d, entrada, empresa = RCA) => AI.pasoCasa({ presupuesto_id: SUYO_PRE, ...entrada }, { empresa, deps: { datos: d.datos, logica: L } });
+
+prueba('con calle y pueblo, la tarjeta del presupuesto pide la casa y lleva lo ya dicho para el bono', async () => {
+    const r = await hablar({
+        vueltas: [
+            { herramientas: [{ name: 'hacer_presupuesto', input: { cliente: { nombre: 'Juan', apellidos: 'Pérez López', tlf: '611222333', municipio: 'Tomelloso' }, obra: { tipo: 'aerotermia', direccion: 'CL Murcia 2', municipio: 'Tomelloso', emisor: 'suelo', equipo: { marca: 'Panasonic', potencia_kw: 9 }, caldera: { combustible: 'gasoleo' } }, importe: 9000, con_iva: false } }] },
+            { texto: 'Hecho.' },
+        ],
+    });
+    const t = r.de('tarjeta')[0].tarjeta;
+    assert.strictEqual(t.ver_casa, true);
+    assert.deepStrictEqual(t.dichas, { emisor: true, acs: false });
+    // Sin dirección (la prueba de antes), no.
+    const r2 = await hablar({ vueltas: [{ herramientas: [{ name: 'hacer_presupuesto', input: { cliente: { nombre: 'Juan', apellidos: 'Pérez', tlf: '611222333' }, obra: { tipo: 'aerotermia' }, importe: 9000, con_iva: false } }] }, { texto: 'Hecho.' }] });
+    assert.strictEqual(r2.de('tarjeta')[0].tarjeta.ver_casa, undefined);
+});
+
+prueba('la casa: una → su ficha y la foto por la RC; «es otro número» → la misma calle con ese nº', async () => {
+    const cat = catastroFalso();
+    const d = conCasa(datos(), cat);
+    const r = await paso(d, { accion: 'buscar' });
+    assert.strictEqual(r.casa.fase, 'vivienda');
+    assert.deepStrictEqual(r.casa.viviendas.map(v => v.rc), [RC_CASA]);
+    assert.match(r.casa.viviendas[0].texto, /^CL MURCIA 2, Tomelloso · vivienda de 145 m², año 1978$/);
+    assert.strictEqual(r.casa.foto_rc, RC_CASA);
+    assert.ok(!JSON.stringify(r).match(/url|link/i), 'ningún enlace: la foto se pide por la RC');
+    await paso(d, { accion: 'buscar', numero: '4' });
+    assert.strictEqual(cat.llamadas.candidatos.at(-1).direccion, 'CL Murcia 4');
+    await paso(d, { accion: 'buscar', rc: '1234567vj0004n0001ab' });
+    assert.deepStrictEqual(cat.llamadas.porRc, ['1234567VJ0004N0001AB']);
+    const mala = await paso(d, { accion: 'buscar', rc: 'XYZ' });
+    assert.strictEqual(mala.casa.viviendas.length, 0);
+    assert.match(mala.casa.aviso, /no está bien/);
+    assert.strictEqual(cat.llamadas.porRc.length, 1, 'una RC mal escrita no va al Catastro');
+});
+
+prueba('la casa: un edificio → la lista de viviendas; no la encuentra → la pregunta del bono; Catastro caído → lo dice', async () => {
+    const d = conCasa(datos(), catastroFalso({ tipo: 'varias' }));
+    const r = await paso(d, { accion: 'buscar' });
+    assert.deepStrictEqual(r.casa.viviendas.map(v => v.linea), ['planta 1, puerta A · 85 m²', 'planta 1, puerta B · 90 m²']);
+    const n = await paso(conCasa(datos(), catastroFalso({ tipo: 'ninguna' })), { accion: 'buscar' });
+    assert.strictEqual(n.casa.fase, 'bono');
+    assert.match(n.casa.aviso, /No he encontrado la casa/);
+    const n2 = await paso(conCasa(datos(), catastroFalso({ tipo: 'ninguna' })), { accion: 'buscar', numero: '6' });
+    assert.strictEqual(n2.casa.fase, 'vivienda', 'buscada por él: que pruebe otra vez');
+    const c = await paso(conCasa(datos(), catastroFalso({ lanza: true })), { accion: 'buscar' });
+    assert.strictEqual(c.casa.fase, 'bono');
+    assert.match(c.casa.aviso, /no me contesta/);
+});
+
+prueba('«Sí, es esta» → la RC se APUNTA en SU presupuesto y se pregunta por el bono', async () => {
+    const d = conCasa(datos(), catastroFalso());
+    const r = await paso(d, { accion: 'confirmar', rc: RC_CASA });
+    assert.deepStrictEqual(d.llamadas.apuntar.map(a => [a.prescriptorId, a.id, a.rc]), [[RCA, SUYO_PRE, RC_CASA]]);
+    assert.strictEqual(r.casa.fase, 'bono');
+    assert.match(r.casa.aviso, /Apuntada en el presupuesto su referencia catastral, 1234567VJ0002N0001AB/);
+    await assert.rejects(paso(d, { accion: 'confirmar', rc: 'nada' }), (e) => e.status === 400 && e.code === 'RC_NO_VALIDA');
+});
+
+prueba('el bono: solo lo que falta, de una en una, y lo contestado se escribe en el presupuesto', async () => {
+    const d = conCasa(datos(), catastroFalso());
+    // La caldera ya la dijo (gasóleo): falta el emisor y el agua caliente.
+    const a = await paso(d, { accion: 'bono', respuestas: {} });
+    assert.strictEqual(a.casa.fase, 'pregunta');
+    assert.strictEqual(a.casa.pregunta, 'emisor');
+    assert.deepStrictEqual(a.casa.opciones.map(o => o.valor), ['radiadores', 'suelo', 'fancoils']);
+    const x = await paso(d, { accion: 'bono', respuestas: { emisor: 'tuberia-de-plomo' } });
+    assert.strictEqual(x.casa.pregunta, 'emisor', 'una respuesta que no es de sus opciones no vale');
+    const b = await paso(d, { accion: 'bono', respuestas: { emisor: 'suelo' } });
+    assert.strictEqual(b.casa.pregunta, 'acs');
+    assert.deepStrictEqual(b.casa.opciones.map(o => o.valor), [true, false]);
+    assert.strictEqual(d.llamadas.actualizar.length, 0, 'mientras pregunta, no escribe');
+    const c = await paso(d, { accion: 'bono', respuestas: { emisor: 'suelo', acs: false } });
+    assert.strictEqual(c.casa.fase, 'listo');
+    assert.match(c.casa.resumen, /^Suelo radiante · solo la calefacción · ahora gasóleo$/i);
+    assert.strictEqual(d.llamadas.actualizar.length, 1);
+    assert.strictEqual(d.llamadas.actualizar[0].entrada.obra.emisor, 'suelo');
+    assert.strictEqual(d.llamadas.actualizar[0].entrada.numero, '38/26', 'el MISMO nº');
+    assert.strictEqual(c.tarjeta?.actualizado, true, 'el emisor sale en la 1.ª línea: la tarjeta se rehace');
+    // Ya dicho en el chat (dichas): no se vuelve a preguntar; y si no cambia nada, no se reescribe.
+    const d2 = conCasa(datos(), catastroFalso());
+    const e = await paso(d2, { accion: 'bono', respuestas: {}, dichas: { emisor: true, acs: true } });
+    assert.strictEqual(e.casa.fase, 'listo');
+    assert.strictEqual(d2.llamadas.actualizar.length, 0);
+    assert.strictEqual(e.tarjeta, undefined);
+});
+
+prueba('la casa y el bono de un presupuesto AJENO: 404 sin tocar nada; anulado, 409', async () => {
+    const d = conCasa(datos(), catastroFalso());
+    await assert.rejects(AI.pasoCasa({ accion: 'confirmar', presupuesto_id: AJENO_PRE, rc: RC_CASA }, { empresa: RCA, deps: { datos: d.datos, logica: L } }), (e) => e.status === 404);
+    await assert.rejects(paso(d, { accion: 'buscar' }, 'OTRA-EMPRESA'), (e) => e.status === 404);
+    await assert.rejects(paso(d, { accion: 'borrar' }), (e) => e.status === 400);
+    await assert.rejects(AI.pasoCasa({ accion: 'buscar', presupuesto_id: 'no-uuid' }, { empresa: RCA, deps: { datos: d.datos, logica: L } }), (e) => e.status === 400);
+    assert.strictEqual((d.llamadas.apuntar || []).length + d.llamadas.actualizar.length, 0);
+    d.filas.get(SUYO_PRE).estado = 'ANULADO';
+    await assert.rejects(paso(d, { accion: 'buscar' }), (e) => e.status === 409);
+});
+
+prueba('la ruta del paso: con sus guardianes, saneada y sin modelo', () => {
+    const ruta = fs.readFileSync(path.join(__dirname, '../routes/instaladorApp.js'), 'utf8');
+    assert.match(ruta, /router\.post\('\/asistente\/paso', enforceAuth, soloBetaInstalador, soloConAsistente,/);
+    assert.match(ruta, /res\.json\(sanear\(r\)\)/);
+    assert.match(ruta, /vivienda: require\('\.\.\/services\/viviendaCandidata'\)/);
 });
 
 (async () => {

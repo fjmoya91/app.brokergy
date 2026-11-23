@@ -35,6 +35,13 @@ const titulo = (s) => limpio(s).toLowerCase().replace(/(^|[\s-])([a-záéíóú�
 const mascara = (t) => { const d = String(t || '').replace(/\D/g, ''); return d.length >= 3 ? `···${d.slice(-3)}` : ''; };
 const hoy = (d) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid' }).format(d);
 const eleccionDe = (txt) => { const m = /^\s*(?:el|la|opci[oó]n|n[uú]mero|n[ºo°])?\s*(\d{1,2})\s*[.)ºª]?\s*$/i.exec(String(txt || '')); return m ? Number(m[1]) : null; };
+/** Un SÍ o un NO a secas («sí», «vale, esa», «no»), para cuando el modelo no lo ha marcado. Pura. */
+const siNoDe = (txt) => {
+    const t = String(txt || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (/^(si|sip|vale|ok|okey|claro|correcto|exacto|esa|es esa|esta|es esta|afirmativo)\b[\s.!,]*(es|esa|esta|la misma|perfecto|vale|gracias)?[\s.!]*$/.test(t)) return 'si';
+    if (/^no\b[\s.!,]*(gracias|hace falta|de momento|por ahora)?[\s.!]*$/.test(t)) return 'no';
+    return null;
+};
 
 /** Los catálogos que se le enseñan al modelo y con los que se valida lo que devuelve. */
 function catalogosDe(L) {
@@ -310,10 +317,141 @@ async function cambiarDelPedido(S, { prescriptorId, usuarioId = null, p, op, aho
     return { filaP, entrada, cambios: queCambia(antes, filaP, eur) };
 }
 
+// ─── La VIVIENDA y el BONO, tras el presupuesto (23/11/2026) ─────────────────
+// Fran: «cuando se le diga la dirección, nos confirme la fachada… cuando se haga el presupuesto ya
+// se quede registrada la referencia catastral… ¿quieres que te calcule el bono energético? Y ya con
+// eso: dime qué tipo de radiadores». El presupuesto sale PRIMERO y la vivienda no lo frena nunca;
+// después, la foto del Catastro y, con el SÍ, la RC queda en el presupuesto aunque no pida el bono.
+// Las preguntas del bono son SOLO lo que falta, de una en una. Lo usan el grupo (respuestas
+// numeradas y SÍ/NO) y el asistente (botones); cada canal pone sus textos.
+
+/** ¿Se le enseña la casa del Catastro tras el presupuesto? Solo en las obras con bono y con calle y pueblo. Pura. */
+function conVivienda(obra, cliente = {}) {
+    const tipo = obra?.tipo || 'aerotermia';
+    return ['aerotermia', 'acs'].includes(tipo)
+        && !!limpio(obra?.direccion || cliente?.direccion) && !!limpio(obra?.municipio || cliente?.municipio);
+}
+
+/**
+ * Busca la vivienda en el Catastro (Google → Catastro EN SERIE, reglas 15-17: lo hace `V`).
+ * Por la RC que diga, por otro número de la misma calle o por la dirección del presupuesto.
+ * @returns {Promise<{ tipo: 'una'|'varias'|'ninguna'|'sin_direccion', viviendas?, rcFachada?, donde?, dir? }>}
+ */
+async function buscarVivienda(V, { direccion = '', municipio = '', provincia = '', rc = null, numeroOtro = null } = {}) {
+    let dir = limpio(direccion);
+    let res;
+    if (rc) res = await V.porRc(rc);
+    else if (numeroOtro && dir) { dir = V.cambiarNumero(dir, numeroOtro); res = await V.candidatos({ direccion: dir, municipio, provincia }); }
+    else if (dir) res = await V.candidatos({ direccion: dir, municipio, provincia });
+    else return { tipo: 'sin_direccion' };
+    if (!res || res.tipo === 'ninguna') return { tipo: 'ninguna', dir };
+    const viviendas = res.tipo === 'una' ? [res.vivienda] : (res.viviendas || []);
+    if (!viviendas.length) return { tipo: 'ninguna', dir };
+    const donde = limpio([res.direccion || viviendas[0].direccion, viviendas[0].municipio].filter(Boolean).join(', ')).replace(/\s+\d{5}\b.*$/, '');
+    return { tipo: viviendas.length === 1 ? 'una' : 'varias', viviendas, rcFachada: res.rcFachada || viviendas[0].rc, donde, dir };
+}
+
+/** Una línea de la lista de viviendas de un edificio: «1º B · 85 m²». Pura. */
+const lineaVivienda = (v) => `${v.planta || limpio(v.direccion)}${v.superficie ? ` · ${v.superficie} m²` : ''}`;
+
+/** Cuál ha elegido de las que se le enseñaron: por el nº de la lista, por la RC o con un SÍ si era una. Pura. */
+function elegirVivienda(viviendas, { eleccion = null, si = false, rc = null } = {}) {
+    const vs = Array.isArray(viviendas) ? viviendas : [];
+    if (rc) { const r = limpio(rc).toUpperCase(); const v = vs.find(x => x.rc === r); if (v) return v; }
+    if (eleccion && vs[eleccion - 1]) return vs[eleccion - 1];
+    if (si && vs.length === 1) return vs[0];
+    return null;
+}
+
+/** Con el SÍ: la RC se APUNTA en el presupuesto (`obra.ref_catastral`), sin recalcular nada. */
+async function apuntarVivienda(S, { prescriptorId, id, vivienda }) {
+    if (!S.apuntarVivienda || !vivienda?.rc) return null;      // el «sin guardar» no guarda
+    return S.apuntarVivienda({ prescriptorId, id, rc: vivienda.rc });
+}
+
+// Las preguntas del bono, en este orden, y cómo se contestan.
+const TEXTO_BONO = {
+    emisor: '¿Qué tiene la casa para dar la calefacción?',
+    acs: '¿La aerotermia da también el agua caliente?',
+    caldera: '¿Qué caldera tiene ahora la casa?',
+};
+
+/**
+ * La siguiente pregunta del bono que FALTA (null = ya está todo). Solo en una aerotermia:
+ * el emisor y el agua caliente, si no los ha dicho (`dichas`), y la caldera, si no la tiene. Pura.
+ */
+function siguientePreguntaBono(obra, dichas = {}) {
+    if ((obra?.tipo || 'aerotermia') !== 'aerotermia') return null;
+    if (!dichas.emisor) return 'emisor';
+    if (!dichas.acs && obra?.acs !== true) return 'acs';
+    if (!limpio(obra?.caldera?.combustible)) return 'caldera';
+    return null;
+}
+
+/** Las respuestas posibles de una pregunta (botones en la app, lista numerada en el grupo). Pura. */
+function opcionesBono(pregunta, L) {
+    if (pregunta === 'emisor') return L.EMISORES.map(e => ({ valor: e.clave, texto: e.texto }));
+    if (pregunta === 'acs') return [{ valor: true, texto: 'Sí, también el agua caliente' }, { valor: false, texto: 'No, solo la calefacción' }];
+    if (pregunta === 'caldera') return L.COMBUSTIBLES.map(c => ({ valor: c.clave, texto: c.texto }));
+    return [];
+}
+
+const PALABRAS_BONO = {
+    emisor: [[/suelo/, 'suelo'], [/fan\s*-?\s*coil/, 'fancoils'], [/radiador/, 'radiadores']],
+    caldera: [[/gas(oil|oleo|ól|ol)/, 'gasoleo'], [/propano|butano|glp/, 'glp'], [/pellet/, 'pellets'], [/le[nñ]a/, 'lena'],
+        [/carb[oó]n/, 'carbon'], [/el[eé]ctric/, 'electrica'], [/\bno\b.*(tiene|hay|caldera)|ninguna|sin caldera/, 'ninguna'], [/\bgas\b/, 'gas']],
+};
+
+/**
+ * Lo que ha contestado a una pregunta del bono, o null si no se entiende. Vale lo que extrajo el
+ * modelo (`ext`), el nº de la lista (`eleccion`), un SÍ/NO (`si`: 'si'|'no') o la palabra. Pura.
+ */
+function leerRespuestaBono(pregunta, { eleccion = null, si = null, ext = null, texto = '' } = {}, L) {
+    const ops = opcionesBono(pregunta, L);
+    const vale = (v) => ops.some(o => o.valor === v);
+    const t = limpio(texto).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (pregunta === 'emisor') {
+        if (vale(ext?.obra?.emisor)) return ext.obra.emisor;
+    } else if (pregunta === 'acs') {
+        if (ext?.obra?.acs === true || ext?.obra?.acs === false) return ext.obra.acs;
+        if (si === 'si') return true;
+        if (si === 'no') return false;
+    } else if (pregunta === 'caldera') {
+        if (vale(ext?.obra?.caldera?.combustible)) return ext.obra.caldera.combustible;
+    }
+    if (eleccion && ops[eleccion - 1]) return ops[eleccion - 1].valor;
+    for (const [re, v] of PALABRAS_BONO[pregunta] || []) if (re.test(t)) return v;
+    return null;
+}
+
+/**
+ * Lo contestado para el bono se escribe en el PRESUPUESTO (el emisor, el agua caliente y la caldera
+ * salen en su 1.ª línea): desde su fila, conservando nº, fecha, cliente y precio. Las líneas se
+ * rehacen solo si eran las del texto predefinido; si las escribió a mano, se quedan como están.
+ * @returns {{ filaP, cambios: string[]|null, aMano: boolean }}  `cambios` vacío = el PDF sale igual
+ */
+async function completarObra(S, { prescriptorId, id, respuestas = {}, L, eur, entradaDesdeFila }) {
+    const antes = await S.obtener(prescriptorId, id);
+    const e = entradaDesdeFila(antes);
+    const obraAntes = e.obra || {};
+    const obra = { ...obraAntes };
+    if (respuestas.emisor) obra.emisor = respuestas.emisor;
+    if (respuestas.acs === true || respuestas.acs === false) obra.acs = respuestas.acs;
+    if (respuestas.caldera) obra.caldera = { ...(obraAntes.caldera || {}), combustible: respuestas.caldera };
+    const mismas = (a, b) => JSON.stringify((a || []).map(limpio)) === JSON.stringify((b || []).map(limpio));
+    const auto = !e.conceptos?.length || mismas(e.conceptos, L.conceptosDe(obraAntes));
+    const entrada = { ...e, obra, conceptos: auto ? L.conceptosDe(obra) : e.conceptos };
+    const filaP = await S.actualizar({ prescriptorId, id, entrada });
+    return { filaP, cambios: queCambia(antes, filaP, eur), aMano: !auto };
+}
+
 module.exports = {
     logica, catalogosDe,
     fusionar, hayAlgo, faltaObra, conTipoPorDefecto, entradaDe, cambiaElPresupuesto, correccionCliente, queCambia, soloDatos, pedidoDesdeFila,
     opcionesDe, clienteDelPedido, prepararObra, crearDelPedido, cambiarDelPedido,
+    // la vivienda y el bono, tras el presupuesto
+    conVivienda, buscarVivienda, lineaVivienda, elegirVivienda, apuntarVivienda,
+    TEXTO_BONO, siguientePreguntaBono, opcionesBono, leerRespuestaBono, completarObra,
     // utilidades que comparten los dos canales
-    limpio, idDe, nombreDe, titulo, mascara, hoy, eleccionDe,
+    limpio, idDe, nombreDe, titulo, mascara, hoy, eleccionDe, siNoDe,
 };
