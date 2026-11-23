@@ -105,7 +105,7 @@ el equipo → lo que incluye (los extras y las líneas, editables) → el precio
 Vista previa REAL del PDF (`POST /presupuestos/vista-previa`, no guarda ni
 gasta número), como la de la factura. Rutas en [routes/instaladorApp.js](implementation/backend/routes/instaladorApp.js)
 (`enforceAuth` + beta): `GET /presupuestos`, `GET /presupuestos/nuevo`, `POST /presupuestos/vista-previa`,
-`POST /presupuestos`, `GET|PUT /presupuestos/:id`, `POST …/anular`, `GET …/pdf`, `POST …/whatsapp`,
+`POST /presupuestos`, `GET|PUT|DELETE /presupuestos/:id`, `POST …/anular`, `GET …/pdf`, `POST …/whatsapp`,
 `POST …/vincular`.
 
 Hecho el presupuesto: **Descargar**, **Envíamelo por WhatsApp** y **Calcular el bono CAE**.
@@ -169,6 +169,41 @@ marca o modelo «otro modelo» y sin nada «genérico» (`modoEquipoDe`).
 El CSS de los pasos y del selector va aparte, en [ui/estiloPresupuesto.js](implementation/frontend/src/features/instalador/ui/estiloPresupuesto.js),
 montado solo por el formulario; mismos tokens que `estilo.js`. Comprobado en el banco a 360, 375 y
 1280 px: sin scroll horizontal en ningún paso abierto, y en PC el PDF sigue al lado.
+
+### Borrar un presupuesto (23/11/2026)
+
+Fran: «ahora mismo se pueden anular presupuestos, pero debo poder borrarlos… en el teléfono,
+desplazando hacia un lado que aparezca la papelera, y si se pulsa borrar, que salte un popup para
+confirmar, y también dentro del mismo presupuesto un botón».
+
+**REGLA — borrar es DE VERDAD y SIEMPRE con su popup («¿Borrar el presupuesto 41/26?», «Sí, borrarlo» /
+«No, dejarlo», el foco en el «No»).** `DELETE /presupuestos/:id` (`borrar` en
+[presupuestoInstaladorService.js](implementation/backend/services/presupuestoInstaladorService.js)):
+solo el SUYO (404 a lo ajeno, sin decir si existe; BD caída, 503) y su nº queda libre. Anular sigue
+como estaba (tachado en la lista): son dos cosas distintas y el instalador elige.
+
+**REGLA — lo que ya subió a su OBRA se queda allí.** Si estaba ligado a una oportunidad, el PDF en su
+`DOC_PRESUPUESTO` y la nota del historial son ya de ese expediente (los ve BROKERGY); el popup lo dice
+(«La copia que ya subió a la obra 26RES060_OP902 se queda allí»). El pedido del grupo de WhatsApp que
+lo hizo queda con `presupuesto_id` a null (FK `on delete set null`).
+
+Dónde se borra:
+- **En el móvil, deslizando la fila a la izquierda**: aparece la papelera (92 px, `--naranja-txt`) y
+  tocarla abre el popup —la papelera no borra sola—. [ui/FilaDeslizable.jsx](implementation/frontend/src/features/instalador/ui/FilaDeslizable.jsx):
+  solo con el DEDO (`pointerType` touch/pen; con el ratón no se arrastra), el scroll vertical lo
+  sigue haciendo el navegador (`touch-action: pan-y`) y el gesto solo se queda con lo que va de lado
+  (10 px y más de lado que de arriba abajo); se abre pasada la mitad, una sola fila abierta a la vez,
+  tocar la fila abierta (o fuera) la cierra sin entrar. Bajo el botón «Nuevo presupuesto», solo en
+  pantallas táctiles, la pista «Desliza uno a la izquierda para borrarlo». La papelera escondida no
+  se alcanza con el tabulador.
+- **Dentro del presupuesto** (cualquier pantalla, también el PC): la fila «Borrar» bajo «Anular», en
+  anulados también. Tras borrar, el popup «Presupuesto borrado» y, al cerrarlo, vuelta a la lista
+  (`useGuardado` admite `alCerrar`).
+
+En PC la rejilla de tarjetas sigue igual (el envoltorio toma el borde y el radio de la tarjeta, y el
+frente ocupa todo el alto: si no, en una fila de la rejilla más alta asomaba la papelera por abajo).
+Comprobado en el banco a 360, 375 y 1280 px: deslizar, confirmar, borrar desde la lista y desde la
+ficha, un gesto vertical no abre nada, sin scroll horizontal y sin errores en consola.
 
 ### Por WhatsApp, en el grupo del instalador
 

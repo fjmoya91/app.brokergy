@@ -536,6 +536,22 @@ async function anular({ prescriptorId, id }) {
         .eq('id', id).eq('prescriptor_id', prescriptorId).select('*').maybeSingle()) || { ...f, estado: 'ANULADO' };
 }
 
+/**
+ * Lo BORRA de verdad (Fran, 23/11/2026: «se pueden anular, pero debo poder borrarlos»): sale de
+ * su lista y su nº queda libre. Solo el SUYO (404 a lo ajeno, sin decir si existe).
+ * Lo que ya está en la OBRA no se toca: si se ligó a una oportunidad, la copia del PDF en su
+ * «0. PRESUPUESTO» y la nota de su historial son ya de ese expediente (las ve BROKERGY).
+ * El pedido del grupo de WhatsApp que lo hizo se queda con `presupuesto_id` a null (FK
+ * `on delete set null`). Devuelve lo justo para decirlo: nº y si estaba en una obra.
+ */
+async function borrar({ prescriptorId, id }) {
+    const f = await obtener(prescriptorId, id);
+    const r = await supabase.from(TABLA).delete().eq('id', id).eq('prescriptor_id', prescriptorId).select('id');
+    const hechas = ok(r) || [];
+    if (!hechas.length) throw fallo('Presupuesto no encontrado.', 404);
+    return { id: f.id, numero: f.numero, estabaEnObra: !!f.oportunidad_id };
+}
+
 // ── Para reabrirlo y para enseñarlo ──────────────────────────────────────────
 
 /** De la fila a la ENTRADA del formulario (para reabrirlo y editarlo). */
@@ -979,7 +995,7 @@ async function ligadoAObra(prescriptorId, oportunidadUuid) {
 }
 
 module.exports = {
-    opcionesNuevo, resolverCliente, pdfDe, vistaPrevia, crear, actualizar, anular, obtener, listar,
+    opcionesNuevo, resolverCliente, pdfDe, vistaPrevia, crear, actualizar, anular, borrar, obtener, listar,
     enviarAlInstaladorPorWhatsapp, vincularOportunidad, entradaDesdeFila, filaParaApp, paraApp,
     nombreFichero, ligadoAObra, numeroSugerido, hojaGenerica,
     _internos: { calcularEntrada, obraDeEntrada, datosImpresos, direccionObraAparte, seguro, oportunidadSuya, fotoCliente },

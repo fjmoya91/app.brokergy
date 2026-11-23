@@ -41,11 +41,13 @@ const CAMPOS_ERROR = ['numero', 'fecha', 'cliente', 'direccion', 'precio', 'conc
 /** El popup de guardar. Si el error es «de un campo» (400/409) se cierra y lo cuenta el campo. */
 export function useGuardado() {
     const [st, setSt] = useState(null);
-    const correr = async (textos, fn, { subtitulo, alCampo } = {}) => {
+    // `alCerrar`: lo que se hace al cerrar el popup tras un ÉXITO (p. ej. volver a la lista
+    // después de borrar: la ficha ya no existe, pero el «Presupuesto borrado» se lee antes).
+    const correr = async (textos, fn, { subtitulo, alCampo, alCerrar } = {}) => {
         setSt({ phase: 'sending', ok: false, textos });
         try {
             const r = await fn();
-            setSt({ phase: 'done', ok: true, textos, subtitulo: subtitulo ? subtitulo(r) : textos.subtitulo });
+            setSt({ phase: 'done', ok: true, textos, subtitulo: subtitulo ? subtitulo(r) : textos.subtitulo, alCerrar });
             return r;
         } catch (e) {
             if (alCampo && alCampo(e)) setSt(null);
@@ -56,7 +58,7 @@ export function useGuardado() {
     const overlay = st ? (
         <SendActionOverlay phase={st.phase} ok={st.ok} icon={st.textos.icon || 'upload'}
             sendingTitle={st.textos.enviando} okTitle={st.textos.ok} errorTitle={st.textos.error || 'No se ha podido'}
-            subtitle={st.ok ? (st.subtitulo || '') : ''} errorText={st.error || ''} onClose={() => setSt(null)} />
+            subtitle={st.ok ? (st.subtitulo || '') : ''} errorText={st.error || ''} onClose={() => { const f = st.ok ? st.alCerrar : null; setSt(null); f?.(); }} />
     ) : null;
     return { correr, overlay };
 }

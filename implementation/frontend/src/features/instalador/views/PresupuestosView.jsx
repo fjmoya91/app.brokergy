@@ -8,9 +8,13 @@
 // con un botón de copiar.
 // REGLA — la lista recuerda la búsqueda (regla 193, `instalador-presupuestos`), nunca
 // los datos.
+// REGLA — BORRAR (23/11/2026) se confirma SIEMPRE con su popup: en el móvil, deslizando la
+// fila a la izquierda (la papelera) y, en cualquier pantalla, desde dentro del presupuesto.
+// Lo que ya subió a su obra se queda en la obra (lo dice el popup).
 import React, { useEffect, useState } from 'react';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 import { Icono, Buscador, Esqueleto, AvisoError, sinTildes, nombrePropio, useHojaTeclado } from '../ui/piezas';
+import { FilaDeslizable, CSS_DESLIZA } from '../ui/FilaDeslizable';
 import { eur, mensajeParaCliente, resumenObra } from '../logic/presupuesto';
 import { obraDelPresupuesto, estaLigado } from '../logic/presupuestoApp';
 import { HojasPdf } from './AccionesObra';
@@ -29,16 +33,32 @@ function pasa(p, q) {
     return t.split(/\s+/).every((w) => pajar.includes(w));
 }
 
-export function PresupuestosView({ datos, cargando, error, onReintentar, onAbrir, onNuevo }) {
+export function PresupuestosView({ api, datos, cargando, error, onReintentar, onAbrir, onNuevo, onCambio }) {
     const memoria = useVistaGuardada('instalador-presupuestos');
     const [q, setQ] = useState(memoria.q ?? '');
     useGuardarVista('instalador-presupuestos', { q });
-    const todos = datos?.presupuestos || [];
+    const [abierta, setAbierta] = useState(null); // la fila con la papelera a la vista
+    const [aBorrar, setABorrar] = useState(null); // el que pide confirmación
+    const [borrados, setBorrados] = useState(() => new Set()); // fuera ya, mientras la lista se vuelve a pedir
+    const guardado = useGuardado();
+    const todos = (datos?.presupuestos || []).filter((p) => !borrados.has(p.id));
     const vistos = todos.filter((p) => pasa(p, q));
     const lista = useScrollLista('instalador-presupuestos', false, !cargando && vistos.length > 0);
+    const puedeBorrar = !!api?.borrarPresupuesto;
+
+    const siBorrar = async () => {
+        const p = aBorrar;
+        setABorrar(null); setAbierta(null);
+        try {
+            await guardado.correr({ enviando: 'Borrando…', ok: 'Presupuesto borrado', subtitulo: `El ${p.numero} ya no está en tu lista.`, icon: 'upload' }, () => api.borrarPresupuesto(p.id));
+            setBorrados((s) => new Set(s).add(p.id));
+            onCambio?.();
+        } catch { /* el popup lo cuenta */ }
+    };
 
     return (
-        <div ref={lista.ancla} className="ia-pagina pc">
+        <div ref={lista.ancla} className="ia-pagina pc" onPointerDown={(e) => { if (abierta && !e.target.closest('.ia-desliza')) setAbierta(null); }}>
+            <style>{CSS_DESLIZA}</style>
             <div className="ia-titulo" style={{ paddingTop: 12 }}>
                 <h1 className="ia-display">Presupuestos</h1>
                 {todos.length > 0 && <span>{todos.length}</span>}
@@ -58,11 +78,13 @@ export function PresupuestosView({ datos, cargando, error, onReintentar, onAbrir
             ) : vistos.length === 0 ? (
                 <p className="ia-nada">No encuentro ninguno con eso. Prueba con el número o el apellido.</p>
             ) : (
+                <>
+                {puedeBorrar && <p className="ia-desliza-pista">Desliza uno a la izquierda para borrarlo.</p>}
                 <section className="ia-card lista ia-rejilla-filas" aria-label="Tus presupuestos">
                     {vistos.map((p, i) => {
                         const anulado = p.estado === 'ANULADO';
                         const ligado = estaLigado(p);
-                        return (
+                        const fila = (
                             <button key={p.id} type="button" className={`ia-fila${i === 0 ? ' primera' : ''}`} style={{ minHeight: 76 }}
                                 onClick={() => { lista.recordar(); onAbrir(p); }}>
                                 <span className={`ia-baldosa${anulado ? ' nos' : ligado ? ' ok' : ''}`} aria-hidden="true"><Icono n="factura" size={20} /></span>
@@ -78,9 +100,45 @@ export function PresupuestosView({ datos, cargando, error, onReintentar, onAbrir
                                 <span className={`ia-pr-imp${anulado ? ' anulado' : ''}`}><b>{eur(p.total)}</b><span>{fechaCorta(p.fecha)}</span></span>
                             </button>
                         );
+                        if (!puedeBorrar) return fila;
+                        return (
+                            <FilaDeslizable key={p.id} abierta={abierta === p.id} etiqueta={`Borrar el presupuesto ${p.numero}`}
+                                onAbrir={() => setAbierta(p.id)} onCerrar={() => setAbierta((a) => (a === p.id ? null : a))}
+                                onBorrar={() => setABorrar(p)}>
+                                {fila}
+                            </FilaDeslizable>
+                        );
                     })}
                 </section>
+                </>
             )}
+            {aBorrar && <HojaBorrar numero={aBorrar.numero} cliente={nombreCli(aBorrar.cliente)} enObra={aBorrar.obra || (estaLigado(aBorrar) ? true : null)}
+                onSi={siBorrar} onCerrar={() => { setABorrar(null); setAbierta(null); }} />}
+            {guardado.overlay}
+        </div>
+    );
+}
+
+/**
+ * Confirmar BORRAR: del todo, no se deshace y el nº queda libre. Si ya está en una obra,
+ * su copia se queda allí (es del expediente: la ve BROKERGY).
+ * `enObra`: el nº de la obra (texto), `true` si está ligado sin saber cuál, o null.
+ */
+export function HojaBorrar({ numero, cliente = null, enObra = null, onSi, onCerrar }) {
+    const ref = useHojaTeclado(onCerrar);
+    return (
+        <div className="ia-velo" onPointerDown={(e) => { e.currentTarget.dataset.fondo = e.target === e.currentTarget ? '1' : ''; }}
+            onClick={(e) => { if (e.target === e.currentTarget && e.currentTarget.dataset.fondo === '1') onCerrar(); }}>
+            <div ref={ref} className="ia-hoja" role="alertdialog" aria-modal="true" aria-labelledby="ia-borrar-h" aria-describedby="ia-borrar-p" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <span className="ia-baldosa" aria-hidden="true" style={{ background: 'var(--ambar-bg)', color: 'var(--naranja-txt)' }}><Icono n="papelera" size={22} /></span>
+                <h2 id="ia-borrar-h" className="ia-toca-h" style={{ margin: 0 }}>¿Borrar el presupuesto {numero}?</h2>
+                <p id="ia-borrar-p" className="ia-pequeno" style={{ margin: 0, fontSize: 15, lineHeight: 1.5 }}>
+                    {cliente && cliente !== 'Sin cliente' ? <>El de <b>{cliente}</b> se </> : 'Se '}borra del todo y no se puede deshacer. Su número queda libre.
+                    {enObra ? <> La copia que ya subió a {typeof enObra === 'string' ? <>la obra <b>{enObra}</b></> : 'su obra'} se queda allí.</> : null}
+                </p>
+                <button type="button" className="ia-btn ia-btn-pri" onClick={onSi}><Icono n="papelera" size={20} /> Sí, borrarlo</button>
+                <button type="button" className="ia-btn ia-btn-sec" onClick={onCerrar} autoFocus>No, dejarlo</button>
+            </div>
         </div>
     );
 }
@@ -105,13 +163,14 @@ function HojaAnular({ numero, onSi, onCerrar }) {
  * La ficha de un presupuesto ya hecho.
  * onEditar(entrada) · onDuplicar(entrada) · onSimular({presupuesto, entrada}) · onAbrirObra(idOportunidad)
  */
-export function PresupuestoFicha({ api, id, empresa, onVolver, onEditar, onDuplicar, onSimular, onAbrirObra, onCambio, recien = false }) {
+export function PresupuestoFicha({ api, id, empresa, onVolver, onEditar, onDuplicar, onSimular, onAbrirObra, onCambio, onBorrado, recien = false }) {
     const [d, setD] = useState(null);
     const [error, setError] = useState(false);
     const [n, setN] = useState(0);
     const [wa, setWa] = useState(null);
     const [copiado, setCopiado] = useState(false);
     const [anular, setAnular] = useState(false);
+    const [borrar, setBorrar] = useState(false);
     const [aviso, setAviso] = useState(null);
     const guardado = useGuardado();
     useEffect(() => {
@@ -173,6 +232,14 @@ export function PresupuestoFicha({ api, id, empresa, onVolver, onEditar, onDupli
             await guardado.correr({ enviando: 'Anulando…', ok: 'Presupuesto anulado', subtitulo: 'Se queda en tu lista, tachado.' }, () => api.anularPresupuesto(p.id));
             setN((x) => x + 1);
             onCambio?.();
+        } catch { /* el popup lo cuenta */ }
+    };
+    // Borrado, la ficha ya no existe: se vuelve a la lista al cerrar el «Presupuesto borrado».
+    const siBorrar = async () => {
+        setBorrar(false);
+        try {
+            await guardado.correr({ enviando: 'Borrando…', ok: 'Presupuesto borrado', subtitulo: `El ${p.numero} ya no está en tu lista.` },
+                () => api.borrarPresupuesto(p.id), { alCerrar: () => (onBorrado || onVolver)?.() });
         } catch { /* el popup lo cuenta */ }
     };
 
@@ -251,6 +318,13 @@ export function PresupuestoFicha({ api, id, empresa, onVolver, onEditar, onDupli
                                 <Icono n="chevron" size={20} className="ia-chev" />
                             </button>
                         )}
+                        {api.borrarPresupuesto && (
+                            <button type="button" className={`ia-fila sin-pad${(onDuplicar && entrada) || !anulado ? '' : ' primera'}`} onClick={() => setBorrar(true)}>
+                                <span className="ia-baldosa" aria-hidden="true" style={{ background: 'var(--ambar-bg)', color: 'var(--naranja-txt)' }}><Icono n="papelera" size={20} /></span>
+                                <span className="ia-fila-txt"><b style={{ color: 'var(--naranja-txt)' }}>Borrar</b><span>Del todo: sale de tu lista y su número queda libre</span></span>
+                                <Icono n="chevron" size={20} className="ia-chev" />
+                            </button>
+                        )}
                     </section>
                 </div>
 
@@ -262,6 +336,7 @@ export function PresupuestoFicha({ api, id, empresa, onVolver, onEditar, onDupli
             </div>
 
             {anular && <HojaAnular numero={p.numero} onSi={siAnular} onCerrar={() => setAnular(false)} />}
+            {borrar && <HojaBorrar numero={p.numero} cliente={nombre} enObra={p.id_oportunidad || (ligado ? true : null)} onSi={siBorrar} onCerrar={() => setBorrar(false)} />}
             {guardado.overlay}
         </div>
     );

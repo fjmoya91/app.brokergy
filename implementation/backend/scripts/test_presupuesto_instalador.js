@@ -94,6 +94,9 @@ function qb(table) {
       rows = filas();
       for (const r of rows) { if (choca(table, { ...r, ...st.payload }, r)) return { data: null, error: { code: '23505', message: 'duplicate key' } }; }
       for (const r of rows) Object.assign(r, JSON.parse(JSON.stringify(st.payload)));
+    } else if (st.op === 'delete') {
+      rows = filas().slice();
+      DB[table] = DB[table].filter(r => !rows.includes(r));
     } else rows = filas().slice();
     if (st.order) rows = rows.slice().sort((a, b) => (String(a[st.order.c]) < String(b[st.order.c]) ? -1 : 1) * (st.order.asc ? 1 : -1));
     if (st.limit) rows = rows.slice(0, st.limit);
@@ -105,6 +108,7 @@ function qb(table) {
     if (k === 'select') return (s) => { st.select = s; return b; };
     if (k === 'insert') return (p) => { st.op = 'insert'; st.payload = Array.isArray(p) ? p : [p]; return b; };
     if (k === 'update') return (p) => { st.op = 'update'; st.payload = p; return b; };
+    if (k === 'delete') return () => { st.op = 'delete'; return b; };
     if (k === 'eq') return (c, v) => { st.filters.push(r => String(get(r, c)) === String(v)); return b; };
     if (k === 'neq') return (c, v) => { st.filters.push(r => String(get(r, c)) !== String(v)); return b; };
     if (k === 'ilike') return (c, v) => { st.filters.push(r => sinT(get(r, c)) === sinT(v)); return b; };
@@ -517,6 +521,29 @@ async function hacerPlantilla() {
     const t = await PI.crear({ prescriptorId: 'p-1', entrada: ENTRADA({ numero: '66/26' }) });
     const r = await pide('rca', 'POST', `/presupuestos/${t.id}/anular`, {});
     assert.deepStrictEqual([r.status, r.js], [200, { ok: true }]);
+  });
+  await prueba('BORRAR: el suyo sale de la tabla y su nº queda libre; lo ajeno → 404 sin tocarlo', async () => {
+    const t = await PI.crear({ prescriptorId: 'p-1', entrada: ENTRADA({ numero: '67/26' }) });
+    assert.strictEqual((await pide('otro', 'DELETE', `/presupuestos/${t.id}`)).status, 404);
+    assert.ok(DB.instalador_presupuestos.some(x => x.id === t.id), 'el ajeno lo borró');
+    assert.strictEqual((await pide('rca', 'DELETE', `/presupuestos/${PRESU_AJENO}`)).status, 404);
+    assert.ok(DB.instalador_presupuestos.some(x => x.id === PRESU_AJENO));
+    const r = await pide('rca', 'DELETE', `/presupuestos/${t.id}`);
+    assert.deepStrictEqual([r.status, r.js], [200, { ok: true, numero: '67/26', estaba_en_obra: false }]);
+    assert.ok(!DB.instalador_presupuestos.some(x => x.id === t.id));
+    assert.strictEqual((await pide('rca', 'DELETE', `/presupuestos/${t.id}`)).status, 404);
+    const otra = await PI.crear({ prescriptorId: 'p-1', entrada: ENTRADA({ numero: '67/26' }) });
+    assert.strictEqual(otra.numero, '67/26');
+    await PI.borrar({ prescriptorId: 'p-1', id: otra.id });
+  });
+  await prueba('BORRAR uno ligado a su obra: lo de la obra (PDF en Drive, nota) no se toca', async () => {
+    SUBIDAS.length = 0;
+    const antes = JSON.stringify(DB.oportunidades.find(o => o.id === OP902).datos_calculo);
+    const r = await pide('rca', 'DELETE', `/presupuestos/${porRuta.id}`);
+    assert.deepStrictEqual([r.status, r.js.estaba_en_obra], [200, true]);
+    assert.strictEqual(JSON.stringify(DB.oportunidades.find(o => o.id === OP902).datos_calculo), antes);
+    assert.strictEqual(SUBIDAS.length, 0);
+    assert.strictEqual(await PI.ligadoAObra('p-1', OP902), null);
   });
   await prueba('BD caída → 503 por la ruta', async () => {
     FALLA = 'instalador_presupuestos';

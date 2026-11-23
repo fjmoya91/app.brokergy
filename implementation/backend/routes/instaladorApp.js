@@ -1392,6 +1392,13 @@ router.post('/presupuestos/:id/anular', enforceAuth, soloBetaInstalador, async (
     catch (e) { errorPresupuesto(res, e, 'anular'); }
 });
 
+// Borrarlo de verdad (23/11/2026). Solo el suyo; lo que ya subió a su obra se queda allí.
+router.delete('/presupuestos/:id', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try { const r = await PI().borrar({ prescriptorId: empresa, id: req.params.id }); res.json(sanear({ ok: true, numero: r.numero, estaba_en_obra: r.estabaEnObra })); }
+    catch (e) { errorPresupuesto(res, e, 'borrar'); }
+});
+
 router.get('/presupuestos/:id/pdf', enforceAuth, soloBetaInstalador, async (req, res) => {
     const empresa = soloEmpresa(req, res); if (!empresa) return;
     try {

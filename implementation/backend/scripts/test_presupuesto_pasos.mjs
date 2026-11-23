@@ -101,5 +101,23 @@ const elegir = fs.readFileSync(path.join(raizFront, 'src/features/instalador/vie
 t('el selector: catálogo, otro modelo y genérico', /'catalogo'/.test(elegir) && /'mano'/.test(elegir) && /'generico'/.test(elegir));
 t('el selector: elegido con Cambiar y Quitar', />\{cambiando \? 'Dejarlo' : 'Cambiar'\}</.test(elegir) && />Quitar</.test(elegir));
 
+// ── Borrar (23/11/2026): deslizar en la lista y el botón de la ficha, siempre con su popup ──
+const vista = fs.readFileSync(path.join(raizFront, 'src/features/instalador/views/PresupuestosView.jsx'), 'utf8');
+const desliza = fs.readFileSync(path.join(raizFront, 'src/features/instalador/ui/FilaDeslizable.jsx'), 'utf8');
+const app = fs.readFileSync(path.join(raizFront, 'src/features/instalador/AppInstalador.jsx'), 'utf8');
+t('la API borra con DELETE /presupuestos/:id', /borrarPresupuesto:\s*\(id\)\s*=>\s*axios\.delete\(`\$\{B\}\/presupuestos\/\$\{e\(id\)\}`\)/.test(app));
+t('la lista envuelve cada fila en FilaDeslizable y la papelera solo PIDE confirmar', /<FilaDeslizable[\s\S]*?onBorrar=\{\(\) => setABorrar\(p\)\}/.test(vista));
+t('la lista y la ficha confirman con HojaBorrar antes de llamar a la API', (vista.match(/<HojaBorrar /g) || []).length === 2
+    && (vista.match(/api\.borrarPresupuesto\(/g) || []).length === 2
+    && /const siBorrar[\s\S]*?api\.borrarPresupuesto/.test(vista));
+t('la ficha vuelve a la lista al cerrar el «borrado» (alCerrar)', /alCerrar: \(\) => \(onBorrado \|\| onVolver\)/.test(vista) && /onBorrado=\{/.test(app));
+t('el popup avisa de que lo de su obra se queda', /se queda allí/.test(vista));
+t('deslizar: solo con el dedo y el scroll vertical lo hace el navegador', /pointerType === 'mouse'/.test(desliza) && /touch-action:pan-y/.test(desliza));
+t('deslizar: se abre pasada la mitad de la papelera', /desplazado < -ancho \/ 2 \? 'abierta' : 'cerrada'/.test(desliza));
+t('la papelera escondida no se alcanza con el tabulador', /tabIndex=\{abierta \? 0 : -1\}/.test(desliza));
+const cuerpoLista = vista.slice(vista.indexOf('export function PresupuestosView'), vista.indexOf('export function HojaBorrar'));
+const primerRetLista = cuerpoLista.indexOf('\n    return (');
+t('lista: ningún hook tras su return', !/\buse(State|Effect|Memo|Ref|Callback|Guardado)\(/.test(cuerpoLista.slice(primerRetLista)));
+
 console.log(`\n${mal ? '✗' : '✓'} test_presupuesto_pasos: ${ok}/${ok + mal}`);
 process.exit(mal ? 1 : 0);

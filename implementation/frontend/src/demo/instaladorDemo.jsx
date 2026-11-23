@@ -469,6 +469,11 @@ const apiPresupuestos = {
         return envia(() => { previo.presupuesto = nuevo.presupuesto; previo.entrada = nuevo.entrada; }, 700).then(() => ({ presupuesto: copia(nuevo.presupuesto) }));
     },
     anularPresupuesto: (id) => envia(() => { const x = prPorId(id); if (x) x.presupuesto.estado = 'ANULADO'; }, 600).then(() => ({ ok: true })),
+    borrarPresupuesto: (id) => {
+        let x = null;
+        return envia(() => { const i = PRS.findIndex((y) => y.presupuesto.id === id); if (i >= 0) [x] = PRS.splice(i, 1); }, 600)
+            .then(() => ({ ok: true, numero: x?.presupuesto?.numero || null, estaba_en_obra: !!x?.presupuesto?.vinculado }));
+    },
     presupuestoHechoPdf: (id) => {
         const x = prPorId(id)?.presupuesto;
         return espera(pdfDeMentira(`PRESUPUESTO ${x?.numero || ''}`, [['Cliente', x?.cliente?.nombre || ''], ...(x?.lineas || []).slice(0, 8).map((l) => [String(l.texto || '').slice(0, 48), l.importe != null ? milesD(l.importe) : '']), ['TOTAL', milesD(x?.total || 0)]]));

@@ -135,6 +135,7 @@ export function apiReal(axios) {
         presupuestoHecho: (id) => axios.get(`${B}/presupuestos/${e(id)}`).then((r) => r.data),
         guardarPresupuesto: (id, entrada) => axios.put(`${B}/presupuestos/${e(id)}`, entrada).then((r) => r.data),
         anularPresupuesto: (id) => axios.post(`${B}/presupuestos/${e(id)}/anular`).then((r) => r.data),
+        borrarPresupuesto: (id) => axios.delete(`${B}/presupuestos/${e(id)}`).then((r) => r.data),
         presupuestoHechoPdf: (id) => axios.get(`${B}/presupuestos/${e(id)}/pdf`, { responseType: 'arraybuffer' }).then((r) => r.data),
         presupuestoDescarga: (id) => axios.get(`${B}/presupuestos/${e(id)}/pdf`, { params: { descargar: 1 }, responseType: 'arraybuffer' })
             .then((r) => ({ bytes: r.data, nombre: nombreDeDescarga(r.headers) })),
@@ -476,6 +477,7 @@ export default function AppInstalador({
         } else {
             contenido = <PresupuestoFicha key={`${ficha.id}-${presuN}`} api={api} id={ficha.id} empresa={empresa} recien={!!ficha.recien}
                 onVolver={volverPresu} onCambio={() => setPresuN((n) => n + 1)}
+                onBorrado={() => { setPresuN((n) => n + 1); volverPresu(); }}
                 onEditar={(entrada) => abrirPresu({ ...ficha, recien: false, accion: { accion: 'editar', entrada } })}
                 onDuplicar={(entrada) => abrirPresu({ ...ficha, recien: false, accion: { accion: 'duplicar', entrada } })}
                 onSimular={onNueva ? simularPresupuesto : null} onAbrirObra={abrirObraPorId} />;
@@ -501,8 +503,9 @@ export default function AppInstalador({
         contenido = <ObrasView datos={obras.datos} cargando={obras.cargando} error={obras.error} onReintentar={obras.reintentar}
             cargarDetalle={cargarDetalle} onAbrirObra={abrirObra} onAbrirOportunidad={onAbrirOportunidad} onAbrirAccion={abrirAccion} onNueva={onNueva} />;
     } else if (seccion === 'presupuestos') {
-        contenido = <PresupuestosView datos={presupuestos.datos} cargando={presupuestos.cargando} error={presupuestos.error}
-            onReintentar={presupuestos.reintentar} onAbrir={(p) => abrirPresu({ tipo: 'presupuesto', id: p.id })} onNuevo={() => nuevoPresupuesto()} />;
+        contenido = <PresupuestosView api={api} datos={presupuestos.datos} cargando={presupuestos.cargando} error={presupuestos.error}
+            onReintentar={presupuestos.reintentar} onAbrir={(p) => abrirPresu({ tipo: 'presupuesto', id: p.id })} onNuevo={() => nuevoPresupuesto()}
+            onCambio={() => setPresuN((n) => n + 1)} />;
     } else if (seccion === 'pagina') {
         contenido = <MiPaginaView key={nonce} api={api} vistaInicial={paginaVista} />;
     } else if (seccion === 'clientes') {
