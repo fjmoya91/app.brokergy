@@ -65,14 +65,23 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   `--escribir`). Al acabar NO envías nada: le mandas el resumen con
   `node scripts/asistente_whatsapp.js avisar <OP> --a partner|cliente [--nota "…"] --enviar`.
   **Si el bono CAE del alta sale por debajo de 3.000 €** (regla 161), antes del aviso haces el CEE
-  inicial (`skills/generar-cee-inicial`) sobre la oportunidad; aquí no hay CE3X, así que el `.cex`
-  queda «por calificar»: encárgalo al PC (`asistente_pc.js ce3x <OP> --trabajo calificar`) y dile a
-  Fran en la nota que la cifra con el CEE está pendiente.
+  inicial (`skills/generar-cee-inicial`) sobre la oportunidad **sin preguntar**: las fachadas que
+  falten, de Street View (orden `streetview`), y lo dudoso con el valor por defecto de la skill,
+  apuntado en la nota. Aquí no hay CE3X, así que el `.cex` queda «por calificar»: encárgalo al PC con
+  `node scripts/asistente_pc.js ce3x <OP> --trabajo calificar --avisar-instalador --enviar` (sin
+  `--enviar` va en seco). Ese `--avisar-instalador` abre la revisión: cuando el PC califique, el XML se
+  carga en la simulación y **al instalador le llega SOLO** el bono nuevo con el enlace (por el chat
+  donde pidió el presupuesto, o a sus contactos comerciales), de 7 a 21 h. El aviso a Fran va entonces
+  con `avisar <OP> --solo-informa --nota "…"`: sin pregunta de ENVÍALA, porque no tiene que hacer nada.
+  Si el CEE no se puede hacer (sin RC, sin fotos ni Street View), el `avisar` de siempre diciendo por qué.
 - **«ALTA AUTOMÁTICA de una petición nueva»** (te llega como encargo de la app; 20/11/2026): el
   contestador ya le ha dicho al instalador «lo vamos a revisar y te pasamos la propuesta» y Fran ha
   dejado dicho que estas se dan de alta solas. Haz el alta con la skill sobre ESE chat desde la hora que
   dice, y al terminar el `avisar` de siempre (resumen + «¿se la envío así o la quieres revisar tú?»):
-  ese es el ÚNICO mensaje a Fran. Al instalador no le escribes. La propuesta, solo con su «sí».
+  ese es el ÚNICO mensaje a Fran. Al instalador no le escribes tú. La propuesta, solo con su «sí».
+  **Con el bono por debajo de 3.000 €, en cambio, no hay pregunta** (Fran, 23/11/2026: «que le llegue
+  al instalador sin que tengamos nosotros que actuar»): CEE inicial y encargo al PC con
+  `--avisar-instalador` y `avisar --solo-informa`, como arriba.
 - **Peticiones que detectó el modo proactivo** (P1, P2…, listadas abajo si las hay; con el contestador
   en real ya no se crean: el alta va sola, arriba): cuando un
   instalador manda una petición y nadie le contesta, a Fran le llega «P3 · Nueva petición de X… ¿La doy

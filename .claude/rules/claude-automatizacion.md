@@ -34,6 +34,8 @@ paths:
 
 176. **La ronda de PRESENTAR de las 21:00: UN «sí» por noche para la lista entera, y un encargo por CEE** (2026-10-26, decisión de Fran). El pago no se da por autorizado de antemano: a las 21:00 (`PRESENTAR_NOCHE_HORA`) el vigilante (`mantenimiento`, una vez al día, con `PRESENTAR_NOCHE_ENABLED=true`; **apagado en local**) lanza `asistente_pc.js noche --enviar`, que le manda UNA pregunta con los CEE de la casa con visto bueno y sin registrar —la lista es la de `presentar_cee.js` (`listaPendientes`), menos lo que ya está en la cola, lo que tiene un encargo antiguo a otra persona y lo que `localizarCee` no deja— y **n × tasa = total**. Sin nada, calla. Con su respuesta, `confirmar --lote --texto "<literal>" [--excepto …]` encola cada CEE como un encargo PROPIO con la misma pregunta y respuesta (un «menos el …» sin `--excepto` se rechaza); «no» → `cancelar --lote`; sin respuesta no se paga nada y la de la noche siguiente la sustituye. En el PC, uno detrás de otro, cada uno con su aviso antes del 3DS; su prompt dice que es SOLO ese expediente y un pago, nunca el total. **Si uno no termina, los que quedan del lote NO se empiezan** (vuelven mañana) y, al acabar el último, llega el informe del lote con las tasas pagadas. Tras tocarlo: `node implementation/backend/scripts/test_presentar_noche.js` y `asistente_pc.js noche` en seco. Ver "La ronda de las 21:00".
 
+242. **Una OPORTUNIDAD con el bono bajo se califica en el PC con un trabajo FIJO y el instalador recibe la cifra SOLO** (2026-11-23, Fran: «que le llegue al instalador sin que tengamos nosotros que actuar»; caso 26RES060_OP445). `asistente_pc.js ce3x <OP> --trabajo calificar [--avisar-instalador] --enviar` encola `calificar_op` (`encolarCalificarOp`): sin Claude ni Chrome, el PC lanza `cee_inicial.js calificar <OP> --escribir`, y solo está bien si su salida dice «XML del CEE inicial CARGADO en la SIMULACIÓN» sin «CERTIFICADO INCOMPLETO» (`resultadoCalificarOp`); el mensaje a Fran lo manda la vuelta, bien o mal. **`--avisar-instalador` abre la MISMA `inputs.peticion_revision` que el botón «Solicitar revisión» del partner** (regla 217; `por: 'ALTA AUTOMÁTICA'`), así que al cargarse el XML `cerrarRevision` le escribe UNA vez con el bono nuevo y el enlace, **por el chat donde pidió el presupuesto** (`chat_id`: presupuesto enlazado → pedido de WhatsApp, o el pedido del mismo instalador con la RC de la casa) y, sin chat, a sus contactos comerciales. **Un `calificar_op` no se empieza fuera de la franja de la casa** (regla 205). En el alta automática con el bono < 3.000 € el asistente no pregunta (Street View, valores por defecto) y avisa a Fran con `avisar --solo-informa`; con ≥ 3.000 €, el ENVÍALA de siempre. `deploy.sh` reconstruye el contenedor del asistente solo si el vigía dice que está libre. Tras tocarlo: `node implementation/backend/scripts/test_calificar_op.js`, `test_revision_partner.js`, `test_pc_destino.js` y `ce3x <OP> --trabajo calificar --avisar-instalador` en seco. Ver "La oportunidad con el bono bajo".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -42,7 +44,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 13,5 KB
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 4,1 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
-- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 14,6 KB
+- `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 18,5 KB
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22) · 10,4 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -89,6 +91,12 @@ documento.**
   - **REGLA — si un encargo del lote NO termina, los que quedan no se empiezan.**
   - **REGLA — si el PC de presentar no responde y otro sí, se PREGUNTA dónde; nunca se cambia solo.**
   - **REGLA — dos PCs nunca empiezan el mismo encargo.**
+  - **REGLA — una oportunidad se califica con un trabajo FIJO, sin Claude**
+  - **REGLA — `--avisar-instalador` abre la MISMA revisión que el botón «Solicitar revisión» del
+  partner**
+  - **REGLA — el aviso va por el chat donde el instalador pidió el presupuesto**
+  - **REGLA — un `calificar_op` fuera de la franja de la casa (7 a 21 h, regla 205) espera en la
+  cola**
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md`
   - **REGLA — `aceptacion.js pedir --enviar` es la ÚNICA cosa que el agente manda a un tercero sin el
 «envíala» de Fran, y lleva sus topes.**

@@ -275,6 +275,25 @@ function encolarCalificarExt({ numero, obraId = null } = {}) {
     return { ok: true, tarea };
 }
 
+/**
+ * Mete en la cola del PC la calificación del CEE inicial de una OPORTUNIDAD (2026-11-23, 26RES060_OP445):
+ * el .cex lo escribe en el servidor `generar-cee-inicial`, que no tiene CE3X, y queda «por calificar».
+ * Trabajo FIJO, sin Claude: `cee_inicial.js calificar <OP> --escribir` lo califica, sube XML y PDF y
+ * CARGA el XML en la simulación; si la oportunidad tiene una revisión abierta (`peticion_revision`),
+ * `cerrarRevision` le escribe SOLO al instalador con el bono nuevo. Sin duplicados.
+ */
+function encolarCalificarOp({ numero, origen = 'whatsapp' } = {}) {
+    const n = norm(numero);
+    if (!/_OP\d+$/.test(n)) throw new Error(`«${numero}» no es el número de una oportunidad.`);
+    const lista = cola();
+    const ya = lista.find(t => t.tipo === 'calificar_op' && t.numero === n && ['pendiente', 'en_curso'].includes(t.estado));
+    if (ya) return { ok: true, duplicado: true, tarea: ya };
+    const tarea = { id: `calop-${n}-${ahora()}`, tipo: 'calificar_op', numero: n, destino: PC_CE3X,
+        fase: 'inicial', origen, estado: 'pendiente', creado_at: ahora() };
+    escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
+    return { ok: true, tarea };
+}
+
 // ─── El CEE que se quiere presentar ───────────────────────────────────────────
 async function localizarCee(numero, faseOpt) {
     const { createClient } = require(path.join(__dirname, '../node_modules/@supabase/supabase-js'));
@@ -531,6 +550,25 @@ async function ce3x() {
             : `Le paso a tu PC la calificación de *${numero}*; ${pc.texto}. Cuando esté, te llega el aviso de la app de «listo para revisar».`);
         return;
     }
+    // Una OPORTUNIDAD tampoco: se califica su .cex inicial, se carga el XML en la simulación y, si hay
+    // revisión abierta, el instalador recibe el bono nuevo sin que nadie haga nada (2026-11-23).
+    if (/_OP\d+$/.test(numero)) {
+        if (opt('trabajo') !== 'calificar' || fase !== 'inicial') throw new Error(`${numero} es una oportunidad: solo se califica su CEE inicial.`);
+        // `--avisar-instalador` (el alta automática con el bono bajo): se abre la revisión, y al cargar
+        // el XML `cerrarRevision` le escribe SOLO al instalador con el bono nuevo.
+        const rev = bandera('avisar-instalador') ? await abrirRevisionAlta(numero, { escribir: bandera('enviar') }) : await revisionAbierta(numero);
+        if (!bandera('enviar')) {
+            console.log(`[EN SECO] Encolaría la calificación de ${numero} (calificar_op).`);
+            console.log(rev ? `[EN SECO] Al cargarse el XML, aviso automático al instalador por ${rev.chat_id ? 'el chat donde pidió el presupuesto' : 'los teléfonos comerciales de su ficha'}.`
+                : '[EN SECO] Sin revisión abierta: al cargarse el XML NO se avisa a nadie fuera (usa --avisar-instalador).');
+            return;
+        }
+        const r = encolarCalificarOp({ numero });
+        const pc = estadoPc(PC_CE3X);
+        await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola de tu PC.`
+            : `Aquí no hay CE3X: le paso a tu PC la calificación del CEE inicial de *${numero}*; ${pc.texto}. Al cargarse el XML se recalcula el bono${rev ? ' y el instalador recibe la cifra nueva por WhatsApp, sin que hagas nada' : ''}. Te aviso.`);
+        return;
+    }
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'ce3x' && t.numero === numero && t.trabajo === opt('trabajo') && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) { await decir(`${def.que.charAt(0).toUpperCase()}${def.que.slice(1)} de *${numero}* ya está encargado a tu PC (${ya.estado === 'en_curso' ? 'lo está haciendo ahora' : 'en cola'}).`); return; }
@@ -560,6 +598,16 @@ async function comprobarNumero(numero, fase) {
         if (obra.estado === 'ARCHIVADA') throw new Error(`La obra ${n} está ARCHIVADA: no se califica.`);
         return obra.numero_expediente;
     }
+    if (/_OP\d+$/.test(n)) {
+        const { data: ops, error: e } = await sb.from('oportunidades').select('id_oportunidad, estado:datos_calculo->>estado')
+            .ilike('id_oportunidad', `%${n}`).limit(5);
+        if (e) throw new Error(e.message);
+        const f = (ops || []).filter(r => norm(r.id_oportunidad).endsWith(n));
+        if (f.length !== 1) throw new Error(f.length ? `Hay varias «${numero}»: dime el número completo.` : `No encuentro la oportunidad «${numero}».`);
+        if (fase !== 'inicial') throw new Error(`${f[0].id_oportunidad} es una oportunidad: no tiene CEE final.`);
+        return f[0].id_oportunidad;
+    }
+    if (/OP\d+$/.test(n)) throw new Error(`«${numero}» parece una oportunidad: dime el número completo (26RES060_OP445).`);
     const directo = /CEE_?\d+$/.test(n);
     const { data, error } = await sb.from(directo ? 'cee_directos' : 'expedientes').select('numero_expediente, seguimiento')
         .ilike('numero_expediente', `%${n.replace(/CEE_?/, 'CEE_')}`).limit(5);
@@ -568,6 +616,60 @@ async function comprobarNumero(numero, fase) {
     if (filas.length !== 1) throw new Error(filas.length ? `Hay varios «${numero}»: dime el número completo.` : `No encuentro «${numero}».`);
     if (String(filas[0].seguimiento?.[`cee_${fase}`] || '').toUpperCase() === 'REGISTRADO') throw new Error(`El CEE ${fase} de ${filas[0].numero_expediente} ya está REGISTRADO: no se rehace.`);
     return filas[0].numero_expediente;
+}
+
+const supa = () => require(path.join(__dirname, '../node_modules/@supabase/supabase-js'))
+    .createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+
+/** La revisión abierta de la oportunidad (`peticion_revision` sin `resuelta_at`), o null. */
+async function revisionAbierta(numero) {
+    const { data } = await supa().from('oportunidades').select('pet:datos_calculo->inputs->peticion_revision').eq('id_oportunidad', numero).maybeSingle();
+    return data?.pet?.at && !data.pet.resuelta_at ? data.pet : null;
+}
+
+/** El chat de WhatsApp donde el instalador pidió el presupuesto de ESTA oportunidad (grupo del
+ *  instalador: `instalador_presupuestos.oportunidad_id` → `instalador_wa_pedidos.chat_id`), o null. */
+async function chatDelInstalador(sb, opId, { prescriptorId = null, rc = null } = {}) {
+    const { data: pp } = await sb.from('instalador_presupuestos').select('id').eq('oportunidad_id', opId).limit(20);
+    const ids = (pp || []).map(p => p.id);
+    if (ids.length) {
+        const { data: ped } = await sb.from('instalador_wa_pedidos').select('chat_id, updated_at').in('presupuesto_id', ids)
+            .order('updated_at', { ascending: false }).limit(1);
+        if (ped?.[0]?.chat_id) return ped[0].chat_id;
+    }
+    // Plan B: el presupuesto no quedó enlazado a la oportunidad (26RES060_OP445: al asistente le faltaba
+    // jszip), pero el pedido del MISMO instalador lleva la RC de la casa que confirmó.
+    if (!prescriptorId || !rc) return null;
+    const { data: ped } = await sb.from('instalador_wa_pedidos').select('chat_id, updated_at')
+        .eq('prescriptor_id', prescriptorId).eq('pedido->vivienda->>rc', rc)
+        .gte('updated_at', new Date(Date.now() - 30 * 86400_000).toISOString())
+        .order('updated_at', { ascending: false }).limit(1);
+    return ped?.[0]?.chat_id || null;
+}
+
+/**
+ * El ALTA AUTOMÁTICA con el bono por debajo de 3.000 € (Fran, 23/11/2026: «que le llegue al instalador
+ * sin que tengamos que actuar»): abre la MISMA revisión que el botón «Solicitar revisión» del partner,
+ * así que al cargarse el XML del CEE `cerrarRevision` le escribe al instalador con el bono nuevo y el
+ * enlace. Va a su chat de presupuestos si lo pidió por ahí; si no, a sus contactos comerciales.
+ * Si ya hay una abierta, no la toca.
+ */
+async function abrirRevisionAlta(numero, { escribir: escr = false } = {}) {
+    const sb = supa();
+    const { data: op, error } = await sb.from('oportunidades')
+        .select('id, prescriptor_id, ref_catastral, pet:datos_calculo->inputs->peticion_revision, bono:datos_calculo->result->financials->>caeBonus')
+        .eq('id_oportunidad', numero).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!op) throw new Error(`No encuentro la oportunidad «${numero}».`);
+    if (op.pet?.at && !op.pet.resuelta_at) return op.pet;
+    if (!op.prescriptor_id || String(op.prescriptor_id) === '1') { console.log(`${numero} no tiene instalador: no hay a quién avisar.`); return null; }
+    const pet = { por: 'ALTA AUTOMÁTICA', origen: 'alta_whatsapp', at: new Date().toISOString(),
+        bono: Math.round(Number(op.bono) || 0), chat_id: await chatDelInstalador(sb, op.id, { prescriptorId: op.prescriptor_id, rc: op.ref_catastral }) };
+    if (escr) {
+        const { error: e } = await sb.rpc('oportunidad_merge_inputs', { p_id: op.id, p_patch: { peticion_revision: pet } });
+        if (e) throw new Error(`No he podido abrir la revisión: ${e.message}`);
+    }
+    return pet;
 }
 
 async function probar() {
@@ -660,7 +762,11 @@ const promptDe = t => (t.tipo === 'prueba' ? promptPrueba() : t.tipo === 'ce3x' 
 // «PC FIRMA · presentar …» cuando el PC tiene nombre puesto; «PC · …» si no (un solo PC, como antes).
 const cabecera = (t, pc = process.env.PC_NOMBRE ? `PC ${MI_PC}` : 'PC') => (t.tipo === 'prueba' ? `${pc} · prueba`
     : t.tipo === 'ce3x' ? `${pc} · ${TRABAJOS_CE3X[t.trabajo]?.que || t.trabajo} de ${t.numero}`
-        : t.tipo === 'calificar_ext' ? `${pc} · calificar ${t.numero} (app de certificadores)` : `${pc} · presentar ${t.numero}`);
+        : t.tipo === 'calificar_ext' ? `${pc} · calificar ${t.numero} (app de certificadores)`
+            : t.tipo === 'calificar_op' ? `${pc} · CEE inicial de ${t.numero} calificado` : `${pc} · presentar ${t.numero}`);
+// Los trabajos FIJOS: sin Claude, un comando y su salida.
+const FIJOS = ['calificar_ext', 'calificar_op'];
+const esFijo = t => FIJOS.includes(t?.tipo);
 
 // ─── calificar_ext: un trabajo FIJO, sin Claude ──────────────────────────────
 // La línea con la que `cee_inicial.js calificar` dice que lo ha calificado Y que producción ha
@@ -713,6 +819,29 @@ function resultadoCalificarExt(logF, motivoCorte) {
     const ok = !motivoCorte && txt.includes(MARCA_CALIFICADA);
     const cola = txt.split(/\r?\n/).filter(l => l.trim() && !l.includes(MARCA_CALIFICADA)).slice(-12).join('\n');
     return { ok, texto: motivoCorte || cola || 'sin salida' };
+}
+
+// La de una OPORTUNIDAD: bien solo si el XML ha quedado CARGADO en la simulación (lo dice `lineasCarga`).
+const MARCA_CARGADO_OP = 'XML del CEE inicial CARGADO en la SIMULACIÓN';
+/** Cómo acabó la de una oportunidad, y lo que se le cuenta a Fran: la calificación, el bono antes →
+ *  después y si el instalador ya tiene la cifra. Pura (la prueba test_calificar_op.js). */
+function resultadoCalificarOp(txt, motivoCorte) {
+    const lineas = String(txt || '').split(/\r?\n/);
+    const i = lineas.findIndex(l => l.includes(MARCA_CARGADO_OP));
+    const incompleto = /CERTIFICADO INCOMPLETO/i.test(txt || '');
+    const ok = !motivoCorte && i >= 0 && !incompleto;
+    if (!ok) {
+        const cola = lineas.filter(l => l.trim()).slice(-12).join('\n');
+        return { ok: false, texto: motivoCorte || (incompleto ? `CE3X dice CERTIFICADO INCOMPLETO: el XML no se ha cargado.\n${cola}` : cola) || 'sin salida' };
+    }
+    const cal = lineas.find(l => /CE3X lo califica:/.test(l));
+    const bono = (lineas[i + 1] || '').trim();
+    const rev = lineas.find(l => l.includes('Revisión del partner CERRADA'));
+    const texto = [cal && cal.trim(), lineas[i].trim().replace(/^✓\s*/, ''), bono,
+        rev ? rev.trim().replace(/^✓\s*/, '').replace('Revisión del partner CERRADA', 'Instalador AVISADO con la cifra nueva')
+            : 'Al instalador no se le ha escrito (no había revisión abierta): la propuesta, cuando digas.']
+        .filter(Boolean).join('\n');
+    return { ok: true, texto };
 }
 
 function asegurarChrome() {
@@ -796,8 +925,10 @@ function informeLote(lista, lote) {
 }
 
 async function terminar(actual, motivoCorte = null) {
-    const fijo = actual.tipo === 'calificar_ext';
-    const res = fijo ? resultadoCalificarExt(actual.log, motivoCorte) : (motivoCorte ? null : leerResultado(actual.log));
+    const fijo = esFijo(actual);
+    const leerLog = () => { try { return fs.readFileSync(actual.log, 'utf8'); } catch { return ''; } };
+    const res = actual.tipo === 'calificar_op' ? resultadoCalificarOp(leerLog(), motivoCorte)
+        : fijo ? resultadoCalificarExt(actual.log, motivoCorte) : (motivoCorte ? null : leerResultado(actual.log));
     const ok = !!res?.ok && !motivoCorte;
     const resumen = (res?.texto || motivoCorte || 'el trabajo se ha cortado sin dar respuesta').slice(0, 1500);
     let lista = cola().map(t => (t.id === actual.id ? { ...t, estado: ok ? 'hecha' : 'fallida', terminado_at: ahora(), resumen } : t));
@@ -813,7 +944,7 @@ async function terminar(actual, motivoCorte = null) {
         : actual.tipo === 'ce3x' || fijo ? '\n\n_No lo reintento solo: cuando lo mires, pídemelo otra vez._'
             : '\n\n_No lo reintento solo: si llegó a pagar, hay que mirarlo antes (la referencia 046)._';
     // La calificación de una obra de la app va en silencio: el aviso de «listo» lo manda producción.
-    if (!(fijo && ok)) await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
+    if (!(actual.tipo === 'calificar_ext' && ok)) await require('./asistente_whatsapp').mandarOGuardar(`*${cab}*${ok ? '' : ' — NO ha terminado'}\n${resumen}${pie}`);
     const informe = actual.lote ? informeLote(lista, actual.lote) : null;
     if (informe) await require('./asistente_whatsapp').mandarOGuardar(informe);
     fs.renameSync(ACTUAL, path.join(DIR_PC, `${actual.id}.fin.json`));
@@ -833,8 +964,8 @@ async function vuelta() {
     //    suspendido, sesión cerrada). Si Claude sigue vivo, se espera; si no, se cierra con lo que haya.
     if (actual) {
         if (vivo(actual.pid)) { log(`Sigue en marcha ${actual.id} (pid ${actual.pid}), sin vuelta que lo vigile.`); return; }
-        // Un calificar_ext se juzga por su salida (la MARCA), haya o no vuelta que lo vigilara.
-        const cortado = actual.tipo === 'calificar_ext' || leerResultado(actual.log) ? null
+        // Un trabajo fijo se juzga por su salida (la MARCA), haya o no vuelta que lo vigilara.
+        const cortado = esFijo(actual) || leerResultado(actual.log) ? null
             : 'El trabajo se cortó a medias (¿se apagó, suspendió o reinició el PC?).';
         if (!seco) await terminar(actual, cortado);
         return;
@@ -842,8 +973,11 @@ async function vuelta() {
     // 3. Nada en marcha: ¿hay encargo PARA ESTE PC? (sin destino = para cualquiera; uno ya tomado por
     //    otro PC no se vuelve a coger aunque su «en curso» se perdiera al escribir la cola los dos).
     const lista = cola();
-    const candidatos = lista.filter(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', 'calificar_ext'].includes(x.tipo)
-        && (!x.destino || nombrePc(x.destino) === MI_PC));
+    const candidatos = lista.filter(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', ...FIJOS].includes(x.tipo)
+        && (!x.destino || nombrePc(x.destino) === MI_PC)
+        // Una oportunidad calificada puede escribirle SOLA al instalador: fuera de la franja (7 a 21 h,
+        // regla 205) espera en la cola a la mañana, sin bloquear lo demás.
+        && (x.tipo !== 'calificar_op' || require('../utils/horarioWhatsapp').puedeContestar()));
     const ya = candidatos.length ? tomados() : [];
     const t = candidatos.find(x => !ya.includes(x.id));
     if (!t) return;
@@ -852,12 +986,12 @@ async function vuelta() {
     if (estaBloqueado) { log(`Hay encargo (${t.id}) pero el PC está bloqueado: espera.`); return; }
     if (seco) {
         log(`[EN SECO] Lanzaría ${t.id}.`);
-        console.log(t.tipo === 'calificar_ext' ? `node scripts/cee_inicial.js calificar ${t.numero} --escribir` : promptDe(t));
+        console.log(esFijo(t) ? `node scripts/cee_inicial.js calificar ${t.numero} --escribir` : promptDe(t));
         return;
     }
     if (!tomar(t.id)) { log(`${t.id} lo ha cogido otro PC justo ahora: no lo empiezo.`); return; }
     escribir('cola', cola().map(x => (x.id === t.id ? { ...x, estado: 'en_curso', tomado_at: ahora(), pc: MI_PC, host: os.hostname() } : x)));
-    if (t.tipo === 'calificar_ext') {
+    if (esFijo(t)) {
         const sinMotor = await asegurarMotor();
         if (sinMotor) {
             fs.writeFileSync(ACTUAL, JSON.stringify({ id: t.id, tipo: t.tipo, numero: t.numero, pid: 0, inicio: ahora(), log: path.join(DIR_PC, `${t.id}.log`) }, null, 1));
@@ -898,8 +1032,9 @@ if (require.main === module) {
     })().catch((e) => { console.error(`ERROR: ${e.message}`); process.exit(1); });
 }
 
-module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, TASA, TARJETA, TRABAJOS_CE3X,
-    MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt,
+module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, encolarCalificarOp, TASA, TARJETA, TRABAJOS_CE3X,
+    MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt, _resultadoCalificarOp: resultadoCalificarOp,
+    _abrirRevisionAlta: abrirRevisionAlta, _chatDelInstalador: chatDelInstalador, _comprobarNumero: comprobarNumero,
     _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor,
     _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
     _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar, _vuelta: vuelta, _tomar: tomar,

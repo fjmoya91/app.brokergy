@@ -87,7 +87,9 @@ async function cerrarRevision(oportunidadId, { antes, despues } = {}) {
 
         const bonoAntes = Math.round(Number(antes?.bono ?? pet.bono) || 0);
         const bonoDespues = Math.round(Number(despues?.bono) || 0);
-        const lista = await destinatarios(op);
+        // La del ALTA AUTOMÁTICA (`asistente_pc.js ce3x <OP> --avisar-instalador`, 23/11/2026) lleva el
+        // chat donde el instalador pidió el presupuesto: la cifra le llega por ESE chat, no a otro número.
+        const lista = pet.chat_id ? [{ tlf: pet.chat_id, nombre: 'chat del instalador', saludo: '' }] : await destinatarios(op);
         const resuelta = { ...pet, resuelta_at: new Date().toISOString(), bono_antes: bonoAntes, bono_despues: bonoDespues,
                            avisados: lista.map(t => t.nombre || 'canal general') };
         // Primero se marca (así un segundo cargado no vuelve a escribir) y luego se avisa.

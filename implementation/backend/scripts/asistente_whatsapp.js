@@ -197,7 +197,7 @@ const buzonDesde = t => leerBuzon().some(m => m.t > t);
 
 const MODOS = { partner: 'al instalador (partner)', cliente: 'al cliente', instalador: 'al instalador asociado' };
 
-async function resumen(idOp, { a = 'partner', nota = null } = {}) {
+async function resumen(idOp, { a = 'partner', nota = null, soloInforma = false } = {}) {
     const { data: o, error } = await sb.from('oportunidades')
         .select(`id, id_oportunidad, ficha, prescriptor_id, cliente_id, ref_catastral,
             r:datos_calculo->result, i:datos_calculo->inputs, h:datos_calculo->historial, estado:datos_calculo->>estado`)
@@ -236,10 +236,12 @@ async function resumen(idOp, { a = 'partner', nota = null } = {}) {
     ];
     if (revisar) lineas.push('', `⚠️ Por revisar: ${revisar}`);
     if (nota) lineas.push('', `📝 ${nota}`);
+    // `--solo-informa` (el alta automática con el bono bajo, 23/11/2026): no hay nada que contestar, la
+    // cifra con el CEE le llega sola al instalador cuando el PC lo califica.
     lineas.push(
         '',
-        `¿Se la envío así ${MODOS[a] || a} o la quieres revisar tú?`,
-        '👉 Contesta *ENVÍALA* o *LA REVISO YO* (o dime qué cambio).',
+        ...(soloInforma ? ['No tienes que hacer nada: en cuanto tu PC califique el CEE, al instalador le llega solo el bono con el certificado.']
+            : [`¿Se la envío así ${MODOS[a] || a} o la quieres revisar tú?`, '👉 Contesta *ENVÍALA* o *LA REVISO YO* (o dime qué cambio).']),
         `🔗 https://app.brokergy.es/?op=${o.id_oportunidad}`,
     );
     return { texto: lineas.join('\n'), op: o.id_oportunidad, estado: o.estado };
@@ -247,12 +249,14 @@ async function resumen(idOp, { a = 'partner', nota = null } = {}) {
 
 async function avisar() {
     const idOp = POS[0];
-    if (!idOp) throw new Error('Uso: avisar <26RES060_OPnnn> [--a partner|cliente|instalador] [--nota "…"] [--enviar]');
+    if (!idOp) throw new Error('Uso: avisar <26RES060_OPnnn> [--a partner|cliente|instalador] [--nota "…"] [--solo-informa] [--enviar]');
     const a = opt('a') || 'partner';
-    const { texto, op, estado } = await resumen(idOp, { a, nota: opt('nota') });
+    const soloInforma = bandera('solo-informa');
+    const { texto, op, estado } = await resumen(idOp, { a, nota: opt('nota'), soloInforma });
     console.log(`Para: ${GRUPO ? `el grupo ${GRUPO}` : `${TEL} (chat 1:1 de Fran)`} · oportunidad en ${estado}\n${'─'.repeat(70)}\n${texto}\n${'─'.repeat(70)}`);
     if (!bandera('enviar')) { console.log('EN SECO. Vuelve a lanzarlo con --enviar.'); return; }
     await mandar(texto);
+    if (soloInforma) { console.log('✓ Enviado (solo informa: no espera respuesta).'); return; }
     fs.mkdirSync(ESTADO, { recursive: true });
     fs.writeFileSync(PENDIENTE, JSON.stringify({ op, a, t: Math.floor(Date.now() / 1000), tel: TEL }, null, 2));
     console.log(`✓ Enviado. Esperando respuesta para ${op} (apuntado en ${PENDIENTE}).`);

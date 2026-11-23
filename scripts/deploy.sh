@@ -56,6 +56,25 @@ docker compose build xml2cert
 docker compose up -d backend mcp rite-generator cee-engine xml2cert
 echo "    OK"
 
+# ── 3b. El ASISTENTE, solo si está libre ───────
+# Su imagen sale de la del backend (FROM brokergy-backend:latest): sin reconstruirla se queda con los
+# node_modules viejos —el 23/11/2026 llevaba los del 19/10 y le faltaba jszip, así que el presupuesto
+# del instalador no se enlazaba a la oportunidad—. NUNCA con un trabajo en marcha (regla 113): se
+# pregunta al vigía (`/estado` → `trabajando`) antes de construir y otra vez antes de recrearlo.
+asistente_libre() {
+  docker exec brokergy-asistente node -e "fetch('http://127.0.0.1:'+(process.env.ASISTENTE_PUERTO||8091)+'/estado').then(r=>r.json()).then(j=>process.exit(j.trabajando?1:0)).catch(()=>process.exit(2))" 2>/dev/null
+}
+if docker ps --format '{{.Names}}' | grep -qx brokergy-asistente; then
+  if asistente_libre; then
+    echo "    Asistente libre: lo reconstruyo con la imagen nueva del backend..."
+    docker compose build asistente
+    if asistente_libre; then docker compose up -d asistente; echo "    Asistente OK"
+    else echo "    ⚠ El asistente ha empezado un trabajo mientras construía: no lo recreo. Luego: docker compose up -d asistente"; fi
+  else
+    echo "    ⚠ El asistente está trabajando (o no contesta): no lo reconstruyo. Cuando acabe: docker compose build asistente && docker compose up -d asistente"
+  fi
+fi
+
 # ── 4. Recargar nginx ──────────────────────────
 echo "[4/4] Recargando nginx..."
 docker compose exec nginx nginx -s reload

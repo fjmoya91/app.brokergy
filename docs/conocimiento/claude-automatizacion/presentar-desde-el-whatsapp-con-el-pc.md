@@ -171,6 +171,58 @@ el otro o lo enciende**.
 
 Pruebas: `node implementation/backend/scripts/test_pc_destino.js` (cola temporal, WhatsApp de mentira).
 
+### La oportunidad con el bono bajo: CEE calificado y aviso al instalador, solos (2026-11-23)
+
+Fran, 23/11/2026, tras 26RES060_OP445 (RCA): «cuando el bono es bajo, de manera automática pueda
+llegarle al instalador, sin que tengamos nosotros que actuar». Esa obra se quedó parada por cuatro
+cosas a la vez:
+
+1. **La cola del PC no aceptaba oportunidades**: `comprobarNumero` solo buscaba en `expedientes`,
+   `cee_directos` y `certapp_obras`, así que `ce3x <OP> --trabajo calificar` (lo que mandaban las
+   instrucciones) acababa en «No encuentro». El `.cex` quedó «por calificar» en su sello.
+2. **El PC llevaba parado desde el 20/11**: la sesión de claude.ai del PC caducó, el trabajo de 285
+   falló y la tarea «Brokergy Trabajos PC» acabó DESHABILITADA (cuatro calificaciones en cola).
+   La copia `C:\Proyectos\brokergy-pc` seguía en el código del 31/10: no se actualiza sola.
+3. **La imagen del asistente era del 19/10**: sale de la del backend y `deploy.sh` no la
+   reconstruía, así que le faltaba `jszip` y el presupuesto 40/26 no se enlazó a la oportunidad.
+4. **Las instrucciones le hacían contestar dos veces a Fran** (si hacía el CEE con Street View y el
+   ENVÍALA), y en el alta automática eso es justo lo que no tiene que pasar.
+
+Lo que hay ahora:
+
+- **REGLA — una oportunidad se califica con un trabajo FIJO, sin Claude** (`calificar_op`, como el
+  `calificar_ext` de la app de certificadores): `ce3x <OP> --trabajo calificar --enviar` lo encola
+  (`encolarCalificarOp`, sin duplicados) y el PC lanza `cee_inicial.js calificar <OP> --escribir`
+  con el motor levantado. Bien solo si su salida dice «XML del CEE inicial CARGADO en la SIMULACIÓN»
+  y no «CERTIFICADO INCOMPLETO» (`resultadoCalificarOp`); el mensaje a Fran, haya ido bien o mal,
+  lo manda la vuelta: calificación, bono antes → después y si el instalador ya lo tiene. No lleva
+  `--chrome` ni gasta sesión de Claude: con la sesión caducada del 20/11, esto habría salido igual.
+- **REGLA — `--avisar-instalador` abre la MISMA revisión que el botón «Solicitar revisión» del
+  partner** (`inputs.peticion_revision` con `por: 'ALTA AUTOMÁTICA'`, `origen: 'alta_whatsapp'`, el
+  bono de la simulación y el `chat_id`), así que al cargarse el XML `cerrarRevision` le escribe UNA
+  vez al instalador con la cifra nueva y el enlace. No se inventa otro envío. Si ya había una
+  abierta, no se toca.
+- **REGLA — el aviso va por el chat donde el instalador pidió el presupuesto**: `chat_id` sale de
+  `instalador_presupuestos.oportunidad_id` → `instalador_wa_pedidos.chat_id`, y si el presupuesto no
+  quedó enlazado, del pedido del MISMO instalador con la RC de esa casa (30 días). Sin chat, a los
+  contactos comerciales de su ficha, como el botón del partner.
+- **REGLA — un `calificar_op` fuera de la franja de la casa (7 a 21 h, regla 205) espera en la
+  cola**: el aviso al instalador sale al cargar el XML, así que la vuelta no lo empieza de noche. Lo
+  demás de la cola no se bloquea.
+- **En el alta automática con el bono < 3.000 € no hay pregunta**: el asistente hace el CEE inicial
+  sin preguntar (Street View para las fachadas que falten, lo dudoso por defecto y apuntado), encola
+  con `--avisar-instalador` y avisa a Fran con `avisar <OP> --solo-informa` (sin ENVÍALA). Con el bono
+  ≥ 3.000 € sigue el ENVÍALA de siempre.
+- **`deploy.sh` reconstruye el asistente si el vigía dice que está libre** (`/estado` →
+  `trabajando`), y lo vuelve a mirar antes de recrearlo; si está trabajando, lo dice y no lo toca.
+
+Lo que no se arregla con código (lo hace Fran en el PC): volver a iniciar sesión en Claude Code,
+volver a habilitar la tarea programada y `git pull --ff-only` en `C:\Proyectos\brokergy-pc`.
+
+Pruebas: `node implementation/backend/scripts/test_calificar_op.js` (salida de la calificación, el
+aviso al chat con Supabase y WhatsApp de mentira, la franja) y, en seco contra producción,
+`asistente_pc.js ce3x <OP> --trabajo calificar --avisar-instalador`.
+
 **Órdenes:** VPS `presentar <nº> [--fase final]` · `noche` · `confirmar --lote --texto "…" [--excepto …] [--pc …]` · `cancelar --lote` · `ce3x <nº> --trabajo … [--pc …]` · `confirmar <nº> --texto "…" [--pc …]` · `cancelar <nº>` ·
 `mover <nº>|--lote --pc … --texto "…"` · `probar [--pc …]` · `cola` (todas en seco sin `--enviar`); PC `vuelta [--seco]` · `estado`. Registros del PC en
 `backend/scratch/pc_trabajos/` (`vuelta.log`, `<id>.jsonl`, `<id>.prompt.txt`).
