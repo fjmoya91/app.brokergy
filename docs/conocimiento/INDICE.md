@@ -11,9 +11,9 @@
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,6 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 57,6 KB | 20 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 59,3 KB | 20 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 22,9 KB | 6 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 23,1 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
 | `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,5 KB | 2 |
@@ -331,6 +331,7 @@
 - **241** → `.claude/rules/instalador-app.md` — «Tu asistente»: el presupuesto se hace por el MISMO motor desde el grupo de WhatsApp y desde el chat de la a…
 - **242** → `.claude/rules/claude-automatizacion.md` — Una OPORTUNIDAD con el bono bajo se califica en el PC con un trabajo FIJO y el instalador recibe la cifra SOLO
 - **242** → `.claude/rules/transversal-backend.md` — Una entrada al historial del expediente se añade con `anadirAlHistorial` ([utils/historialExpediente.js](imp…
+- **243** → `.claude/rules/cee-generacion.md` — El VPS califica con CE3X 3.2 sin el PC: servicio `ce3x-engine`, y lo que pide CE3X por WhatsApp pasa por el …
 - **243** → `.claude/rules/instalador-app.md` — La PORTADA de la ficha de brokergy.es la elige el instalador entre sus fotos PUBLICADAS, sin otra revisión, …
 
 ## Documentos por área

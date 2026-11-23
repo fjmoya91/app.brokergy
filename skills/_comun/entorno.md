@@ -55,9 +55,18 @@ start_process  →  cd C:\Proyectos\app.brokergy\implementation\cee-engine; pyth
 otro primero. Y si `/health` dice que el código cargado no es el del disco (`codigo_at` ≠
 `codigo_en_disco_at`), reinícialo: estarías probando la versión anterior.
 
+## En el servidor (el Claude del WhatsApp)
+
+El contenedor del asistente en el VPS tiene el repo, el `.env` y el motor, y desde el 23/11/2026
+**también CE3X 3.2** (servicio `ce3x-engine`, `CE3X_URL` en su `.env`): los mismos scripts califican
+allí y dejan el `.cex`, el `.xml` y el `.pdf` en Drive igual que en el PC, y ese `.cex` se abre en el
+CE3X del PC con la misma calificación. Lo que necesita CE3X se pide por el enrutador,
+`node scripts/asistente_pc.js ce3x <nº> --trabajo …`: si el CE3X del servidor responde, contesta
+`@@HAZLO_AQUI` y los pasos, y se hace en esa misma sesión; si no, lo deja en la cola de un PC.
+
 ### Si no hay Desktop Commander, o el PC está apagado
 
-Dilo y para. **No intentes reproducir el script a mano en el sandbox** ni inventar su resultado: lo
+Pídeselo al Claude del WhatsApp: el servidor lo hace sin el PC. Si tampoco se puede, dilo y para. **No intentes reproducir el script a mano en el sandbox** ni inventar su resultado: lo
 que escribe en Supabase y en Drive tiene que salir de las mismas funciones que usa la app. Lo que
 sí se puede hacer sin el PC son las consultas de lectura por el MCP BROKERGY y por el conector de
 Supabase; si la skill tiene un camino «sin el repo», está descrito en ella.

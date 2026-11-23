@@ -55,7 +55,7 @@ preguntarlo (solo se preguntan las fechas de visita y emisión):
    rehecho en 3.2 y el borrador 2.3 archivado en OLD.
 
 ```bash
-# desde implementation/backend · motor levantado · CE3X 3.2 en el PC
+# desde implementation/backend · motor levantado · CE3X 3.2 en el PC (o CE3X_URL en el servidor)
 node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08            # en seco (califica, no sube)
 node scripts/cee_final_copiando.js 26RES060_178 --fecha=2026-10-08 --escribir # .cex/.xml/.pdf a Drive + XML cargado en la app + aviso
 ```
@@ -206,7 +206,7 @@ el final. Es como se hace a mano, y la app lo hace igual:
   administrativos y generales, el técnico, las imágenes y el texto de las pruebas son los suyos, byte a
   byte.
 - **Lo CALCULA CE3X, y ya sin abrir su ventana**: con `--escribir`, el script lo califica con el
-  motor de CE3X 3.2 instalado en el PC (`services/cee/cexAPdf.js`, ≈1 min; lo arranca oculto) y deja
+  motor de CE3X 3.2 del PC o, con `CE3X_URL`, del servidor (`services/cee/cexAPdf.js`, ≈1 min) y deja
   al lado del `.cex` su **`.xml` y su `.pdf` oficial** (`… CEE FINAL_REVISAR.xml/.pdf`), con las
   medidas calculadas (en la 3.2 van en el Anexo III del propio certificado, no en un PDF aparte). Si
   no hay CE3X en el equipo, lo dice y el `.cex` se queda igual.
@@ -222,9 +222,10 @@ el final. Es como se hace a mano, y la app lo hace igual:
   normal es que el expediente YA tenga su técnico (el que hizo el inicial y firmará el final): el
   agente le prepara el borrador y **no le quita el expediente ni cambia la fase**. Solo si el CEE
   final está encargado al agente pasa a «pendiente de revisión».
-- **Dónde se ejecuta — Claude Code o Cowork:** los comandos son los MISMOS y van SIEMPRE en el PC
-  (repo + `.env` + motor). En Code, por la shell; en **Cowork, por Desktop Commander, nunca en el
-  sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
+- **Dónde se ejecuta — Claude Code, Cowork o el servidor:** los comandos son los MISMOS y van donde
+  estén el repo, el `.env` y el motor: el PC o el servidor (el Claude del WhatsApp, que desde el
+  23/11/2026 también tiene CE3X 3.2). En Code, por la shell; en **Cowork, por Desktop Commander, nunca
+  en el sandbox**. Rutas, motor y qué hacer si no hay PC: [comun/entorno.md](comun/entorno.md).
 - **El título de la sesión, LO PRIMERO: `{nº} - {CLIENTE}`** — p. ej. `26RES093_11 - NOMBRE DEL
   CLIENTE` (decisión del usuario, 2026-10-02), nunca una descripción de la tarea. En Claude Code,
   `set_session_title` con `session_id: "self"`; en Cowork se le dice al usuario para que lo ponga.

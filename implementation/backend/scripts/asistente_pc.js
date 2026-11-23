@@ -527,10 +527,12 @@ async function cancelar() {
 // ─── Trabajos con CE3X ────────────────────────────────────────────────────────
 // Catálogo cerrado: el PC no recibe órdenes libres, recibe UNO de estos trabajos con las decisiones
 // de Fran como datos. `pasos` es lo que se le pide al Claude del PC.
+// `t.aqui`: lo hace el propio Claude del WhatsApp en el servidor (el enrutador, abajo): la skill la
+// tiene instalada, no se lee de la ruta del PC.
 const TRABAJOS_CE3X = {
     cee_final: {
         que: 'el CEE final',
-        pasos: (t) => `1. Lee C:\\Proyectos\\app.brokergy\\skills\\generar-cee-final\\SKILL.md entero y síguelo (RES060 copiando el inicial; RES093 desde la medida; un RES080 NO: para y dilo, no tiene comando único).
+        pasos: (t) => `1. ${t.aqui ? 'Sigue la skill generar-cee-final entera' : 'Lee C:\\Proyectos\\app.brokergy\\skills\\generar-cee-final\\SKILL.md entero y síguelo'} (RES060 copiando el inicial; RES093 desde la medida; un RES080 NO: para y dilo, no tiene comando único).
 2. node scripts/agente_ia.js empezar ${t.numero} --fase final (sin --reasignar).
 3. EN SECO: node scripts/cee_final.js ${t.numero} --fecha=${t.fecha}. Mira lo que imprime contra las decisiones de Fran de arriba (equipos, hibridación, ACS, depósito). Si algo no casa con ellas o hay una duda que ellas no resuelven, PARA y pregúntaselo en tu respuesta final: no lo decidas tú.
 4. Con todo claro: el mismo comando con --escribir. Comprueba «✓ XML del CEE final CARGADO en la app» y que NO diga «CERTIFICADO INCOMPLETO» (si lo dice, el final NO está hecho: dilo).`,
@@ -541,6 +543,29 @@ const TRABAJOS_CE3X = {
 2. Si valida y no hay «certificado incompleto»: el mismo comando con --escribir (canónico + XML y PDF a Drive + XML cargado en la app). Si no, PARA y di por qué.`,
     },
 };
+
+// REGLA — el ENRUTADOR de los trabajos con CE3X (2026-11-23, Fran: «un enrutador para que desde WSP
+// se haga en el VPS»). Con CE3X en el servidor (CE3X_URL) y su motor RESPONDIENDO, un trabajo con
+// CE3X que pide el Claude del WhatsApp (CEE final, calificar un expediente o un CEE directo) NO se
+// encola: lo hace él mismo, AQUÍ, en su sesión (tiene las skills, la memoria del PC y el motor). Si el
+// motor del servidor no responde, va a un PC como siempre (PC_CE3X o cualquiera encendido), y
+// `--pc NOMBRE` lo manda a ese PC aunque el servidor responda. Los trabajos FIJOS (EXT, OP) ya van a
+// la cola del SERVIDOR. Presentar y firmar siguen siendo del PC.
+function dondeTrabajoCe3x({ servidor, pcPedido }) {
+    if (pcPedido) return { donde: 'pc', porque: `lo has pedido en ${pcPedido}` };
+    if (!CE3X_EN_SERVIDOR) return { donde: 'pc', porque: 'aquí no hay CE3X' };
+    if (servidor?.ok) return { donde: 'aqui' };
+    return { donde: 'pc', porque: `el CE3X del servidor no responde (${servidor?.motivo || 'sin respuesta'})` };
+}
+
+function textoHazloAqui(def, t) {
+    return `@@HAZLO_AQUI ${t.numero}
+El servidor tiene CE3X 3.2 y su motor responde: ${def.que} de ${t.numero} lo haces TÚ, AQUÍ, en esta sesión. NO se encola en el PC.
+Decisiones de Fran: «${t.indicaciones || 'nada más que el encargo'}» · fecha de emisión y de visita: ${t.fecha}.
+PASOS (los scripts, desde implementation/backend, como siempre):
+${def.pasos({ ...t, aqui: true })}
+Lo que no esté en sus decisiones y cambie el resultado, pregúntaselo antes de --escribir. Al acabar, cuéntaselo: calificación, qué ha quedado subido y cargado, y lo que queda.`;
+}
 
 async function ce3x() {
     const def = TRABAJOS_CE3X[opt('trabajo')];
@@ -593,6 +618,14 @@ async function ce3x() {
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'ce3x' && t.numero === numero && t.trabajo === opt('trabajo') && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) { await decir(`${def.que.charAt(0).toUpperCase()}${def.que.slice(1)} de *${numero}* ya está encargado a tu PC (${ya.estado === 'en_curso' ? 'lo está haciendo ahora' : 'en cola'}).`); return; }
+    const ruta = dondeTrabajoCe3x({
+        pcPedido: nombrePc(opt('pc')),
+        servidor: CE3X_EN_SERVIDOR && !opt('pc') ? await require('../services/cee/cexAPdf').saludServidor() : null,
+    });
+    if (ruta.donde === 'aqui') {
+        console.log(textoHazloAqui(def, { numero, fase, fecha, indicaciones: String(opt('texto') || '').slice(0, 1500) }));
+        return;
+    }
     // Aquí no se paga ni se firma: el PC lo elige Fran con --pc sin más guarda; si no, PC_CE3X o cualquiera.
     const destino = nombrePc(opt('pc')) || PC_CE3X;
     const tarea = {
@@ -602,7 +635,8 @@ async function ce3x() {
     if (bandera('enviar')) escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     else console.log(`[EN SECO] Encolaría:\n${JSON.stringify(tarea, null, 1)}`);
     const pc = estadoPc(destino);
-    await decir(`Aquí no hay CE3X: le paso ${def.que} de *${numero}* a ${destino ? `*${destino}*` : 'tu PC'}; ${pc.texto}.${otroPcSiNoEsta(pc)} Te aviso cuando esté.`);
+    const porque = ruta.porque.charAt(0).toUpperCase() + ruta.porque.slice(1);
+    await decir(`${porque}: le paso ${def.que} de *${numero}* a ${destino ? `*${destino}*` : 'tu PC'}; ${pc.texto}.${otroPcSiNoEsta(pc)} Te aviso cuando esté.`);
 }
 
 // Que el número exista (expediente, CEE directo u obra de la app de certificadores) y que esa fase no
@@ -1066,7 +1100,7 @@ if (require.main === module) {
 module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, encolarCalificarOp, TASA, TARJETA, TRABAJOS_CE3X,
     MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt, _resultadoCalificarOp: resultadoCalificarOp,
     _abrirRevisionAlta: abrirRevisionAlta, _chatDelInstalador: chatDelInstalador, _comprobarNumero: comprobarNumero,
-    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor, SERVIDOR, DESTINO_CALIFICAR,
+    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor, SERVIDOR, DESTINO_CALIFICAR, dondeTrabajoCe3x, textoHazloAqui,
     _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
     _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar, _vuelta: vuelta, _tomar: tomar,
     _comprobarCambioDePc: comprobarCambioDePc, _notaPc: notaPc, _confirmar: confirmar, _mover: mover };

@@ -304,6 +304,33 @@ function postJson(url, cuerpo, plazoMs) {
     });
 }
 
+/**
+ * ¿Responde AHORA el ce3x-engine (CE3X_URL) y está listo para calificar? Lo usa el enrutador de
+ * `asistente_pc.js ce3x`: si sí, el trabajo se hace en el servidor; si no, va a un PC.
+ * → { ok, motivo?, ocupado?, en_cola? }. Nunca lanza.
+ */
+function saludServidor({ ms = 5000 } = {}) {
+    if (!CE3X_URL) return Promise.resolve({ ok: false, motivo: 'sin CE3X_URL (no hay CE3X en el servidor)' });
+    const u = new URL(`${CE3X_URL}/salud`);
+    const mod = u.protocol === 'https:' ? require('https') : require('http');
+    return new Promise((resolve) => {
+        const req = mod.get(u, (res) => {
+            const trozos = [];
+            res.on('data', d => trozos.push(d));
+            res.on('end', () => {
+                let j = null;
+                try { j = JSON.parse(Buffer.concat(trozos).toString('utf8')); } catch { /* abajo */ }
+                if (res.statusCode !== 200 || !j) return resolve({ ok: false, motivo: `el motor de CE3X del servidor contesta HTTP ${res.statusCode}` });
+                if (!j.listo) return resolve({ ok: false, motivo: 'el motor de CE3X del servidor aún no está listo (arrancando)' });
+                resolve({ ok: true, ocupado: !!j.ocupado, en_cola: j.en_cola || 0 });
+            });
+            res.on('error', (e) => resolve({ ok: false, motivo: `el motor de CE3X del servidor no responde (${e.message})` }));
+        });
+        req.setTimeout(ms, () => req.destroy(new Error('se ha pasado de tiempo')));
+        req.on('error', (e) => resolve({ ok: false, motivo: `el motor de CE3X del servidor no responde (${e.message})` }));
+    });
+}
+
 /** La calificación tal y como la devuelve `res.py`, en limpio. */
 function calificacionDe(c) {
     return c && c._valido ? {
@@ -786,4 +813,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { _correrOraculo: correrOraculo, calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };
+module.exports = { _correrOraculo: correrOraculo, saludServidor, calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };

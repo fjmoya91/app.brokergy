@@ -226,6 +226,11 @@ vigía corre cada minuto `asistente_pc.js vuelta` con `PC_NOMBRE=SERVIDOR`. Esa 
 - no da latido y no vacía el buzón;
 - respeta la franja.
 
+Los trabajos `ce3x` con Claude (`cee_final`, `calificar` con decisiones) ya no se encolan si el CE3X
+del servidor responde. `ce3x` contesta `@@HAZLO_AQUI` con los pasos y el Claude del WhatsApp lo hace en
+su sesión. Si el servidor no responde, o Fran pide un PC con `--pc NOMBRE`, el trabajo va a la cola de
+ese PC.
+
 Sin la variable, todo va al PC como antes. Detalle y medidas en
 [el-motor-de-ce3x-en-el-servidor.md](docs/conocimiento/cee-generacion/el-motor-de-ce3x-en-el-servidor.md).
 

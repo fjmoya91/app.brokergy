@@ -70,7 +70,13 @@ console.log('\ncexAPdf con CE3X_URL (un ce3x-engine de mentira)');
 (async () => {
     let recibido = null;
     let responder = () => ({ s: { ok: true, emisiones: 40.03 }, ficheros: { 'cee.xml': Buffer.from('<xml/>').toString('base64'), '../fuera.txt': 'eA==' } });
+    let salud = () => ({ ok: true, listo: true, ocupado: false, en_cola: 0 });
     const srv = http.createServer((req, res) => {
+        if (req.method === 'GET' && req.url === '/salud') {
+            const r = salud();
+            res.writeHead(r.status || 200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(r));
+        }
         let b = '';
         req.on('data', c => { b += c; });
         req.on('end', () => {
@@ -103,10 +109,45 @@ console.log('\ncexAPdf con CE3X_URL (un ce3x-engine de mentira)');
         responder = () => ({ status: 503, ocupado: true });
         const r3 = await correr(dir, 'cex_a_xml.py', {});
         prueba('ocupado (503) → noResponde, no un .cex malo', r3.noResponde && /ocupado/.test(r3.fallo), JSON.stringify(r3));
+
+        console.log('\nEl ENRUTADOR (asistente_pc.js ce3x): aquí si el CE3X del servidor responde');
+        const s1 = await cexAPdf.saludServidor();
+        prueba('saludServidor: listo → ok', s1.ok === true, JSON.stringify(s1));
+        salud = () => ({ ok: true, listo: false });
+        const s2 = await cexAPdf.saludServidor();
+        prueba('saludServidor: arrancando → no ok, con motivo', s2.ok === false && /arrancando/.test(s2.motivo), JSON.stringify(s2));
+        salud = () => ({ status: 500 });
+        const s3 = await cexAPdf.saludServidor();
+        prueba('saludServidor: HTTP 500 → no ok', s3.ok === false && /HTTP 500/.test(s3.motivo), JSON.stringify(s3));
+
+        const pc = require('./asistente_pc');
+        const aqui = pc.dondeTrabajoCe3x({ servidor: { ok: true } });
+        prueba('servidor responde → se hace AQUÍ', aqui.donde === 'aqui', JSON.stringify(aqui));
+        const caido = pc.dondeTrabajoCe3x({ servidor: s2 });
+        prueba('servidor no responde → al PC, y dice por qué', caido.donde === 'pc' && /arrancando/.test(caido.porque), JSON.stringify(caido));
+        const pedido = pc.dondeTrabajoCe3x({ pcPedido: 'OFICINA', servidor: { ok: true } });
+        prueba('--pc OFICINA → a ese PC aunque el servidor responda', pedido.donde === 'pc' && /OFICINA/.test(pedido.porque), JSON.stringify(pedido));
+        for (const [clave, def] of Object.entries(pc.TRABAJOS_CE3X)) {
+            const t = pc.textoHazloAqui(def, { numero: '26RES060_1', fase: 'inicial', fecha: '2026-11-23', indicaciones: 'caldera de gasóleo' });
+            prueba(`textoHazloAqui(${clave}): marca, decisiones y sin rutas de Windows`,
+                t.startsWith('@@HAZLO_AQUI 26RES060_1') && t.includes('caldera de gasóleo') && !/C:\\/.test(t), t.slice(0, 200));
+        }
+        const sinAqui = pc.TRABAJOS_CE3X.cee_final.pasos({ numero: '26RES060_1', fecha: '2026-11-23' });
+        prueba('al PC el paso 1 sigue con la ruta del PC', /C:\\Proyectos\\app\.brokergy\\skills\\generar-cee-final/.test(sinAqui));
+
         srv.close();
         const r4 = await correr(dir, 'cex_a_xml.py', {});
         prueba('caído → noResponde', r4.noResponde === true, JSON.stringify(r4));
+        const s4 = await cexAPdf.saludServidor({ ms: 2000 });
+        prueba('saludServidor: caído → no ok, «no responde»', s4.ok === false && /no responde/.test(s4.motivo), JSON.stringify(s4));
     } else srv.close();
+
+    // Sin CE3X_URL en el proceso, nunca «aquí» (otro proceso: la constante se lee al cargar).
+    const envSin = { ...process.env }; delete envSin.CE3X_URL;
+    const rs = spawnSync(process.execPath, ['-e', `const pc=require(${JSON.stringify(path.join(__dirname, 'asistente_pc.js'))});
+        console.log(JSON.stringify(pc.dondeTrabajoCe3x({ servidor: { ok: true } })));`], { env: envSin, encoding: 'utf8' });
+    let sinUrl = null; try { sinUrl = JSON.parse((rs.stdout || '').trim().split('\n').pop()); } catch { /* abajo */ }
+    prueba('sin CE3X_URL → al PC («aquí no hay CE3X»)', sinUrl?.donde === 'pc' && /no hay CE3X/.test(sinUrl.porque), rs.stderr || rs.stdout);
     const d = cexAPdf.disponible();
     prueba('disponible() con CE3X_URL dice «servidor» o el motivo del PDF', d.via === 'servidor' || (d.ok === false && !!d.motivo), JSON.stringify(d));
 

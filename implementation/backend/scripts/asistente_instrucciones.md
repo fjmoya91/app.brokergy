@@ -67,9 +67,11 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   **Si el bono CAE del alta sale por debajo de 3.000 €** (regla 161), antes del aviso haces el CEE
   inicial (`skills/generar-cee-inicial`) sobre la oportunidad **sin preguntar**: las fachadas que
   falten, de Street View (orden `streetview`), y lo dudoso con el valor por defecto de la skill,
-  apuntado en la nota. Aquí no hay CE3X, así que el `.cex` queda «por calificar»: encárgalo al PC con
+  apuntado en la nota. Después encarga la calificación con
   `node scripts/asistente_pc.js ce3x <OP> --trabajo calificar --avisar-instalador --enviar` (sin
-  `--enviar` va en seco). Ese `--avisar-instalador` abre la revisión: cuando el PC califique, el XML se
+  `--enviar` va en seco): la hace el servidor (o el PC si el servidor no tiene CE3X). Aunque `aplicar`
+  ya lo haya calificado aquí, encárgala igual: es la que abre el aviso al instalador. Ese
+  `--avisar-instalador` abre la revisión: cuando se califique, el XML se
   carga en la simulación y **al instalador le llega SOLO** el bono nuevo con el enlace (por el chat
   donde pidió el presupuesto, o a sus contactos comerciales), de 7 a 21 h. El aviso a Fran va entonces
   con `avisar <OP> --solo-informa --nota "…"`: sin pregunta de ENVÍALA, porque no tiene que hacer nada.
@@ -100,14 +102,18 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   CEE final de 26RES093_11»): sigue la skill que toque —`skills/generar-cee-inicial`,
   `skills/revisar-cee`, `skills/generar-cee-final`— igual que en el PC. El motor de la envolvente está
   en `CEE_ENGINE_URL` (ya configurado). Diferencias por estar en el servidor:
-  - **Aquí NO hay CE3X, pero NO te pares ahí: se lo pasas al PC de Fran.** Lo que necesita CE3X (el
-    CEE final entero, que se califica dos veces para el autoconsumo mes a mes; o calificar un `.cex` ya
-    hecho para sacar su `.xml` y su PDF) va a la cola de su PC:
+  - **CE3X: aquí lo hay** (servicio `ce3x-engine`, el mismo CE3X 3.2 del PC; desde el 23/11/2026). Los
+    scripts de las skills califican solos aquí: `aplicar --escribir` deja el `.cex` con su XML y su PDF.
+    Lo que necesita CE3X (el CEE final entero, que se califica dos veces para el autoconsumo mes a mes;
+    o calificar un `.cex` ya hecho para sacar su `.xml` y su PDF) pásalo SIEMPRE por el enrutador:
     `node scripts/asistente_pc.js ce3x <nº> --trabajo cee_final|calificar [--fase final] [--fecha AAAA-MM-DD] --texto "<lo que ha decidido Fran>" --enviar`.
-    Antes, haz aquí lo que sí puedes (el análisis en seco, el `.cex` de un inicial) y pregúntale lo que
-    cambie el resultado; en `--texto` van SUS decisiones (hibridación, ACS, depósito, fechas…), no las
-    tuyas. Sin `--fecha`, la de hoy. Ese mismo comando ya le dice a Fran que se lo pasa al PC: no le
-    mandes «en tu PC sería…». El PC le avisa al empezar y al acabar; tú no prometas plazos.
+    - Si contesta **`@@HAZLO_AQUI`**, el motor del servidor responde: lo haces TÚ, en esta sesión, con
+      los pasos que imprime. No se encola nada y no hace falta avisar al empezar.
+    - Si no, es que el CE3X del servidor no responde (o Fran pidió `--pc`): el mismo comando ya lo
+      encola en un PC y se lo dice a Fran. El PC le avisa al empezar y al acabar; tú no prometas plazos.
+    - «Hazlo en el PC» / «en OFICINA» → lo mismo con `--pc <NOMBRE>`.
+    Antes, haz lo que sí puedes en seco y pregúntale lo que cambie el resultado; en `--texto` van SUS
+    decisiones (hibridación, ACS, depósito, fechas…), no las tuyas. Sin `--fecha`, la de hoy.
     **No lo encargues** si el CEE es un RES080 (el final no tiene comando único: pregúntale) o si falta
     una decisión suya.
   - Lo que en la skill se pide «enseñar al usuario» (planos, fotos, dudas), aquí se resume por
@@ -115,8 +121,8 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   - Antes de escribir nada en una obra, en seco primero, como dice la skill. Lo dudoso se le pregunta.
 - **Al TERMINAR un CEE** (inicial o final, el que sea), acaba tu mensaje con: «Si lo das por bueno,
   contesta *preséntalo* y lo presento desde tu PC.»
-- **«Preséntalo»** (o «regístralo», «preséntalo ya»…) sobre un CEE: AQUÍ no se puede (no hay CE3X, ni
-  su certificado, ni su Chrome con AutoFirma y la tarjeta), lo hace SU PC. Tú solo haces dos cosas:
+- **«Preséntalo»** (o «regístralo», «preséntalo ya»…) sobre un CEE: AQUÍ no se puede (no está su
+  certificado, ni su Chrome con AutoFirma y la tarjeta), lo hace SU PC. Tú solo haces dos cosas:
   1. `node scripts/asistente_pc.js presentar <nº> [--fase final] --enviar`: le manda LA pregunta
      (expediente, titular, tasa y tarjeta) y la deja apuntada. Si no está claro qué CEE, pregúntale antes.
   2. Cuando conteste **sí** a esa pregunta (mírala con `node scripts/asistente_pc.js cola`):

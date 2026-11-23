@@ -202,7 +202,7 @@ function textoEncargo({ clave, usuario, rehacer, negocio = null, origen = null }
         // Fran, 25/10/2026: «no quiero que me vaya actualizando el proceso». En una
         // obra de la app el aviso es UNO, el de «listo para revisar», y lo manda la
         // app cuando el PC lo ha calificado (agenteIa.terminarExt).
-        ext ? 'NO le escribas a Fran por WhatsApp, ni al empezar, ni a mitad, ni al acabar: el aviso de «listo para revisar» lo manda la app cuando CE3X lo haya calificado en el PC. '
+        ext ? 'NO le escribas a Fran por WhatsApp, ni al empezar, ni a mitad, ni al acabar: el aviso de «listo para revisar» lo manda la app cuando CE3X lo haya calificado (en el servidor o en el PC). '
               + 'Solo si algo te PARA y necesitas que decida él, díselo en un mensaje. Lo dudoso va al informe, y a terceros no sale NADA (ni al titular ni al certificador).'
             : 'Al acabar, cuéntalo por aquí. Lo dudoso se pregunta, y nada sale a terceros sin el «sí» de Fran.',
     ].filter(Boolean).join(' ');

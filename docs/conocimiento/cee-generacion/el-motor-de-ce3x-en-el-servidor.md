@@ -107,11 +107,48 @@ la toma como contexto con nombre (`additional_contexts`). `deploy.sh` construye 
 existe `/opt/brokergy-ce3x/programa/python27.dll`. Si el build falla, se queda el de antes y lo dice.
 Los comandos de subida, encendido y apagado están en el [README del servicio](implementation/ce3x-engine/README.md).
 
+### REGLA — lo que pide CE3X por WhatsApp pasa por el ENRUTADOR, y con el servidor respondiendo se hace AQUÍ
+
+**Lo que se pidió** (Fran, 23/11/2026, tras el despliegue): «O un enrutador para que desde WSP se haga
+en el VPS. Si la memoria del PC local va cargada también».
+
+Los trabajos `ce3x` con Claude (`cee_final`, `calificar` con decisiones) iban siempre a la cola del PC,
+donde un `claude -p` los hacía con la skill. El Claude del WhatsApp ya tiene en el VPS todo lo que hace
+falta: las skills, el repo, el `.env`, el motor y CE3X. La memoria del PC también está, porque la tarea
+«Brokergy Memoria Asistente» del PC la sincroniza cada 3 h. Así que encolar era esperar al PC sin
+necesidad.
+
+`asistente_pc.js ce3x <nº> --trabajo …` decide con `dondeTrabajoCe3x`:
+
+| Caso | Dónde |
+|---|---|
+| `--pc NOMBRE` | a ese PC, aunque el servidor responda (lo ha pedido Fran) |
+| sin `CE3X_URL` | al PC («aquí no hay CE3X») |
+| `saludServidor()` ok (`/salud` con `listo`) | **aquí**: imprime `@@HAZLO_AQUI <nº>` y los pasos |
+| el motor no responde, da error o está arrancando | al PC, y el mensaje a Fran dice por qué |
+
+Con `@@HAZLO_AQUI` no se encola nada. El Claude del WhatsApp sigue en su sesión los pasos de
+`textoHazloAqui`, que son los mismos del PC pero sin la ruta `C:\…` de la skill («sigue la skill
+generar-cee-final entera»). Las decisiones de Fran van dentro. Al acabar, se lo cuenta a Fran él mismo:
+no hay vuelta que mande el mensaje final.
+
+Los RES080 siguen sin comando único, aquí y en el PC.
+
 ### Lo que queda en el PC
 
-Presentar en el Registro (certificado, AutoFirma, tarjeta), firmar y los trabajos `ce3x` con Claude
-(`cee_final`, `calificar` con decisiones) siguen yendo al PC. El servidor solo coge lo que no tiene
-nada que decidir.
+Presentar en el Registro (certificado, AutoFirma, tarjeta) y firmar siguen yendo al PC. También va al
+PC lo de CE3X cuando el servidor no responde o Fran lo pide con `--pc`.
+
+**Otro PC encendido** (el de presentar, por ejemplo) puede certificar también. La cola ya admite
+varios: cada uno tiene su `PC_NOMBRE` y su latido, y `PC_CE3X` vacío deja que lo coja cualquiera.
+Para eso ese PC necesita:
+
+- la copia `brokergy-pc` del repo con su `.env`;
+- CE3X 3.2 y `ce3xpy.exe`;
+- el motor;
+- la tarea «Brokergy Trabajos PC».
+
+Con el enrutador, ese PC solo hace falta cuando el servidor no responde.
 
 Ojo: con `CE3X_URL` puesta, todo lo que llama a `calificarCex` en el backend del VPS califica allí, y
 eso incluye `ceeCiego.js` si `CEE_CIEGO_ENABLED` está encendido.
@@ -120,5 +157,7 @@ Pruebas:
 
 - `node implementation/backend/scripts/test_ce3x_servidor.js`: cola temporal y un ce3x-engine de
   mentira. Comprueba qué trabajos coge el SERVIDOR, el destino al encolar, los ficheros que van y
-  vuelven y los casos `NO_ABRE`, 503 y servicio caído.
+  vuelven y los casos `NO_ABRE`, 503 y servicio caído. También el enrutador: `saludServidor` (listo,
+  arrancando, HTTP 500, caído), `dondeTrabajoCe3x` (aquí, al PC, `--pc`, sin `CE3X_URL`) y que
+  `textoHazloAqui` lleve la marca y las decisiones y no lleve rutas de Windows.
 - El build de la imagen, que se autoprueba.
