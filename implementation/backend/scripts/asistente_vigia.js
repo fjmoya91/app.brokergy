@@ -390,6 +390,29 @@ async function mantenimiento() {
     }
 }
 
+// EL MOTOR DE CE3X EN EL SERVIDOR (2026-11-23): con CE3X_URL (el servicio ce3x-engine) las
+// calificaciones FIJAS de la cola (calificar_ext, calificar_op) las hace este contenedor, como un PC
+// más llamado SERVIDOR: cada minuto, `asistente_pc.js vuelta` con PC_NOMBRE=SERVIDOR, una cada vez y
+// aparte de `trabajando` (no usan Claude). La vuelta hace todo lo de la del PC: toma el encargo,
+// espera, juzga la salida y le manda a Fran el mensaje final. Ver
+// docs/conocimiento/cee-generacion/el-motor-de-ce3x-en-el-servidor.md.
+let calificando = null;                           // { desde, hijo } mientras corre una vuelta del SERVIDOR
+function vueltaCe3xServidor() {
+    if (!process.env.CE3X_URL || calificando) return;
+    const hijo = spawn(process.execPath, [path.join(__dirname, 'asistente_pc.js'), 'vuelta'],
+        { cwd: path.join(__dirname, '..'), windowsHide: true, env: { ...process.env, PC_NOMBRE: 'SERVIDOR' } });
+    calificando = { desde: Date.now(), hijo };
+    let salida = '';
+    hijo.stdout.on('data', d => { salida += d; });
+    hijo.stderr.on('data', d => { salida += d; });
+    hijo.on('close', (c) => {
+        calificando = null;
+        const txt = salida.split(/\r?\n/).filter(l => l.trim() && !/^\[dotenv/.test(l)).join('\n').trim();
+        if (txt || c) log(`Calificación en el servidor (${c === 0 ? 'ok' : `error ${c}`}): ${txt.slice(-600)}`);
+    });
+    hijo.on('error', (e) => { calificando = null; log('Calificación en el servidor:', e.message); });
+}
+
 let trabajando = false;
 let enVuelta = false;
 
@@ -599,7 +622,7 @@ function servidor() {
             let pc = null;
             try { pc = require('./asistente_pc').estadoPc(); } catch { /* sin cola todavía */ }
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, trabajando, pc, estado: leerEstado() }));
+            res.end(JSON.stringify({ ok: true, trabajando, calificando: !!calificando, pc, estado: leerEstado() }));
             return;
         }
         if (req.headers['x-internal-key'] !== process.env.INTERNAL_API_KEY) { res.writeHead(403); res.end(); return; }
@@ -767,6 +790,11 @@ if (require.main === module) (async () => {
     if (!cogerLock()) { log('Ya hay un vigilante corriendo.'); return; }
     log(`Vigilando ${GRUPO ? `el grupo ${GRUPO} (solo los mensajes de Fran)` : `el chat de ${TEL}`} cada ${CADA_MS / 1000} s${SERVIDOR ? ' y con el aviso del backend' : ''} · modelo por defecto ${MODELO}.`);
     if (SERVIDOR) servidor();
+    if (SERVIDOR && process.env.CE3X_URL) {
+        log(`Califico en el servidor (ce3x-engine en ${process.env.CE3X_URL}): los encargos fijos de la cola, cada minuto.`);
+        setInterval(vueltaCe3xServidor, 60_000);
+        setTimeout(vueltaCe3xServidor, 15_000);
+    }
     const una = process.argv.includes('--una');
     for (;;) {
         try { const n = await vaciarBuzon(); if (n) log(`Buzón: ${n} mensaje(s) que esperaban al WhatsApp, enviados.`); } catch (e) { log('Buzón:', e.message); }

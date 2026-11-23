@@ -75,7 +75,12 @@ CE3X_DIR='C:\Program Files (x86)\CEXv2.3' CE3X_EXE=cexv2.3.exe CASO='C:\ruta\x.c
   (`versionArchivoGuardado` vacío, también con los ejemplos oficiales). Medido el 02/10/2026:
   funcionaba con la ventana abierta y dejó de hacerlo al cerrarla; con CE3X arrancado OCULTO
   (`windowsHide`) vuelve a abrir a los ~10 s. `cexAPdf.js` lo arranca solo si hace falta y lo
-  cierra al terminar. No se ha encontrado el mecanismo (no hay ficheros, registro ni sockets).
+  cierra al terminar. **El mecanismo** (encontrado el 23/11/2026): `Calculos/vg2.pyd` lanza
+  `TASKLIST /FI "imagename eq ce3xv3.2.exe"` y, si hay un PROCESO con ese nombre, pone
+  `__builtin__.modoDesarrolladorCompilada`; `Calculos/vg3.getVG3()` lo mira y `abreArchivoCEX` no
+  abre nada sin él. El servicio `ce3x-engine` del VPS ([implementation/ce3x-engine](../../../ce3x-engine))
+  hace lo mismo que el PC: mantiene CE3X 3.2 abierto, oculto en una pantalla virtual, y corre estos
+  mismos scripts con el mismo motor bajo Wine (no se renombra el arnés para pasar la comprobación).
 - **CE3X 3.x no saca el PDF del informe si la ruta del `.cex` lleva tildes o eñes**
   («2026CEE_61 - JOSÉ ÁNGEL…»). El XML sí lo escribe; el PDF lo hace llamando a
   `xml2cert.exe` con `subprocess.call([exe, ruta_unicode])` (`wxFrame1.OnGenerarInforme`),

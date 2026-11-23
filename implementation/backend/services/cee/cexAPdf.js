@@ -19,10 +19,14 @@
 //      mejora y escribe el XML.
 //   2. `xml2cert.exe` (el generador que trae CE3X) hace el PDF desde el XML.
 //
-// REGLA — SOLO EN UN PC CON CE3X 3.2 INSTALADO. En el VPS no hay CE3X: esto lo
-// usan los scripts de las skills, que corren en el PC. Sin CE3X se devuelve
-// `{ ok:false, noDisponible:true }` y quien llama sigue sin el PDF.
-// SALVO el PDF de un XML ya hecho (`pdfDeXml`, `validarXml`): con XML2CERT_URL (el
+// REGLA — en un PC con CE3X 3.2 instalado, o con CE3X_URL (el VPS, desde el
+// 23/11/2026): el servicio `ce3x-engine` (implementation/ce3x-engine) es el MISMO
+// motor de CE3X 3.2 con Wine y ejecuta el MISMO script del oráculo; da el mismo
+// JSON y el mismo XML que el PC (medido con cuatro .cex reales, salvo los UUID,
+// que CE3X saca nuevos cada vez). Sin ninguno de los dos se devuelve
+// `{ ok:false, noDisponible:true }` y quien llama sigue sin el PDF; si el servicio
+// no responde, también `noDisponible`: nunca una calificación inventada.
+// El PDF de un XML ya hecho (`pdfDeXml`, `validarXml`): con XML2CERT_URL (el
 // VPS, desde el 31/10/2026) lo hace el servicio `xml2cert` (implementation/xml2cert:
 // el mismo xml2cert.exe con Wine), que deja el mismo `.log`. Si no responde, se
 // devuelve `noDisponible`, como sin CE3X.
@@ -32,9 +36,13 @@
 // Python 2.7 no admite argumentos Unicode: «JOSÉ ÁNGEL» falla) y xml2cert no
 // encuentra el XML si el nombre del .cex lleva puntos. Medido el 02/10/2026.
 //
-// REGLA — el motor sin ventana solo abre ficheros con un CE3X ABIERTO en el
-// equipo (sin él, `abreArchivoCEX` no hace nada y no dice nada). Si no lo está,
-// se arranca OCULTO, se espera ~10 s y se cierra al terminar.
+// REGLA — el motor sin ventana solo abre ficheros si hay un PROCESO llamado
+// `ce3xv3.2.exe` en el equipo (sin él, `abreArchivoCEX` no hace nada y no dice
+// nada). Es una comprobación del propio CE3X (Calculos/vg2.pyd lanza
+// `TASKLIST /FI "imagename eq ce3xv3.2.exe"`; encontrado el 23/11/2026). En el PC
+// se arranca CE3X OCULTO si no lo está (~10 s) y se cierra al terminar; el
+// servicio `ce3x-engine` hace lo mismo: CE3X 3.2 abierto y oculto en una pantalla
+// virtual (Xvfb), y el arnés `ce3xpy.exe` corre el script.
 //
 // REGLA — un .cex de la 2.3 NO se califica aquí: CE3X 3.2 lo abriría, lo
 // migraría y escribiría un XML que no corresponde al fichero. Se dice. Uno de la
@@ -73,6 +81,8 @@ const ESPERA_CE3X_MS = Number(process.env.CEX_A_PDF_ESPERA_MS) || 6 * 60 * 1000;
 const ESPERA_PDF_MS = 2 * 60 * 1000;
 //: El servicio xml2cert del servidor (docker-compose); vacío en el PC, que usa el de CE3X.
 const XML2CERT_URL = (process.env.XML2CERT_URL || '').replace(/\/+$/, '');
+//: El motor de CE3X del servidor (docker-compose, servicio ce3x-engine); vacío en el PC.
+const CE3X_URL = (process.env.CE3X_URL || '').replace(/\/+$/, '');
 
 /** El xml2cert.exe más reciente que trae CE3X (`moduloXML/xmlcert_AAAAMMDD`). */
 function rutaXml2cert() {
@@ -103,7 +113,11 @@ function entornoXml2cert() {
 
 /** ¿Hay en este PC lo necesario? Devuelve el motivo si no. */
 function disponible() {
-    if (process.platform !== 'win32') return { ok: false, motivo: 'CE3X solo existe en Windows' };
+    if (CE3X_URL) {
+        const pdf = disponiblePdf();
+        return pdf.ok ? { ok: true, via: 'servidor' } : { ok: false, motivo: pdf.motivo };
+    }
+    if (process.platform !== 'win32') return { ok: false, motivo: 'CE3X solo existe en Windows (o con CE3X_URL, el servicio ce3x-engine)' };
     if (!fs.existsSync(path.join(CE3X_DIR, CE3X_EXE))) return { ok: false, motivo: `no está CE3X 3.2 en ${CE3X_DIR}` };
     if (!rutaXml2cert()) return { ok: false, motivo: 'no está el generador del PDF (moduloXML/xmlcert_*/xml2cert.exe)' };
     if (!fs.existsSync(path.join(ORACULO_DIR, 'ce3xpy.exe'))) return { ok: false, motivo: `falta ${path.join(ORACULO_DIR, 'ce3xpy.exe')}` };
@@ -198,6 +212,7 @@ const num = (v) => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Ma
  * estaba abierto, no se toca.
  */
 async function correrOraculo(dir, script, envExtra) {
+    if (CE3X_URL) return correrOraculoEnServidor(dir, script, envExtra);
     const res = path.join(dir, 'resultado.json');
     const out = path.join(dir, 'ce3x.out');
     const wrapped = path.join(dir, `${path.basename(script, '.py')}.wrapped.py`);
@@ -230,6 +245,63 @@ async function correrOraculo(dir, script, envExtra) {
     }
     if (s.error === 'NO_ABRE') return { fallo: 'CE3X no abre el fichero (ni con CE3X arrancado). Ábrelo en CE3X para ver por qué.' };
     return { s };
+}
+
+/**
+ * Lo mismo en el servicio `ce3x-engine` (CE3X_URL): se le mandan los ficheros de la carpeta
+ * temporal y el entorno con las rutas de esa carpeta como `{DIR}\<nombre>`; él ejecuta el MISMO
+ * script del oráculo con el motor de CE3X bajo Wine y devuelve `resultado.json` y los ficheros
+ * nuevos o cambiados (el XML, el .cex guardado), que se dejan en la carpeta: el resto de
+ * `calificarCex` / `ponerPrevistoComoMedida` no sabe dónde se ha calificado.
+ * `noResponde`: caído, ocupado o fuera de plazo, que no es lo mismo que un .cex malo.
+ */
+async function correrOraculoEnServidor(dir, script, envExtra) {
+    const env = {};
+    for (const [k, v] of Object.entries(envExtra || {})) {
+        if (v == null) continue;
+        const s = String(v);
+        env[k] = path.dirname(s) === dir ? `{DIR}\\${path.basename(s)}` : s;
+    }
+    const ficheros = {};
+    for (const nombre of fs.readdirSync(dir)) {
+        const ruta = path.join(dir, nombre);
+        if (fs.statSync(ruta).isFile()) ficheros[nombre] = fs.readFileSync(ruta).toString('base64');
+    }
+    let data;
+    try {
+        const r = await postJson(`${CE3X_URL}/oraculo`, { script, env, ficheros }, ESPERA_CE3X_MS + 60 * 1000);
+        if (r.status !== 200) throw new Error(`HTTP ${r.status}${r.status === 503 ? ' (ocupado)' : ''}`);
+        data = JSON.parse(r.cuerpo);
+    } catch (e) {
+        return { noResponde: true, fallo: `el motor de CE3X del servidor no responde (${e.message})` };
+    }
+    for (const [nombre, b64] of Object.entries(data.ficheros || {})) {
+        if (/^[A-Za-z0-9_-]+(\.[A-Za-z0-9]+)?$/.test(nombre)) fs.writeFileSync(path.join(dir, nombre), Buffer.from(b64, 'base64'));
+    }
+    if (data.plazo) return { fallo: `CE3X no ha terminado en ${Math.round(ESPERA_CE3X_MS / 1000)} s (servidor)` };
+    if (!data.s) return { fallo: `CE3X no ha devuelto resultado (servidor).\n${String(data.salida || '').slice(-1500)}` };
+    if (data.s.error === 'NO_ABRE') return { fallo: 'CE3X no abre el fichero (servidor). Ábrelo en CE3X para ver por qué.' };
+    return { s: data.s };
+}
+
+// REGLA — al ce3x-engine se le llama con `http.request`, no con `fetch`: el `fetch` de Node corta a
+// los 300 s esperando la respuesta (`headersTimeout` de undici) aunque el plazo sea mayor, y un .cex
+// grande con la primera calificación del contenedor llegó a pasar de ahí (medido el 23/11/2026).
+function postJson(url, cuerpo, plazoMs) {
+    const u = new URL(url);
+    const mod = u.protocol === 'https:' ? require('https') : require('http');
+    const datos = Buffer.from(JSON.stringify(cuerpo));
+    return new Promise((resolve, reject) => {
+        const req = mod.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': datos.length } }, (res) => {
+            const trozos = [];
+            res.on('data', d => trozos.push(d));
+            res.on('end', () => resolve({ status: res.statusCode, cuerpo: Buffer.concat(trozos).toString('utf8') }));
+            res.on('error', reject);
+        });
+        req.setTimeout(plazoMs, () => req.destroy(new Error('se ha pasado de tiempo')));
+        req.on('error', reject);
+        req.end(datos);
+    });
 }
 
 /** La calificación tal y como la devuelve `res.py`, en limpio. */
@@ -517,7 +589,7 @@ async function calificarCex(entrada, { medidas = true, pdf = true, ajustarAutoco
             GUARDAR_CALCULADO: guardarCalculado ? '1' : null,
             SALIDA_CEX: ajustarAutoconsumo || guardarCalculado ? ajustado : null,
         });
-        if (r.fallo) return { ok: false, version, error: r.fallo };
+        if (r.fallo) return { ok: false, version, error: r.fallo, ...(r.noResponde ? { noDisponible: true } : {}) };
         const s = r.s;
         if (s.error) return { ok: false, version, error: `CE3X ha fallado:\n${s.error}` };
 
@@ -623,7 +695,7 @@ async function ponerPrevistoComoMedida(inicial, previsto, textos = {}, { pdf = t
         const r = await correrOraculo(dir, 'medida_previsto.py', {
             CASO: ini, PREVISTO: prev, SALIDA_CEX: salida, XML: xml, TEXTOS: ftextos,
         });
-        if (r.fallo) return { ok: false, error: r.fallo };
+        if (r.fallo) return { ok: false, error: r.fallo, ...(r.noResponde ? { noDisponible: true } : {}) };
         const s = r.s;
         if (s.error === 'NO_CALIFICA') return { ok: false, error: 'CE3X no califica el CEE inicial: ábrelo en CE3X para ver por qué.' };
         if (s.error === 'NO_CARGA_PREVISTO') return { ok: false, error: 'CE3X no ha cargado el previsto como medida («Cargar edificio»).' };
@@ -714,4 +786,4 @@ function lineasCalificado(r, { esperado = null } = {}) {
     return out;
 }
 
-module.exports = { calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };
+module.exports = { _correrOraculo: correrOraculo, calificarCex, calificarYGuardar, ponerPrevistoComoMedida, lineasCalificado, disponible, versionDelCex, textoCalificacion, avisosAutoconsumo, esModerna, pdfDeXml, xmlDelPdf, mismoXml, disponiblePdf, avisosDelLog, huecosSinCompletar, incompletoDelXml, validarXml, textoIncompleto };

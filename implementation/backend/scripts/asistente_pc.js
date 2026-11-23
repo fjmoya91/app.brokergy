@@ -87,6 +87,15 @@ const nombrePc = s => String(s || '').trim().toUpperCase().replace(/[^A-Z0-9]+/g
 const MI_PC = nombrePc(process.env.PC_NOMBRE || os.hostname()) || 'PC';
 const PC_PRESENTAR = nombrePc(process.env.PC_PRESENTAR) || null;
 const PC_CE3X = nombrePc(process.env.PC_CE3X) || null;
+// EL MOTOR DE CE3X EN EL SERVIDOR (2026-11-23, servicio ce3x-engine): con CE3X_URL los trabajos FIJOS
+// (calificar_ext, calificar_op) los hace el propio VPS, como un PC más llamado SERVIDOR: el vigía lanza
+// `vuelta` cada minuto con PC_NOMBRE=SERVIDOR. Así no esperan a que se encienda el PC y siguen igual
+// que en el PC: sin duplicados, la franja de 7 a 21 h de `calificar_op` y el mismo mensaje a Fran. El SERVIDOR no da latido (no es un PC al que mandar una
+// presentación) y solo coge trabajos fijos.
+const SERVIDOR = 'SERVIDOR';
+const CE3X_EN_SERVIDOR = !!process.env.CE3X_URL;
+const ES_SERVIDOR = MI_PC === SERVIDOR;
+const DESTINO_CALIFICAR = CE3X_EN_SERVIDOR ? SERVIDOR : PC_CE3X;
 const F = { pendiente: 'presentar_pendiente.json', cola: 'tareas_pc.json', latido: `pc_latido_${MI_PC}.json` };
 const LATIDO_RE = /^pc_latido(_[A-Z0-9_]+)?\.json$/;      // pc_latido.json: el de antes de nombrar los PCs
 
@@ -269,7 +278,7 @@ function encolarCalificarExt({ numero, obraId = null } = {}) {
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'calificar_ext' && t.numero === n && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) return { ok: true, duplicado: true, tarea: ya };
-    const tarea = { id: `calext-${n}-${ahora()}`, tipo: 'calificar_ext', numero: n, obra_id: obraId || null, destino: PC_CE3X,
+    const tarea = { id: `calext-${n}-${ahora()}`, tipo: 'calificar_ext', numero: n, obra_id: obraId || null, destino: DESTINO_CALIFICAR,
         fase: 'inicial', origen: 'app', estado: 'pendiente', creado_at: ahora() };
     escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     return { ok: true, tarea };
@@ -288,7 +297,7 @@ function encolarCalificarOp({ numero, origen = 'whatsapp' } = {}) {
     const lista = cola();
     const ya = lista.find(t => t.tipo === 'calificar_op' && t.numero === n && ['pendiente', 'en_curso'].includes(t.estado));
     if (ya) return { ok: true, duplicado: true, tarea: ya };
-    const tarea = { id: `calop-${n}-${ahora()}`, tipo: 'calificar_op', numero: n, destino: PC_CE3X,
+    const tarea = { id: `calop-${n}-${ahora()}`, tipo: 'calificar_op', numero: n, destino: DESTINO_CALIFICAR,
         fase: 'inicial', origen, estado: 'pendiente', creado_at: ahora() };
     escribir('cola', [...lista.filter(t => ahora() - (t.creado_at || 0) < 30 * 86400), tarea]);
     return { ok: true, tarea };
@@ -545,6 +554,11 @@ async function ce3x() {
         if (opt('trabajo') !== 'calificar') throw new Error(`${numero} es una obra de la app de certificadores: solo se califica (un solo certificado, sin CEE final).`);
         if (!bandera('enviar')) { console.log(`[EN SECO] Encolaría la calificación de ${numero} (calificar_ext).`); return; }
         const r = encolarCalificarExt({ numero });
+        if (CE3X_EN_SERVIDOR) {
+            await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola.`
+                : `Califico *${numero}* aquí, en el servidor (empieza en un minuto). Cuando esté, te llega el aviso de la app de «listo para revisar».`);
+            return;
+        }
         const pc = estadoPc();
         await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola de tu PC.`
             : `Le paso a tu PC la calificación de *${numero}*; ${pc.texto}. Cuando esté, te llega el aviso de la app de «listo para revisar».`);
@@ -564,6 +578,13 @@ async function ce3x() {
             return;
         }
         const r = encolarCalificarOp({ numero });
+        const tras = `Al cargarse el XML se recalcula el bono${rev ? ' y el instalador recibe la cifra nueva por WhatsApp, sin que hagas nada' : ''}. Te aviso.`;
+        if (CE3X_EN_SERVIDOR) {
+            const franja = require('../utils/horarioWhatsapp').puedeContestar() ? 'empieza en un minuto' : 'empieza a las 7:00, dentro de la franja';
+            await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola.`
+                : `Califico el CEE inicial de *${numero}* aquí, en el servidor (${franja}). ${tras}`);
+            return;
+        }
         const pc = estadoPc(PC_CE3X);
         await decir(r.duplicado ? `La calificación de *${numero}* ya está en la cola de tu PC.`
             : `Aquí no hay CE3X: le paso a tu PC la calificación del CEE inicial de *${numero}*; ${pc.texto}. Al cargarse el XML se recalcula el bono${rev ? ' y el instalador recibe la cifra nueva por WhatsApp, sin que hagas nada' : ''}. Te aviso.`);
@@ -789,6 +810,8 @@ function hostPuertoMotor(url = MOTOR) {
 // se levanta como dice su README y se espera hasta 90 s.
 async function asegurarMotor() {
     if (await motorVivo()) return null;
+    // En el servidor el motor es el contenedor cee-engine: no se levanta desde aquí.
+    if (process.platform !== 'win32') return `el motor (cee-engine) no responde en ${MOTOR}`;
     const { host, puerto } = hostPuertoMotor();
     spawn(process.env.PC_PYTHON || 'python', ['-m', 'uvicorn', 'server:app', '--host', host, '--port', puerto],
         { cwd: path.join(REPO, 'implementation', 'cee-engine'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
@@ -888,12 +911,16 @@ function lanzar(t) {
 function esperar(hijo, actual) {
     return new Promise((resolve) => {
         const latir = () => {
+            if (ES_SERVIDOR) return;                        // el SERVIDOR no da latido (no es un PC)
             try { escribir('latido', { at: ahora(), pc: MI_PC, host: os.hostname(), bloqueado: bloqueado(), trabajando: actual.numero || actual.tipo }); } catch (e) { log('Latido fallido:', e.message); }
         };
         const reloj = setInterval(() => {
             latir();
             if (ahora() - actual.inicio > MAX_MIN * 60) {
-                try { execFileSync('taskkill', ['/PID', String(hijo.pid), '/T', '/F'], { windowsHide: true }); } catch { /* ya no está */ }
+                try {
+                    if (process.platform === 'win32') execFileSync('taskkill', ['/PID', String(hijo.pid), '/T', '/F'], { windowsHide: true });
+                    else hijo.kill('SIGKILL');
+                } catch { /* ya no está */ }
                 clearInterval(reloj);
                 resolve(`Lo he parado: llevaba más de ${MAX_MIN} minutos sin terminar.`);
             }
@@ -955,11 +982,13 @@ async function vuelta() {
     fs.mkdirSync(DIR_PC, { recursive: true });
     const seco = bandera('seco');
     // Lo que no salió porque el WhatsApp estaba caído (el mensaje final de un trabajo, p. ej.).
-    if (!seco) { try { const n = await require('./asistente_whatsapp').vaciarBuzon(); if (n) log(`Buzón: ${n} mensaje(s) enviados con retraso.`); } catch { /* sigue caído */ } }
+    // (En el SERVIDOR el buzón lo vacía el vigía, que es quien lanza esta vuelta.)
+    if (!seco && !ES_SERVIDOR) { try { const n = await require('./asistente_whatsapp').vaciarBuzon(); if (n) log(`Buzón: ${n} mensaje(s) enviados con retraso.`); } catch { /* sigue caído */ } }
     const actual = fs.existsSync(ACTUAL) ? JSON.parse(fs.readFileSync(ACTUAL, 'utf8')) : null;
-    const estaBloqueado = bloqueado();
-    // 1. El latido: el Claude del WhatsApp lo mira para decirle a Fran si el PC está.
-    if (!seco) escribir('latido', { at: ahora(), pc: MI_PC, host: os.hostname(), bloqueado: estaBloqueado, trabajando: actual ? (actual.numero || actual.tipo) : null });
+    const estaBloqueado = ES_SERVIDOR ? false : bloqueado();
+    // 1. El latido: el Claude del WhatsApp lo mira para decirle a Fran si el PC está. El SERVIDOR no lo da:
+    //    no es un PC al que mandar una presentación.
+    if (!seco && !ES_SERVIDOR) escribir('latido', { at: ahora(), pc: MI_PC, host: os.hostname(), bloqueado: estaBloqueado, trabajando: actual ? (actual.numero || actual.tipo) : null });
     // 2. Un trabajo que se quedó sin cerrar: la vuelta que lo vigilaba murió (PC reiniciado o
     //    suspendido, sesión cerrada). Si Claude sigue vivo, se espera; si no, se cierra con lo que haya.
     if (actual) {
@@ -973,7 +1002,9 @@ async function vuelta() {
     // 3. Nada en marcha: ¿hay encargo PARA ESTE PC? (sin destino = para cualquiera; uno ya tomado por
     //    otro PC no se vuelve a coger aunque su «en curso» se perdiera al escribir la cola los dos).
     const lista = cola();
-    const candidatos = lista.filter(x => x.estado === 'pendiente' && ['presentar', 'prueba', 'ce3x', ...FIJOS].includes(x.tipo)
+    // El SERVIDOR solo coge trabajos FIJOS (sin Claude, sin Chrome): presentar y lo demás, en el PC.
+    const tipos = ES_SERVIDOR ? FIJOS : ['presentar', 'prueba', 'ce3x', ...FIJOS];
+    const candidatos = lista.filter(x => x.estado === 'pendiente' && tipos.includes(x.tipo)
         && (!x.destino || nombrePc(x.destino) === MI_PC)
         // Una oportunidad calificada puede escribirle SOLA al instalador: fuera de la franja (7 a 21 h,
         // regla 205) espera en la cola a la mañana, sin bloquear lo demás.
@@ -1035,7 +1066,7 @@ if (require.main === module) {
 module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, encolarCalificarOp, TASA, TARJETA, TRABAJOS_CE3X,
     MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt, _resultadoCalificarOp: resultadoCalificarOp,
     _abrirRevisionAlta: abrirRevisionAlta, _chatDelInstalador: chatDelInstalador, _comprobarNumero: comprobarNumero,
-    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor,
+    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor, SERVIDOR, DESTINO_CALIFICAR,
     _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
     _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar, _vuelta: vuelta, _tomar: tomar,
     _comprobarCambioDePc: comprobarCambioDePc, _notaPc: notaPc, _confirmar: confirmar, _mover: mover };

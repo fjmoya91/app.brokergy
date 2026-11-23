@@ -81,6 +81,28 @@ services:
     networks:
       - brokergy
 
+  # El MOTOR de CE3X 3.2 (su Python y su código, sin ventana) con Wine: califica un .cex en el
+  # servidor sin el PC de Fran (services/cee/cexAPdf.js → CE3X_URL). CE3X no va en el repo (es
+  # público y CE3X no tiene licencia libre): la carpeta instalada se sube UNA vez al VPS, a
+  # /opt/brokergy-ce3x/{programa,documentos} (implementation/ce3x-engine/README.md). Va en un
+  # perfil para que, sin esa carpeta, `docker compose up` no lo intente construir; deploy.sh lo
+  # construye solo si está. Se ENCIENDE con CE3X_URL=http://ce3x-engine:8096 en el .env del
+  # backend (lo leen el backend y el asistente). No publica puertos.
+  ce3x-engine:
+    profiles: ["ce3x"]
+    build:
+      context: ./implementation/ce3x-engine
+      additional_contexts:
+        oraculo: ./implementation/cee-engine/tools/oraculo_ce3x
+        ce3x_programa: ${CE3X_PROGRAMA_DIR:-/opt/brokergy-ce3x/programa}
+        ce3x_documentos: ${CE3X_DOCUMENTOS_DIR:-/opt/brokergy-ce3x/documentos}
+    container_name: brokergy-ce3x-engine
+    restart: unless-stopped
+    environment:
+      - PORT=8096
+    networks:
+      - brokergy
+
   # El asistente de Fran por WhatsApp: Claude Code sin pantalla que trabaja con los scripts de
   # la app (implementation/asistente/). Se construye SOBRE la imagen del backend, así que hay
   # que construir antes el backend. El repo va MONTADO: un `git pull` le cambia los scripts y
@@ -94,6 +116,8 @@ services:
       - NODE_ENV=production
       - BROKERGY_API_URL=http://backend:3000
       - CEE_ENGINE_URL=http://cee-engine:8080
+      # El PDF del CEE que se califica aquí (calificar_ext / calificar_op con CE3X_URL).
+      - XML2CERT_URL=http://xml2cert:8095
       # Un CEE inicial lleva más que un alta: tope de cada trabajo, en minutos.
       - ASISTENTE_PLAZO_MIN=120
       - PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-nosandbox

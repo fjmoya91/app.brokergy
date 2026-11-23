@@ -216,6 +216,19 @@ Lo que hay ahora:
 - **`deploy.sh` reconstruye el asistente si el vigía dice que está libre** (`/estado` →
   `trabajando`), y lo vuelve a mirar antes de recrearlo; si está trabajando, lo dice y no lo toca.
 
+### Y el SERVIDOR como un PC más para calificar (2026-11-23)
+
+Con `CE3X_URL` en el `.env` del VPS, `calificar_ext` y `calificar_op` se encolan con
+`destino: 'SERVIDOR'` y los hace el VPS con el servicio `ce3x-engine`, que es CE3X 3.2 con Wine. El
+vigía corre cada minuto `asistente_pc.js vuelta` con `PC_NOMBRE=SERVIDOR`. Esa vuelta:
+
+- solo coge trabajos FIJOS, nunca `presentar` ni un `ce3x` con Claude;
+- no da latido y no vacía el buzón;
+- respeta la franja.
+
+Sin la variable, todo va al PC como antes. Detalle y medidas en
+[el-motor-de-ce3x-en-el-servidor.md](docs/conocimiento/cee-generacion/el-motor-de-ce3x-en-el-servidor.md).
+
 Lo que no se arregla con código (lo hace Fran en el PC): volver a iniciar sesión en Claude Code,
 volver a habilitar la tarea programada y `git pull --ff-only` en `C:\Proyectos\brokergy-pc`.
 

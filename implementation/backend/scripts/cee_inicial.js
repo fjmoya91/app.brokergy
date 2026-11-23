@@ -3655,7 +3655,7 @@ async function rehacer() {
  */
 async function calificar() {
     if (!cexAPdf.disponible().ok) {
-        throw new Error(`En este equipo no hay CE3X 3.2 (${cexAPdf.disponible().error}): la cola se califica en el PC.`);
+        throw new Error(`En este equipo no hay CE3X 3.2 (${cexAPdf.disponible().motivo}): la cola se califica en el PC.`);
     }
     const lista = RESTO.includes('--cola')
         ? await cex.porCalificar()
@@ -3798,7 +3798,7 @@ async function listoExt(ctx, fase) {
     console.log(`\n${num} · OBRA DE LA APP DE CERTIFICADORES · CEE`);
     if (!ctx.driveFolderId) throw new Error('La obra no tiene carpeta de Drive: no hay de dónde leer ni dónde dejarlo.');
     const disp = cexAPdf.disponible();
-    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.error}): esto se hace en el PC.`);
+    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.motivo || disp.error}): esto se hace en el PC.`);
 
     // 0. El estado de la obra: una archivada no se toca; una validada por su
     //    certificador, solo con --forzar.
@@ -3890,7 +3890,7 @@ async function listo() {
     //: CREARÍA «1. CEE» en la raíz de Mi unidad (pasó en 26RES060_231).
     if (!ctx.driveFolderId) throw new Error('Sin carpeta de Drive: no hay de dónde leer ni dónde subir.');
     const disp = cexAPdf.disponible();
-    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.error}): esto se hace en el PC.`);
+    if (!disp.ok) throw new Error(`En este equipo no hay CE3X 3.2 (${disp.motivo || disp.error}): esto se hace en el PC.`);
 
     // 0. La fase en la app: lo registrado o firmado no se vuelve a dejar «listo».
     if (!esOp) {
