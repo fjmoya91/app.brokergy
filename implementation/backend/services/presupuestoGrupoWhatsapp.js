@@ -319,6 +319,19 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             return { ...out, estado };
         }
 
+        // El presupuesto de este pedido ya no existe (lo ha BORRADO o ANULADO en la app): se olvida y,
+        // con lo que sabemos, se hace uno nuevo. Si no, «cambiarlo» da «no encontrado» y el grupo solo
+        // oye «Ahora mismo no puedo hacerlo» (23/11/2026, RCA: borró el 40/26 y lo volvió a pedir).
+        if (p.presupuesto?.id && S.obtener && !S.sinGuardar) {
+            let sigue = true;
+            try { const f = await S.obtener(prescriptorId, p.presupuesto.id); sigue = !!f && f.estado !== 'ANULADO'; }
+            catch (e) { if (e.status === 404) sigue = false; else throw e; }
+            if (!sigue) {
+                for (const k of ['presupuesto', 'entrada', 'pregunta', 'opciones', 'simulacion_pedida']) delete p[k];
+                presupuestoId = null;
+            }
+        }
+
         // ── 1. El PRESUPUESTO ────────────────────────────────────────────────
         if (!p.presupuesto) {
             // 1a. El CLIENTE, antes de nada (el motor común; los textos, los de este canal).

@@ -301,6 +301,20 @@ async function hacerPlantilla() {
     const c2 = DB.clientes.find(x => x.id_cliente === creado.cliente_id);
     assert.deepStrictEqual([c2.nombre_razon_social, c2.dni], [nombre, dni], 'nombre y DNI no se corrigen por aquí');
   });
+  await prueba('crear con corregirCliente: lo dictado se IMPRIME; la ficha se corrige solo si es suya y sin obras', async () => {
+    // Juan Pérez (U4): suyo y sin obras → se corrige la ficha.
+    const a = await PI.crear({ prescriptorId: 'p-1', entrada: ENTRADA({ numero: '81/26', cliente_id: U(4), cliente: undefined }), corregirCliente: { municipio: 'Argamasilla de Alba' } });
+    assert.strictEqual(a.cliente.municipio, 'ARGAMASILLA DE ALBA');
+    assert.strictEqual(DB.clientes.find(x => x.id_cliente === U(4)).municipio, 'ARGAMASILLA DE ALBA');
+    // Juan Perez (U5) con una obra: se imprime lo dicho, la ficha NO se toca (podría ser otra persona).
+    DB.oportunidades.push({ id: 'op-u5', id_oportunidad: '26RES060_OP950', prescriptor_id: 'p-1', creador_id: 'u-rca', cliente_id: U(5), datos_calculo: { inputs: {} } });
+    const b = await PI.crear({ prescriptorId: 'p-1', entrada: ENTRADA({ numero: '82/26', cliente_id: U(5), cliente: undefined }), corregirCliente: { municipio: 'Argamasilla de Alba' } });
+    assert.strictEqual(b.cliente.municipio, 'ARGAMASILLA DE ALBA');
+    assert.strictEqual(DB.clientes.find(x => x.id_cliente === U(5)).municipio, 'TOMELLOSO');
+    DB.oportunidades.pop();
+    await PI.anular({ prescriptorId: 'p-1', id: a.id });
+    await PI.anular({ prescriptorId: 'p-1', id: b.id });
+  });
   await prueba('entradaDesdeFila → al recalcular da lo mismo (sin IVA y «con IVA» de un total redondo)', async () => {
     const fila = await PI.obtener('p-1', creado.id);
     const e = PI.entradaDesdeFila(fila);

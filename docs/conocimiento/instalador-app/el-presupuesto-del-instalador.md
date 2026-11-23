@@ -248,6 +248,17 @@ cambian QUIÉN es y van por la app, en Clientes. `queCambia` dice qué ha cambia
 burbuja lo cuenta («He cambiado localidad: Argamasilla De Alba») y, vacío, el agente contesta «Con eso el
 presupuesto 40/26 sale igual…» sin mandar el PDF. Pruebas en `test_presupuesto_grupo_whatsapp.js` y
 `test_presupuesto_instalador.js`.
+
+**REGLA — al CREAR, lo que dicta del cliente (dirección, localidad, CP, provincia, teléfono) es lo que se
+imprime; su ficha se corrige solo si es SUYA y no tiene ninguna obra.** (23/11/2026) Una ficha con obras
+encontrada solo por el nombre podría ser otra persona, así que esa no se toca: solo el PDF lleva lo dicho
+(`crear({ corregirCliente })` y `corregirFicha` en el servicio; `crearDelPedido` lo pasa, y
+`clienteDelPedido` ya no deja que la ficha pise lo dictado en el pedido).
+
+**REGLA — si el presupuesto del pedido ya no existe (BORRADO o ANULADO en la app), el pedido lo olvida y
+hace uno nuevo con lo que sabe.** (23/11/2026) RCA borró el 40/26 desde la app y volvió a pedirlo por audio
+en el mismo pedido abierto: el agente intentó CAMBIAR el borrado, recibió «Presupuesto no encontrado» y al
+grupo solo llegó «Ahora mismo no puedo hacerlo, te lo hacemos nosotros en un rato».
 4. **Simulación → se confirma la VIVIENDA**: dirección → Google → Catastro, EN SERIE (reglas 15-17,
    [viviendaCandidata.js](implementation/backend/services/viviendaCandidata.js)) → al grupo, la FOTO de la
    fachada del Catastro con «Según el Catastro es CL MURCIA 2(A), Tomelloso · vivienda de 133 m², año

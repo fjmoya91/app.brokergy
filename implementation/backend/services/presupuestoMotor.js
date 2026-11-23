@@ -135,6 +135,8 @@ function entradaDe(p, opciones, ahora) {
 // Lo del cliente que se CORRIGE al cambiar un presupuesto (en su ficha también). Nombre y DNI no:
 // cambian QUIÉN es y van por la app (presupuestoInstaladorService · CLIENTE_CORREGIBLE).
 const CLIENTE_CORREGIBLE = ['direccion', 'codigo_postal', 'municipio', 'provincia', 'tlf'];
+/** Del cliente, lo corregible que tenga escrito (lo que ha dicho el instalador). Pura. */
+const dichoDelCliente = (c) => Object.fromEntries(CLIENTE_CORREGIBLE.filter(k => limpio(c?.[k])).map(k => [k, limpio(c[k])]));
 const igual = (a, b) => limpio(a).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase()
     === limpio(b).normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
 
@@ -233,7 +235,7 @@ async function clienteDelPedido(S, { prescriptorId, usuarioId = null, p, eleccio
         const c = p.candidatos[eleccion - 1];
         if (!c) return { pregunta: 'eleccion', n: p.candidatos.length };
         const rc = await S.resolverCliente({ prescriptorId, usuarioId, clienteId: c.id });
-        p.cliente_id = idDe(rc.cliente) || c.id; p.cliente = { ...p.cliente, ...soloDatos(rc.cliente) };
+        p.cliente_id = idDe(rc.cliente) || c.id; p.cliente = { ...p.cliente, ...soloDatos(rc.cliente), ...dichoDelCliente(p.cliente) };
         delete p.candidatos; delete p.lista;
         return { listo: true };
     }
@@ -247,7 +249,7 @@ async function clienteDelPedido(S, { prescriptorId, usuarioId = null, p, eleccio
         return { pregunta: 'candidatos', candidatos: p.candidatos, lista: p.lista };
     }
     p.cliente_id = idDe(rc.cliente);
-    p.cliente = { ...c, ...soloDatos(rc.cliente) };
+    p.cliente = { ...c, ...soloDatos(rc.cliente), ...dichoDelCliente(c) };
     p.cliente_creado = !!rc.creado;
     if (!p.cliente_id) p.cliente_listo = true;      // sin guardar (modo copia / banco): con los datos tal cual
     return { listo: true };
@@ -268,16 +270,23 @@ function prepararObra(p, L) {
     return { p: q, falta: null };
 }
 
-/** Se CREA por el servicio de siempre; si su nº ya está cogido, una vez más con el sugerido. */
+/**
+ * Se CREA por el servicio de siempre; si su nº ya está cogido, una vez más con el sugerido.
+ * Lo que ha DICHO del cliente (dirección, localidad, CP, provincia, teléfono) va como
+ * `corregirCliente`: es lo que se imprime aunque su ficha diga otra cosa (23/11/2026, RCA: la ficha
+ * de Gregoria González decía «La Macía de Alba», mal oído, y él dictó «Argamasilla de Alba»).
+ */
 async function crearDelPedido(S, { prescriptorId, usuarioId = null, origen, p, op, ahora }) {
     let entrada = entradaDe(p, op, ahora);
+    const d = dichoDelCliente(p.cliente);
+    const corregirCliente = Object.keys(d).length ? d : null;
     let filaP;
     try {
-        filaP = await S.crear({ prescriptorId, usuarioId, origen, entrada });
+        filaP = await S.crear({ prescriptorId, usuarioId, origen, entrada, corregirCliente });
     } catch (e) {
         if (e.status === 409 && e.code === 'NUMERO_REPETIDO' && e.sugerido) {
             entrada = { ...entrada, numero: e.sugerido };
-            filaP = await S.crear({ prescriptorId, usuarioId, origen, entrada });
+            filaP = await S.crear({ prescriptorId, usuarioId, origen, entrada, corregirCliente });
         } else throw e;
     }
     return { filaP, entrada };

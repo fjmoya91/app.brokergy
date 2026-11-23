@@ -67,7 +67,7 @@ paths:
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21) · 14,2 KB
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-6.md` — La app del INSTALADOR, fase 6: «Tu asistente», el chat que hace el presupuesto y adelanta lo que le toca (2026-11-22) · 13,3 KB
 - `docs/conocimiento/instalador-app/catalogo-por-distribuidor.md` — El CATÁLOGO por DISTRIBUIDOR: sus marcas, la tarifa de cada uno y el pedido al comercial (2026-11-22) · 9,4 KB
-- `docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md` — El PRESUPUESTO del instalador: en su plantilla, desde la app o pidiéndolo por WhatsApp (2026-11-22) · 24,1 KB
+- `docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md` — El PRESUPUESTO del instalador: en su plantilla, desde la app o pidiéndolo por WhatsApp (2026-11-22) · 24,9 KB
 - `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21) · 9,2 KB
 - `docs/conocimiento/instalador-app/publicar-la-app-del-instalador.md` — Publicar la app del INSTALADOR (y meter al siguiente en la beta) (2026-11-21) · 12,8 KB
 
@@ -144,6 +144,10 @@ tiene y se reabre tocándolo.**
   - **REGLA — el modelo solo EXTRAE; la conversación la lleva el CÓDIGO.**
   - **REGLA — al cambiar un presupuesto, lo que el instalador CORRIGE de su cliente se escribe en SU ficha y
 sale en el PDF; y si el PDF saldría igual, no se reenvía ni se dice «actualizado».**
+  - **REGLA — al CREAR, lo que dicta del cliente (dirección, localidad, CP, provincia, teléfono) es lo que se
+imprime; su ficha se corrige solo si es SUYA y no tiene ninguna obra.**
+  - **REGLA — si el presupuesto del pedido ya no existe (BORRADO o ANULADO en la app), el pedido lo olvida y
+hace uno nuevo con lo que sabe.**
   - **REGLA — solo se atiende a los grupos de `PRESUPUESTO_WA_GRUPOS` y, dentro, a los teléfonos de la ficha
 de ese instalador y a los de `PRESUPUESTO_WA_PROBADORES`; solo se escribe al `chatId` del grupo
 configurado, jamás a un número sacado de un mensaje.**

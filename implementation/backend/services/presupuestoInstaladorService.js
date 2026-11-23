@@ -456,7 +456,7 @@ async function idsOportunidad(uuids) {
  * calcula y comprueba que el nº está libre (409 `NUMERO_REPETIDO` con `sugerido`).
  * Si la obra viene de una oportunidad suya (`entrada.obra.oportunidad`), lo liga.
  */
-async function crear({ prescriptorId, usuarioId = null, origen = 'app', entrada }) {
+async function crear({ prescriptorId, usuarioId = null, origen = 'app', entrada, corregirCliente = null }) {
     if (!prescriptorId) throw fallo('Tu cuenta no tiene empresa.', 403, { code: 'SIN_EMPRESA' });
     const { errores, fila } = await calcularEntrada(entrada);
     if (errores.length) throw fallo(errores[0], 400, { code: 'NO_VALIDO', errores });
@@ -466,6 +466,9 @@ async function crear({ prescriptorId, usuarioId = null, origen = 'app', entrada 
     }
     const rc = await resolverCliente({ prescriptorId, usuarioId, clienteId: entrada?.cliente_id || null, cliente: entrada?.cliente });
     if (!rc.cliente) throw fallo('Hay varios clientes que se parecen: elige cuál es.', 409, { code: 'CLIENTE_AMBIGUO', candidatos: rc.candidatos || [] });
+    // Lo que DICTA ahora (dirección, localidad…) es lo que se imprime; la ficha solo se corrige si
+    // no tiene obras (una ficha con obras encontrada por el nombre podría ser otra persona).
+    rc.cliente = await corregirFicha(prescriptorId, rc.cliente, corregirCliente, { soloSinObras: true });
 
     const fila2 = {
         prescriptor_id: prescriptorId, ...fila, estado: 'EMITIDO', origen: ORIGENES.includes(origen) ? origen : 'app',
@@ -491,6 +494,29 @@ async function crear({ prescriptorId, usuarioId = null, origen = 'app', entrada 
 const CLIENTE_CORREGIBLE = ['direccion', 'codigo_postal', 'municipio', 'provincia', 'tlf'];
 
 /**
+ * Los datos de `corregirCliente` (solo `CLIENTE_CORREGIBLE`) distintos de la ficha: se devuelven
+ * sobre el cliente (así se IMPRIMEN) y se escriben en su ficha si es SUYA (`prescriptor_id`) y, con
+ * `soloSinObras`, si además no tiene ninguna oportunidad. Nombre y DNI nunca.
+ */
+async function corregirFicha(prescriptorId, cliente, corregirCliente, { soloSinObras = false } = {}) {
+    if (!corregirCliente || !cliente) return cliente;
+    const t = clienteDeEntrada(corregirCliente);
+    const corregidos = {};
+    for (const k of CLIENTE_CORREGIBLE) if (t[k] && sinTildes(t[k]) !== sinTildes(cliente[k] || '')) corregidos[k] = t[k];
+    if (!Object.keys(corregidos).length) return cliente;
+    const { normalizeCliente } = require('../utils/normalization');
+    const conCorregidos = { ...cliente, ...normalizeCliente({ ...corregidos }) };
+    if (!cliente.id_cliente || String(cliente.prescriptor_id || '') !== String(prescriptorId)) return conCorregidos;
+    if (soloSinObras) {
+        const obras = ok(await supabase.from('oportunidades').select('id').eq('cliente_id', cliente.id_cliente).limit(1)) || [];
+        if (obras.length) return conCorregidos;
+    }
+    const r = await supabase.from('clientes').update(normalizeCliente(corregidos))
+        .eq('id_cliente', cliente.id_cliente).eq('prescriptor_id', prescriptorId).select(SEL_CLI).maybeSingle();
+    return ok(r) || conCorregidos;
+}
+
+/**
  * Lo cambia (mismo nº o uno libre). Uno ANULADO ya no se toca.
  * `corregirCliente`: los datos del cliente que el instalador ha CORREGIDO a propósito (solo
  * `CLIENTE_CORREGIBLE`). Esos SÍ se escriben en su ficha, aunque ya tuviera otro valor: si no,
@@ -507,16 +533,7 @@ async function actualizar({ prescriptorId, usuarioId = null, id, entrada, correg
     }
     const rc = await resolverCliente({ prescriptorId, usuarioId, clienteId: entrada?.cliente_id || (entrada?.cliente ? null : antes.cliente_id), cliente: entrada?.cliente });
     if (!rc.cliente) throw fallo('Hay varios clientes que se parecen: elige cuál es.', 409, { code: 'CLIENTE_AMBIGUO', candidatos: rc.candidatos || [] });
-    const t = clienteDeEntrada(corregirCliente || {});
-    const corregidos = {};
-    for (const k of CLIENTE_CORREGIBLE) if (t[k] && sinTildes(t[k]) !== sinTildes(rc.cliente[k] || '')) corregidos[k] = t[k];
-    if (Object.keys(corregidos).length && rc.cliente.id_cliente) {
-        const { normalizeCliente } = require('../utils/normalization');
-        // Solo SU cliente (resolverCliente ya lo ha comprobado) y solo esos campos.
-        const r = await supabase.from('clientes').update(normalizeCliente(corregidos))
-            .eq('id_cliente', rc.cliente.id_cliente).eq('prescriptor_id', prescriptorId).select(SEL_CLI).maybeSingle();
-        rc.cliente = ok(r) || { ...rc.cliente, ...corregidos };
-    }
+    rc.cliente = await corregirFicha(prescriptorId, rc.cliente, corregirCliente);
     // Lo que no es de la entrada (el vínculo con la oportunidad y su fichero) se conserva.
     const obra = { ...fila.obra, ...(antes.obra?.vinculo ? { vinculo: antes.obra.vinculo } : {}) };
     const r = await supabase.from(TABLA).update({

@@ -113,6 +113,7 @@ function entorno({ modo = 'real', guion = {}, candidatosCliente = null, previas 
 // El guion del cerebro.
 const COMPLETO = 'Hazme un presupuesto para Antonio González, 611222333, CL Murcia 2 Tomelloso. Aerotermia Panasonic WH-WXG09ME5 de 9 kW cambiando caldera de gasóleo, 9200 más IVA';
 const GREGORIA = 'presupuesto para Gregoria González, Calle Alhambra 15, La Macía de Alba, Panasonic 12 kW cambiando caldera de gasóleo, 9200 más IVA';
+const GREGORIA2 = 'Haz un presupuesto para Gregoria González que está en Argamasilla de Alba, calle Alhambra 15, 9300 más IVA, Panasonic de 12 kW, cambio de caldera de gasoil';
 const G = {
     [COMPLETO]: {
         quiere: 'presupuesto',
@@ -134,6 +135,10 @@ const G = {
     },
     'Es Argamasilla de Alba': { quiere: 'nada', cliente: { municipio: 'Argamasilla de Alba' } },
     'Está mal la localidad !!': { quiere: 'cambiar' },
+    [GREGORIA2]: {
+        quiere: 'presupuesto', cliente: { nombre: 'Gregoria', apellidos: 'González', direccion: 'Calle Alhambra 15', municipio: 'Argamasilla de Alba' },
+        obra: { tipo: 'aerotermia', equipo: { marca: 'Panasonic', potencia_kw: 12 }, caldera: { combustible: 'gasoleo' } }, importe: 9300, con_iva: false,
+    },
 };
 
 // ── Las pruebas ──────────────────────────────────────────────────────────────
@@ -249,6 +254,22 @@ prueba('«está mal» sin decir qué → el PDF saldría igual: no se reenvía n
     assert.strictEqual(e.llamadas.documento.length, 1, 'no se manda el mismo PDF otra vez');
     const t = e.llamadas.texto.at(-1).t;
     assert.ok(/sale igual/.test(t) && /localidad/.test(t) && !/actualizado/.test(t), t);
+});
+
+prueba('el presupuesto del pedido se BORRÓ en la app → el nuevo audio hace otro (no «no puedo»), con la localidad dictada', async () => {
+    const e = entorno({ guion: G });
+    await e.decir(GREGORIA);
+    assert.strictEqual(e.llamadas.crear.length, 1);
+    // Lo borra desde la app: ya no está.
+    e.deps.presupuestos.obtener = async () => { throw Object.assign(new Error('Presupuesto no encontrado.'), { status: 404 }); };
+    const r = await e.decir(GREGORIA2);
+    assert.ok(!r.error && !e.llamadas.avisos.length, JSON.stringify(r));
+    assert.strictEqual(e.llamadas.actualizar.length, 0, 'no se intenta cambiar el borrado');
+    assert.strictEqual(e.llamadas.crear.length, 2);
+    assert.strictEqual(e.llamadas.crear[1].entrada.total, '9300');
+    assert.strictEqual(e.llamadas.crear[1].corregirCliente?.municipio, 'Argamasilla de Alba', 'lo dictado se imprime aunque la ficha diga otra cosa');
+    assert.strictEqual(e.llamadas.documento.length, 2);
+    assert.ok(!/actualizado/.test(e.llamadas.documento[1].o.textoDespues), e.llamadas.documento[1].o.textoDespues);
 });
 
 prueba('simulación → foto + pregunta; «sí» → encargo con la RC y texto del CÓDIGO', async () => {
