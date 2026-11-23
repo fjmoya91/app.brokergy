@@ -2,7 +2,8 @@
 // La ficha del instalador en brokergy.es («Encuentra tu instalador»): sus fotos con
 // su estado (publicada · en revisión · «no vale» con su motivo), sus textos (los
 // vigentes y los que esperan revisión) y lo que sale solo (obras, ayuda media,
-// marcas). NADA se publica desde aquí: lo propone y lo revisa BROKERGY.
+// marcas). NADA se publica desde aquí: lo propone y lo revisa BROKERGY. La PORTADA
+// (fase 8) sí la elige él sin otra revisión: solo entre las ya publicadas.
 // Los envíos, con el popup de la casa (`alSubir` → SendActionOverlay).
 import React, { useEffect, useRef, useState } from 'react';
 import { Icono, Esqueleto, AvisoError, eur, iniciales, useHojaTeclado } from '../ui/piezas';
@@ -108,20 +109,31 @@ function Fotos({ d, onAbrir, onElegir, onSubir }) {
     const fotos = d.fotos || [];
     const r = d.resumen_fotos || {};
     const noValen = fotos.filter((f) => f.estado === 'no_vale');
+    const portada = fotos.find((f) => f.portada);
     return (
         <section className="ia-card ia-pg-sec ia-entra" aria-labelledby="ia-pg-fotos">
             <div className="ia-pg-tit">
                 <p id="ia-pg-fotos" className="ia-eyebrow">Tus fotos</p>
                 {fotos.length > 0 && <span>{[r.publicadas && `${r.publicadas} ${r.publicadas === 1 ? 'publicada' : 'publicadas'}`, r.revision && `${r.revision} en revisión`].filter(Boolean).join(' · ') || (fotos.length === 1 ? '1 foto' : `${fotos.length} fotos`)}</span>}
             </div>
+            {portada && (
+                <button type="button" className="ia-portada" onClick={() => onAbrir(portada)} aria-label="Tu portada: cambiarla">
+                    <img src={portada.miniatura} alt="" loading="lazy" />
+                    <span>
+                        <b>Tu portada</b>
+                        <small>{portada.portada === 'elegida' ? 'La has elegido tú. Es la foto grande que abre tu página.' : 'Sale sola: tu primera foto de después. Toca una foto publicada para elegir otra.'}</small>
+                    </span>
+                </button>
+            )}
             {fotos.length ? (
                 <div className="ia-rejilla">
                     {fotos.map((f) => {
                         const c = CHIP_FOTO[f.estado] || CHIP_FOTO.revision;
                         return (
                             <button key={f.id} type="button" className="ia-foto" onClick={() => onAbrir(f)}
-                                aria-label={`Foto ${f.fase === 'antes' ? 'de antes' : 'de después'}${f.municipio ? ` en ${f.municipio}` : ''}: ${c[0].toLowerCase()}`}>
+                                aria-label={`Foto ${f.fase === 'antes' ? 'de antes' : 'de después'}${f.municipio ? ` en ${f.municipio}` : ''}: ${c[0].toLowerCase()}${f.portada ? ', es tu portada' : ''}`}>
                                 <img src={f.miniatura} alt="" loading="lazy" />
+                                {f.portada && <span className="ia-foto-port">Portada</span>}
                                 <span className={`ia-foto-chip ${c[1]}`}>{c[0]}</span>
                             </button>
                         );
@@ -148,10 +160,19 @@ function Fotos({ d, onAbrir, onElegir, onSubir }) {
     );
 }
 
-// ── La hoja de una foto: grande, su estado, su motivo y «Quitar» ─────────────
+// ── La hoja de una foto: grande, su estado, su motivo, la portada y «Quitar» ──
 function HojaFoto({ foto, api, alSubir, onCerrar, onHecho }) {
     const hojaRef = useHojaTeclado(onCerrar);
     const c = CHIP_FOTO[foto.estado] || CHIP_FOTO.revision;
+    const elegida = foto.portada === 'elegida';
+    // Elegirla la fija; quitarla («Que la elija sola») vuelve a la primera de después.
+    const portada = async (fotoId) => {
+        try {
+            await alSubir({ enviando: 'Cambiando tu portada…', ok: fotoId ? '¡Ya es tu portada!' : 'Portada automática',
+                subtitulo: fotoId ? 'Es la foto grande que abre tu página. Sale en la web en unos minutos.' : 'Saldrá sola tu primera foto de después.' })(() => api.ponerPortada(fotoId));
+            onHecho();
+        } catch { /* el popup lo dice */ }
+    };
     const quitar = async () => {
         try {
             await alSubir({ enviando: 'Quitando la foto…', ok: 'Foto quitada', subtitulo: foto.estado === 'publicada' ? 'Ya no sale en tu página.' : 'Ya no la revisamos.' })(() => api.retirarFoto(foto.id));
@@ -170,7 +191,12 @@ function HojaFoto({ foto, api, alSubir, onCerrar, onHecho }) {
                 </div>
                 {foto.estado === 'no_vale' && <div className="ia-aviso tu" style={{ marginBottom: 10 }}><b>Por qué no vale:</b> {foto.motivo || 'no nos ha servido para publicarla.'}</div>}
                 {foto.estado === 'revision' && <p className="ia-pequeno" style={{ margin: '0 2px 10px' }}>La estamos mirando. Tarda un día.</p>}
+                {foto.portada && <p className="ia-pequeno" style={{ margin: '0 2px 10px' }}>{elegida ? 'Es tu portada: la foto grande que abre tu página.' : 'Ahora es tu portada porque es tu primera foto de después.'}</p>}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {foto.estado === 'publicada' && !elegida && (
+                        <button type="button" className="ia-btn ia-btn-pri" onClick={() => portada(foto.id)}><Icono n="camara" size={20} /> {foto.portada ? 'Dejar siempre esta de portada' : 'Poner de portada'}</button>
+                    )}
+                    {elegida && <button type="button" className="ia-btn ia-btn-sec" onClick={() => portada(null)}>Que la portada salga sola</button>}
                     <button type="button" className="ia-btn ia-btn-sec" onClick={quitar}>Quitar de mi página</button>
                     <button type="button" className="ia-btn ia-btn-sec" onClick={onCerrar}>Volver</button>
                 </div>

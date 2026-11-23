@@ -687,6 +687,9 @@ router.get('/red/:slug/pagina', async (req, res) => {
     ]);
     if (e1 || e2) throw new Error((e1 || e2).message);
     const esp = new Set(escaparate.ESPECIALIDADES.map((e) => e.id));
+    // La PORTADA (fase 8): la que eligió él (orden < 0) o la automática. Va marcada
+    // con `portada: true` en UNA sola foto; las demás no llevan la clave.
+    const portada = escaparate.portadaDe((fotos || []).map((f) => ({ ...f, estado: 'PUBLICADA' })));
     const dto = {
       slug: x.slug,
       nombre: x.nombre,
@@ -700,6 +703,7 @@ router.get('/red/:slug/pagina', async (req, res) => {
         municipio: titleCase(f.municipio) || null,
         titulo: (f.titulo_publico || '').trim() || null,
         grupo: f.par_id || f.id,
+        ...(portada && portada.id === f.id ? { portada: true } : {}),
       })),
     };
     // `no-cache` = se guarda pero se REVALIDA siempre (ETag → 304): una foto recién

@@ -4,6 +4,8 @@
 // routes/escaparateRevision.js). Rechazar pide el motivo, que el instalador lee.
 // Aprobar una foto de obra es el mismo camino que «Publicar en el escaparate» del
 // gestor. Aquí sí se ve el nº de la obra (es interno); en la web, solo el pueblo.
+// La PORTADA (fase 8) la elige el instalador desde su app; ADMIN puede cambiarla aquí
+// entre las publicadas, o devolverla a la automática (la primera «después»).
 import React, { useCallback, useEffect, useState } from 'react';
 import axios from 'axios';
 
@@ -36,6 +38,8 @@ export function RevisionEscaparate({ instaladorId, puedeResolver, onContador }) 
     };
     const aprobarFoto = (f) => accion(f.id, () => axios.post(`${B}/fotos/${f.id}/aprobar`, {}), 'Foto publicada en su página.');
     const aprobarTextos = (t) => accion(t.id, () => axios.post(`${B}/textos/${t.id}/aprobar`, {}), 'Textos publicados en su página.');
+    const ponerPortada = (fotoId) => accion(fotoId || 'portada', () => axios.put(`${B}/instalador/${instaladorId}/portada`, { fotoId: fotoId || null }),
+        fotoId ? 'Portada cambiada. Sale en su página en unos minutos.' : 'Portada automática: la primera foto de después.');
     const rechazar = () => {
         const { tipo, id, motivo } = rechazo;
         return accion(id, () => axios.post(`${B}/${tipo}/${id}/rechazar`, { motivo }), 'Rechazado. El instalador verá el motivo.');
@@ -47,6 +51,8 @@ export function RevisionEscaparate({ instaladorId, puedeResolver, onContador }) 
     const noVale = (datos.fotos || []).filter((f) => f.estado === 'NO_VALE');
     const textos = datos.textos_pendientes || [];
     const vig = datos.textos_vigentes || {};
+    const publicadas = datos.publicadas || [];
+    const portada = publicadas.find((f) => f.portada);
 
     const cajaRechazo = (tipo, id) => rechazo?.id === id && (
         <div className="mt-2 space-y-2">
@@ -112,6 +118,35 @@ export function RevisionEscaparate({ instaladorId, puedeResolver, onContador }) 
                     {cajaRechazo('textos', t.id) || botones('textos', t, aprobarTextos)}
                 </div>
             ))}
+
+            {publicadas.length > 0 && (
+                <div>
+                    <div className="flex items-baseline justify-between gap-2 mb-2">
+                        <p className="text-[10px] uppercase tracking-widest font-black text-white/40">Portada de su página</p>
+                        <p className="text-[10px] text-white/35">
+                            {portada?.portada === 'elegida' ? 'La eligió él' : 'Automática (primera de después)'}
+                            {puedeResolver && portada?.portada === 'elegida' && (
+                                <> · <button type="button" disabled={!!ocupado} onClick={() => ponerPortada(null)} className="underline hover:text-white disabled:opacity-40">volver a la automática</button></>
+                            )}
+                        </p>
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                        {publicadas.map((f) => {
+                            const es = f.portada;
+                            const Tag = puedeResolver && !es ? 'button' : 'div';
+                            return (
+                                <Tag key={f.id} {...(Tag === 'button' ? { type: 'button', disabled: !!ocupado, onClick: () => ponerPortada(f.id), title: 'Poner de portada' } : {})}
+                                    className={`relative shrink-0 w-[72px] aspect-[4/5] rounded-lg overflow-hidden bg-white/5 ${es ? 'ring-2 ring-orange-400' : 'opacity-70 hover:opacity-100'} disabled:opacity-40`}>
+                                    <img src={f.miniatura} alt="" loading="lazy" className="w-full h-full object-cover" />
+                                    {es && <span className="absolute left-1 top-1 px-1.5 py-0.5 rounded bg-orange-400 text-black text-[8px] font-black uppercase">Portada</span>}
+                                    {ocupado === f.id && <span className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xs">…</span>}
+                                </Tag>
+                            );
+                        })}
+                    </div>
+                    {puedeResolver && <p className="text-[10px] text-white/30 mt-1">Toca otra foto para ponerla de portada. Normalmente la elige el instalador desde su app.</p>}
+                </div>
+            )}
 
             {noVale.length > 0 && (
                 <p className="text-[11px] text-white/30">{noVale.length === 1 ? '1 foto rechazada' : `${noVale.length} fotos rechazadas`} (el instalador ve el motivo y puede quitarlas).</p>

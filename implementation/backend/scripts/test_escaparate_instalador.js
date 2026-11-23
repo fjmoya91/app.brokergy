@@ -108,7 +108,9 @@ function qb(table) {
     }
     if (st.op === 'update') { for (const r of filas()) Object.assign(r, JSON.parse(JSON.stringify(st.payload))); return { data: null, error: null }; }
     if (st.op === 'delete') { const fuera = new Set(filas()); DB[table] = (DB[table] || []).filter((r) => !fuera.has(r)); return { data: null, error: null }; }
-    let rows = filas().map((r) => proyectar(table, r, st.sel));
+    let base = filas();
+    if (st.orden) base = [...base].sort((a, z) => { for (const [c, asc] of st.orden) { const x = get(a, c) ?? 0, y = get(z, c) ?? 0; if (x < y) return asc ? -1 : 1; if (x > y) return asc ? 1 : -1; } return 0; });
+    let rows = base.map((r) => proyectar(table, r, st.sel));
     if (st.hasta != null) rows = rows.slice(st.desde, st.hasta + 1);
     if (st.limit) rows = rows.slice(0, st.limit);
     return { data: rows, error: null };
@@ -124,6 +126,8 @@ function qb(table) {
     if (k === 'in') return (c, vs) => { st.filtros.push((r) => vs.map(String).includes(String(get(r, c)))); return b; };
     if (k === 'not') return (c, op, v) => { st.filtros.push((r) => (op === 'is' && v === null ? get(r, c) != null : true)); return b; };
     if (k === 'or') return (e) => { const ps = e.split(',').map((p) => p.match(/^([\w>-]+)\.eq\.(.*)$/)).filter(Boolean); st.filtros.push((r) => ps.some((m) => String(get(r, m[1])) === m[2])); return b; };
+    if (k === 'lt') return (c, v) => { st.filtros.push((r) => get(r, c) != null && Number(get(r, c)) < Number(v)); return b; };
+    if (k === 'order') return (c, o = {}) => { (st.orden = st.orden || []).push([c, o.ascending !== false]); return b; };
     if (k === 'limit') return (n) => { st.limit = n; return b; };
     if (k === 'range') return (a, z) => { st.desde = a; st.hasta = z; return b; };
     return () => b;
@@ -301,7 +305,7 @@ const srv = app.listen(0, async () => {
     r = await pedir('GET', '/api/public/marketplace/red/rca/pagina');
     ok(r.status === 200, 'GET /red/rca/pagina (sin sesión) → 200', r.body);
     ok(JSON.stringify(Object.keys(r.body).sort()) === JSON.stringify(['especialidades', 'fotos', 'nombre', 'presentacion', 'pueblos', 'slug']), 'solo las claves de la lista blanca', Object.keys(r.body));
-    ok((r.body.fotos || []).every((f) => JSON.stringify(Object.keys(f).sort()) === JSON.stringify(['actuacion', 'fase', 'grupo', 'municipio', 'titulo', 'url'])), 'cada foto, solo sus claves de la lista blanca', r.body.fotos?.[0]);
+    ok((r.body.fotos || []).every((f) => JSON.stringify(Object.keys(f).filter((k) => k !== 'portada').sort()) === JSON.stringify(['actuacion', 'fase', 'grupo', 'municipio', 'titulo', 'url']) && (f.portada === undefined || f.portada === true)), 'cada foto, solo sus claves de la lista blanca (y `portada: true` en una)', r.body.fotos?.[0]);
     const urls = (r.body.fotos || []).map((f) => f.url);
     ok(urls.length === 2 && urls.includes(`/api/public/marketplace/foto/${F(1)}`) && urls.includes(`/api/public/marketplace/foto/${F(2)}`), 'salen las dos PUBLICADAS', urls);
     ok(![F(4), F(5), 'drive-despues-1234'].some((x) => r.txt.includes(x)) && !DB.instalador_fotos_escaparate.filter((f) => f.estado !== 'PUBLICADA').some((f) => r.txt.includes(f.id)), 'ninguna en revisión ni rechazada', urls);
@@ -319,6 +323,37 @@ const srv = app.listen(0, async () => {
     ok(r.status === 404, 'la foto pública de una RECHAZADA → 404', r.status);
     r = await pedir('GET', `/api/public/marketplace/foto/${F(1)}`);
     ok(r.status === 200, 'la foto pública de una PUBLICADA → 200', r.status);
+
+    // ── 9.b La PORTADA (fase 8): la elige él entre sus publicadas; sin elegir, la 1.ª «después» ──
+    const portadaApi = async () => { esc._olvidarRed(); const x = await pedir('GET', '/api/public/marketplace/red/rca/pagina'); return (x.body.fotos || []).filter((f) => f.portada).map((f) => f.url.split('/').pop()); };
+    ok(JSON.stringify(await portadaApi()) === JSON.stringify([F(1)]), 'sin elegir: portada automática = la primera «después» (y solo UNA marcada)', await portadaApi());
+    r = await pedir('GET', '/api/instalador-app/escaparate', { tok: 'tok-rca' });
+    ok(r.body.fotos.find((f) => f.id === F(1))?.portada === 'automatica' && r.body.fotos.filter((f) => f.portada).length === 1, 'en su app: esa foto sale como portada «automática»', r.body.fotos.map((f) => [f.id.slice(-2), f.portada]));
+    r = await pedir('PUT', '/api/instalador-app/escaparate/portada', { json: { fotoId: F(2) } });
+    ok(r.status === 401, 'poner portada sin sesión → 401', r.status);
+    r = await pedir('PUT', '/api/instalador-app/escaparate/portada', { tok: 'tok-rca', json: { fotoId: F(5) } });
+    ok(r.status === 404 && !(Number(fila(F(5)).orden) < 0), 'la foto de OTRO instalador no puede ser su portada → 404', r.body);
+    r = await pedir('PUT', '/api/instalador-app/escaparate/portada', { tok: 'tok-rca', json: { fotoId: F(4) } });
+    ok(r.status === 409 && r.body.code === 'FOTO_NO_PUBLICADA', 'una foto no publicada (rechazada o en revisión) → 409 FOTO_NO_PUBLICADA', r.body);
+    r = await pedir('PUT', '/api/instalador-app/escaparate/portada', { tok: 'tok-rca', json: { fotoId: F(2) } });
+    ok(r.status === 200 && fila(F(2)).orden === esc.ORDEN_PORTADA, 'elige una suya publicada → 200 (orden = -1), sin pasar por revisión', fila(F(2)));
+    let pa = await portadaApi();
+    ok(JSON.stringify(pa) === JSON.stringify([F(2)]), 'la API pública marca la ELEGIDA (aunque sea un «antes»), y solo esa', pa);
+    esc._olvidarRed();
+    r = await pedir('GET', '/api/public/marketplace/red/rca/pagina');
+    ok(r.body.fotos[0].url.endsWith(F(2)), 'y la da la primera de la lista', r.body.fotos.map((f) => f.url.slice(-2)));
+    r = await pedir('GET', '/api/instalador-app/escaparate', { tok: 'tok-rca' });
+    ok(r.body.fotos.find((f) => f.id === F(2))?.portada === 'elegida', 'en su app sale como «elegida»', r.body.fotos.map((f) => [f.id.slice(-2), f.portada]));
+    r = await pedir('PUT', '/api/escaparate-revision/instalador/' + P1 + '/portada', { tok: 'tok-trab', json: { fotoId: F(1) } });
+    ok(r.status === 403 && fila(F(2)).orden === esc.ORDEN_PORTADA, 'cambiarla desde el CRM sin ser ADMIN → 403', r.status);
+    r = await pedir('GET', `/api/escaparate-revision/instalador/${P1}`, { tok: 'tok-trab' });
+    ok(r.status === 200 && (r.body.publicadas || []).length === 2 && r.body.publicadas.find((f) => f.id === F(2))?.portada === 'elegida', 'la ficha del CRM lista sus publicadas con la portada', r.body.publicadas);
+    r = await pedir('PUT', '/api/escaparate-revision/instalador/' + P1 + '/portada', { tok: 'tok-admin', json: { fotoId: F(1) } });
+    ok(r.status === 200 && fila(F(1)).orden === esc.ORDEN_PORTADA && fila(F(2)).orden === 0, 'ADMIN la cambia desde el CRM: una sola portada (la anterior vuelve a 0)', [fila(F(1)).orden, fila(F(2)).orden]);
+    r = await pedir('PUT', '/api/instalador-app/escaparate/portada', { tok: 'tok-rca', json: { fotoId: null } });
+    ok(r.status === 200 && !DB.instalador_fotos_escaparate.some((f) => f.instalador_id === P1 && Number(f.orden) < 0), 'fotoId null → se quita y vuelve la automática', DB.instalador_fotos_escaparate.map((f) => f.orden));
+    ok(JSON.stringify(await portadaApi()) === JSON.stringify([F(1)]), 'la automática otra vez', await portadaApi());
+    ok(!Number(fila(F(5)).orden), 'la de OTRO instalador no se ha tocado nunca', fila(F(5)).orden);
 
     // ── 10. NO REGRESIÓN del escaparate antiguo (galería por slug y el botón del gestor) ──
     reiniciar();

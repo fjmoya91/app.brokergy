@@ -112,6 +112,7 @@ export function apiReal(axios) {
             return axios.post(`${B}/escaparate/fotos/subir`, form).then((r) => r.data);
         },
         retirarFoto: (id) => axios.delete(`${B}/escaparate/fotos/${e(id)}`).then((r) => r.data),
+        ponerPortada: (fotoId) => axios.put(`${B}/escaparate/portada`, { fotoId: fotoId || null }).then((r) => r.data),
         guardarTextos: (cuerpo) => axios.put(`${B}/escaparate/textos`, cuerpo).then((r) => r.data),
         // ── Fase 4: el catálogo con tarifas ──
         catalogo: () => axios.get(`${B}/catalogo`).then((r) => r.data),

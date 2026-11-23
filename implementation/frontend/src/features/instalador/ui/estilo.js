@@ -338,6 +338,12 @@ export const CSS = `
 .ia-foto-chip.rev{background:var(--ambar-bg);color:var(--ambar-txt)}
 .ia-foto-chip.no{background:var(--tinta);color:#fff}
 .ia-foto-chip.est{position:static;flex:none}
+.ia-foto-port{position:absolute;left:6px;top:6px;min-height:22px;padding:0 8px;border-radius:999px;display:inline-flex;align-items:center;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;background:var(--naranja);color:#08090c}
+.ia-portada{display:flex;align-items:center;gap:12px;width:100%;padding:8px;border:0;border-radius:16px;background:var(--crema);text-align:left;cursor:pointer;color:inherit;font:inherit}
+.ia-portada img{flex:none;width:76px;height:95px;border-radius:12px;object-fit:cover;background:var(--neutro)}
+.ia-portada>span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ia-portada b{font-size:15px}
+.ia-portada small{font-size:13px;line-height:1.35;color:var(--gris)}
 .ia-foto-fase{position:absolute;left:6px;top:6px;min-height:22px;padding:0 7px;border-radius:999px;display:inline-flex;align-items:center;font-size:10px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;background:rgba(255,255,255,.92);color:var(--tinta)}
 .ia-foto-check{position:absolute;right:6px;top:6px;width:26px;height:26px;border-radius:999px;border:2px solid #fff;background:rgba(20,17,17,.25);display:flex;align-items:center;justify-content:center;color:#08090c}
 .ia-foto.sel .ia-foto-check{background:var(--naranja);border-color:var(--naranja)}

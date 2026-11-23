@@ -213,6 +213,57 @@ async function slugDeInstalador(instaladorId) {
     return x ? { slug: x.slug, sale: !x.oculto } : { slug: null, sale: false };
 }
 
+// ── 3.b La PORTADA de su página (fase 8, Fran 23/11/2026) ─────────────────────
+// La foto grande que abre su ficha de brokergy.es y la que sale al compartir el
+// enlace. La ELIGE el instalador desde su app (o el equipo desde el CRM) entre sus
+// fotos YA publicadas: no pasa otra revisión. Se guarda en la columna `orden` que ya
+// existía (DEFAULT 0, nadie la escribía): la portada es la foto con `orden` < 0
+// (ORDEN_PORTADA). Así no hay SQL que aplicar y la API pública, que ordena por
+// `orden`, la da la primera. Sin elegir: la primera «después» en ese mismo orden; si
+// no hay, la primera. Fuente única de esa regla: `portadaDe` (la usan la API pública
+// y «Tu página web»; la web la repite solo si una API vieja no la marca).
+const ORDEN_PORTADA = -1;
+const esPublicada = (f) => f && f.estado === 'PUBLICADA' && f.consentimiento_cliente !== false;
+/**
+ * De las fotos de un instalador (en el orden de la API: `orden` y luego las más
+ * nuevas), cuál es la portada: `{ id, elegida }` o null si no hay ninguna publicada.
+ * `fase` admite 'DESPUES' (BD) o 'despues' (API).
+ */
+function portadaDe(fotos = []) {
+    const pub = (fotos || []).filter(esPublicada);
+    if (!pub.length) return null;
+    const elegida = pub.find((f) => Number(f.orden) < 0);
+    if (elegida) return { id: elegida.id, elegida: true };
+    const despues = pub.find((f) => String(f.fase || '').toUpperCase() === 'DESPUES');
+    return { id: (despues || pub[0]).id, elegida: false };
+}
+/**
+ * Pone de portada la foto `fotoId` del instalador `instaladorId` (null = quitarla y
+ * volver a la automática). Solo una foto SUYA y PUBLICADA. Primero quita la marca a
+ * las demás y luego la pone (si lo segundo falla, queda la automática, nunca dos).
+ * Devuelve `{ ok, portada }` o `{ status, error, code }`. Lanza si la BD falla.
+ */
+async function ponerPortada(instaladorId, fotoId) {
+    if (!instaladorId) return { status: 403, error: 'Sin empresa.', code: 'SIN_EMPRESA' };
+    if (fotoId != null) {
+        if (!/^[0-9a-f-]{36}$/i.test(String(fotoId))) return { status: 404, error: 'Foto no encontrada', code: 'FOTO_NO_ENCONTRADA' };
+        const { data: f, error } = await supabase.from('instalador_fotos_escaparate')
+            .select('id, instalador_id, estado, consentimiento_cliente').eq('id', fotoId).maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!f || String(f.instalador_id) !== String(instaladorId)) return { status: 404, error: 'Foto no encontrada', code: 'FOTO_NO_ENCONTRADA' };
+        if (!esPublicada(f)) return { status: 409, error: 'Solo puede ser portada una foto ya publicada en tu página.', code: 'FOTO_NO_PUBLICADA' };
+    }
+    const { error: e1 } = await supabase.from('instalador_fotos_escaparate').update({ orden: 0 })
+        .eq('instalador_id', instaladorId).lt('orden', 0);
+    if (e1) throw new Error(e1.message);
+    if (fotoId != null) {
+        const { error: e2 } = await supabase.from('instalador_fotos_escaparate').update({ orden: ORDEN_PORTADA })
+            .eq('id', fotoId).eq('instalador_id', instaladorId);
+        if (e2) throw new Error(e2.message);
+    }
+    return { ok: true, portada: fotoId || null };
+}
+
 // ── 4. Los avisos (APAGADOS en la fase 3) ────────────────────────────────────
 const avisosEncendidos = (env = process.env) => String(env.ESCAPARATE_AVISOS_ENABLED || '').toLowerCase() === 'true';
 /**
@@ -261,5 +312,6 @@ module.exports = {
     faseDeSlot, actuacionDeSlot, escaparateContext, publicarFotoDeObra,
     ESPECIALIDADES, MAX_PRESENTACION, MAX_PUEBLOS, validarTextos, textoProhibido,
     redDeInstaladores, slugDeInstalador, slugDe, _olvidarRed,
+    ORDEN_PORTADA, portadaDe, ponerPortada,
     avisoEscaparate, avisosEncendidos, bytesDeFoto, tipoImagen,
 };

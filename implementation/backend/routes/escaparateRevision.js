@@ -52,15 +52,21 @@ router.get('/instalador/:id', staffOnly, async (req, res) => {
     if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Instalador no encontrado' });
     try {
         const id = req.params.id;
-        const [fotos, textos, presc] = await Promise.all([
+        const [fotos, textos, presc, pub] = await Promise.all([
             supabase.from('instalador_fotos_escaparate')
                 .select('id, origen, estado, motivo_rechazo, fase, actuacion, municipio, titulo_publico, permiso_cliente, permiso_cliente_at, propuesta_at, revisada_at, expediente_id, created_at')
                 .eq('instalador_id', id).in('estado', ['PENDIENTE', 'NO_VALE']).order('propuesta_at', { ascending: true }),
             supabase.from('instalador_textos_escaparate').select('id, presentacion, especialidades, pueblos, estado, motivo_rechazo, propuesto_at, revisado_at')
                 .eq('instalador_id', id).order('propuesto_at', { ascending: false }).limit(3),
             supabase.from('prescriptores').select('descripcion_publica, especialidades, zona_trabajo_publica').eq('id_empresa', id).maybeSingle(),
+            // Las publicadas, para elegir la PORTADA (fase 8), en el orden de la API pública.
+            supabase.from('instalador_fotos_escaparate').select('id, estado, consentimiento_cliente, fase, actuacion, municipio, orden, created_at')
+                .eq('instalador_id', id).eq('estado', 'PUBLICADA').eq('consentimiento_cliente', true)
+                .order('orden', { ascending: true }).order('created_at', { ascending: false }).limit(60),
         ]);
         const fs = err(fotos) || [];
+        const publicadas = err(pub) || [];
+        const portada = esc.portadaDe(publicadas);
         // El nº de obra solo lo ve el equipo interno, aquí, para saber de dónde sale la foto.
         const expIds = [...new Set(fs.map((f) => f.expediente_id).filter(Boolean))];
         const exps = expIds.length ? err(await supabase.from('expedientes').select('id, numero_expediente').in('id', expIds)) : [];
@@ -75,6 +81,10 @@ router.get('/instalador/:id', staffOnly, async (req, res) => {
                 propuesta_at: f.propuesta_at || f.created_at, revisada_at: f.revisada_at,
                 obra: f.expediente_id ? numDe.get(f.expediente_id) || null : null, miniatura: miniaturaEsc(f.id, l),
             })),
+            publicadas: publicadas.map((f) => ({
+                id: f.id, fase: f.fase, actuacion: f.actuacion, municipio: f.municipio, miniatura: miniaturaEsc(f.id, l),
+                portada: portada && portada.id === f.id ? (portada.elegida ? 'elegida' : 'automatica') : null,
+            })),
             textos_pendientes: ts.filter((t) => t.estado === 'PENDIENTE'),
             textos_ultimo: ts.find((t) => t.estado !== 'PENDIENTE') || null,
             textos_vigentes: { presentacion: p.descripcion_publica || '', especialidades: p.especialidades || [], pueblos: p.zona_trabajo_publica || [] },
@@ -82,6 +92,22 @@ router.get('/instalador/:id', staffOnly, async (req, res) => {
     } catch (e) {
         console.error('[escaparate-revision] instalador:', e.message);
         res.status(503).json(NO_DISPONIBLE);
+    }
+});
+
+// PUT /instalador/:id/portada { fotoId } → cambia la PORTADA de su página (fase 8).
+// La elige el instalador desde su app; el equipo la puede cambiar aquí. `null` = la
+// automática. Solo ADMIN, como aprobar.
+router.put('/instalador/:id/portada', adminOnly, async (req, res) => {
+    if (!UUID_RE.test(req.params.id)) return res.status(404).json({ error: 'Instalador no encontrado' });
+    try {
+        const fotoId = req.body?.fotoId == null || req.body.fotoId === '' ? null : String(req.body.fotoId);
+        const r = await esc.ponerPortada(req.params.id, fotoId);
+        if (r.error) return res.status(r.status || 400).json({ error: r.error, code: r.code });
+        res.json(r);
+    } catch (e) {
+        console.error('[escaparate-revision] portada:', e.message);
+        res.status(503).json({ error: 'No se ha podido cambiar la portada. Vuelve a intentarlo.' });
     }
 });
 

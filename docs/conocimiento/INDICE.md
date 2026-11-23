@@ -27,7 +27,7 @@
 | `general` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 8 |
 | `informes` | Informes técnicos — `{AAAA}INF_{n}`: memorias, legalizaciones, todo lo que no es CAE ni CEE | `.claude/rules/informes.md` · 4,7 KB | 1 |
 | `infra` | Infraestructura — Gemini (nivel de pago), lectores con IA, Drive, email y servidor | `.claude/rules/infra.md` · 2,6 KB | 2 |
-| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 36,8 KB | 10 |
+| `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 38,6 KB | 11 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 19,6 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 37,3 KB | 12 |
@@ -331,6 +331,7 @@
 - **241** → `.claude/rules/instalador-app.md` — «Tu asistente»: el presupuesto se hace por el MISMO motor desde el grupo de WhatsApp y desde el chat de la a…
 - **242** → `.claude/rules/claude-automatizacion.md` — Una OPORTUNIDAD con el bono bajo se califica en el PC con un trabajo FIJO y el instalador recibe la cifra SOLO
 - **242** → `.claude/rules/transversal-backend.md` — Una entrada al historial del expediente se añade con `anadirAlHistorial` ([utils/historialExpediente.js](imp…
+- **243** → `.claude/rules/instalador-app.md` — La PORTADA de la ficha de brokergy.es la elige el instalador entre sus fotos PUBLICADAS, sin otra revisión, …
 
 ## Documentos por área
 
@@ -644,6 +645,7 @@
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-4.md` — La app del INSTALADOR, fase 4: el CATÁLOGO de aerotermia con TARIFAS (2026-11-21)
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-5.md` — La app del INSTALADOR, fase 5: pulida, recordando dónde estás, instalable y con su marca (2026-11-21)
 - `docs/conocimiento/instalador-app/app-del-instalador-fase-6.md` — La app del INSTALADOR, fase 6: «Tu asistente», el chat que hace el presupuesto y adelanta lo que le toca (2026-11-22)
+- `docs/conocimiento/instalador-app/app-del-instalador-fase-8.md` — La app del INSTALADOR, fase 8: la PORTADA que elige él y su ficha de brokergy.es, solo suya (2026-11-23)
 - `docs/conocimiento/instalador-app/catalogo-por-distribuidor.md` — El CATÁLOGO por DISTRIBUIDOR: sus marcas, la tarifa de cada uno y el pedido al comercial (2026-11-22)
 - `docs/conocimiento/instalador-app/el-presupuesto-del-instalador.md` — El PRESUPUESTO del instalador: en su plantilla, desde la app o pidiéndolo por WhatsApp (2026-11-22)
 - `docs/conocimiento/instalador-app/la-ficha-de-la-obra-para-toda-obra.md` — La ficha de la OBRA es la misma con expediente y sin él, y la propuesta se ve y se pasa desde dentro (2026-11-21)

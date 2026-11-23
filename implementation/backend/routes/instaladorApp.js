@@ -784,7 +784,15 @@ router.get('/escaparate', enforceAuth, soloBetaInstalador, async (req, res) => {
         let red = { slug: null, sale: false };
         try { red = await esc.slugDeInstalador(empresa); } catch (e) { console.warn('[instalador-app] escaparate red:', e.message); }
         const l = llaveDeEscaparate(empresa);
-        const listaFotos = (fotos.data || []).map((f) => fotoParaApp(f, l));
+        // La portada (fase 8): la regla de la API pública, sobre SUS fotos publicadas en
+        // el mismo orden que la API (`orden` y luego las más nuevas).
+        const enOrdenApi = [...(fotos.data || [])].sort((a, b) => (Number(a.orden) || 0) - (Number(b.orden) || 0)
+            || String(b.created_at || '').localeCompare(String(a.created_at || '')));
+        const portada = esc.portadaDe(enOrdenApi.map((f) => ({ ...f, consentimiento_cliente: true })));
+        const listaFotos = (fotos.data || []).map((f) => ({
+            ...fotoParaApp(f, l),
+            portada: portada && portada.id === f.id ? (portada.elegida ? 'elegida' : 'automatica') : null,
+        }));
         const ts = textos.data || [];
         const enRevision = ts.find((t) => t.estado === 'PENDIENTE') || null;
         const ultimoResuelto = ts.find((t) => t.estado !== 'PENDIENTE') || null;
@@ -1031,6 +1039,22 @@ router.put('/escaparate/textos', enforceAuth, soloBetaInstalador, async (req, re
     } catch (e) {
         console.error('[instalador-app] escaparate textos:', e.message);
         res.status(503).json(NO_DISPONIBLE_PAGINA);
+    }
+});
+
+// PUT /escaparate/portada { fotoId } → la foto que abre su página (fase 8). Solo una
+// foto SUYA y ya PUBLICADA (no pasa otra revisión: ya está aprobada). `fotoId: null`
+// la quita y vuelve la automática (la primera «después»).
+router.put('/escaparate/portada', enforceAuth, soloBetaInstalador, async (req, res) => {
+    const empresa = soloEmpresa(req, res); if (!empresa) return;
+    try {
+        const fotoId = req.body?.fotoId == null || req.body.fotoId === '' ? null : String(req.body.fotoId);
+        const r = await esc.ponerPortada(empresa, fotoId);
+        if (r.error) return res.status(r.status || 400).json({ error: r.error, code: r.code });
+        res.json(r);
+    } catch (e) {
+        console.error('[instalador-app] escaparate portada:', e.message);
+        res.status(503).json({ error: 'No hemos podido cambiar la portada. Vuelve a intentarlo.', code: 'PORTADA_UNAVAILABLE' });
     }
 });
 

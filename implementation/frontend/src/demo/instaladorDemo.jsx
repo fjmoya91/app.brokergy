@@ -740,6 +740,7 @@ const api = {
         });
     }),
     retirarFoto: (id) => envia(() => { ESC.fotos = ESC.fotos.filter((f) => f.id !== id); }),
+    ponerPortada: (fotoId) => envia(() => { ESC.portada = fotoId || null; }),
     guardarTextos: (cuerpo) => {
         const todo = `${cuerpo.presentacion || ''} ${cuerpo.pueblos || ''}`;
         // El mismo mensaje que el servidor (services/escaparateService.js), para ver el 400.
@@ -769,6 +770,7 @@ const FOTOS_ESC = {
 const VIGENTES = { presentacion: 'Llevamos veinte años cambiando calderas por aerotermia en la comarca. Te lo dejamos funcionando y te ayudamos con los papeles.', especialidades: ['aerotermia', 'suelo_radiante'], pueblos: ['Villanueva del Campo', 'Pozo Alto'] };
 const ESC = {
     fotos: copia(FOTOS_ESC[PAGINA] || FOTOS_ESC['']),
+    portada: null, // la elegida (fase 8); sin elegir, la primera «después» publicada
     textos: {
         vigentes: PAGINA === 'vacia' ? { presentacion: '', especialidades: [], pueblos: [] } : VIGENTES,
         en_revision: PAGINA === 'textos' ? { presentacion: 'Somos una empresa familiar de Villanueva del Campo. Instalamos aerotermia y suelo radiante desde 2005.', especialidades: ['aerotermia', 'suelo_radiante', 'fotovoltaica'], pueblos: ['Villanueva del Campo', 'Pozo Alto', 'Fuentenueva'], propuesto_at: '2026-11-20T09:00:00Z' } : null,
@@ -777,6 +779,11 @@ const ESC = {
 };
 function paginaDeMentira() {
     const fotos = copia(ESC.fotos);
+    // La portada, con la misma regla que el servidor (escaparateService.portadaDe).
+    const pub = fotos.filter((f) => f.estado === 'publicada');
+    const elegida = pub.find((f) => f.id === ESC.portada);
+    const port = elegida || pub.find((f) => f.fase === 'despues') || pub[0];
+    fotos.forEach((f) => { f.portada = port && f.id === port.id ? (elegida ? 'elegida' : 'automatica') : null; });
     const vacia = PAGINA === 'vacia';
     return {
         ficha: { nombre: 'Instalaciones de Prueba, S.L.', municipio: 'Villanueva del Campo', slug: 'instalaciones-de-prueba', sale_en_web: true, url: 'https://brokergy.es/encuentra-tu-instalador/instalaciones-de-prueba/' },
@@ -813,13 +820,20 @@ const COLA = {
         { id: '22222222-2222-4222-8222-222222222222', origen: 'OBRA', estado: 'PENDIENTE', fase: 'ANTES', municipio: 'Fuentenueva', obra: '26RES060_907', permiso_cliente: true, propuesta_at: '2026-11-20T09:00:00Z', miniatura: '/api/instalador-app/escaparate/foto/c2' },
         { id: '33333333-3333-4333-8333-333333333333', origen: 'SUELTA', estado: 'PENDIENTE', fase: 'DESPUES', municipio: null, obra: null, permiso_cliente: true, propuesta_at: '2026-11-21T08:00:00Z', miniatura: '/api/instalador-app/escaparate/foto/c3' },
     ],
+    // Las publicadas, para la PORTADA (fase 8); `portada` = la elegida (null → automática).
+    publicadas: ['p1:ANTES', 'p2:DESPUES', 'p3:DESPUES', 'p4:DESPUES'].map((x) => { const [id, fase] = x.split(':'); return { id, fase, municipio: 'Villanueva del Campo', miniatura: `/api/instalador-app/escaparate/foto/${id}` }; }),
+    portada: null,
     textos: [{ id: '44444444-4444-4444-8444-444444444444', presentacion: 'Somos una empresa familiar de Villanueva del Campo. Instalamos aerotermia y suelo radiante desde 2005.', especialidades: ['aerotermia', 'suelo_radiante'], pueblos: ['Villanueva del Campo', 'Pozo Alto'], estado: 'PENDIENTE', propuesto_at: '2026-11-20T09:00:00Z' }],
 };
 async function adaptadorCola(cfg) {
     await new Promise((r) => setTimeout(r, 300));
     const resp = (data, status = 200) => ({ data, status, statusText: 'OK', headers: {}, config: cfg, request: {} });
     if (FALLO && cfg.method !== 'get') return Promise.reject(Object.assign(new Error('500'), { response: resp({ error: 'En el banco, con ?fallo=1, todo falla.' }, 500) }));
-    if (cfg.method === 'get') return resp({ fotos: copia(COLA.fotos), textos_pendientes: copia(COLA.textos.filter((x) => x.estado === 'PENDIENTE')), textos_ultimo: null, textos_vigentes: VIGENTES });
+    if (cfg.method === 'put' && /\/portada$/.test(cfg.url)) { COLA.portada = JSON.parse(cfg.data || '{}').fotoId || null; return resp({ ok: true, portada: COLA.portada }); }
+    const elegida = COLA.publicadas.find((f) => f.id === COLA.portada);
+    const port = elegida || COLA.publicadas.find((f) => f.fase === 'DESPUES') || COLA.publicadas[0];
+    const publicadas = COLA.publicadas.map((f) => ({ ...f, portada: port && f.id === port.id ? (elegida ? 'elegida' : 'automatica') : null }));
+    if (cfg.method === 'get') return resp({ fotos: copia(COLA.fotos), publicadas, textos_pendientes: copia(COLA.textos.filter((x) => x.estado === 'PENDIENTE')), textos_ultimo: null, textos_vigentes: VIGENTES });
     const m = /\/(fotos|textos)\/([^/]+)\/(aprobar|rechazar)$/.exec(cfg.url);
     if (m) {
         const lista = m[1] === 'fotos' ? COLA.fotos : COLA.textos;
