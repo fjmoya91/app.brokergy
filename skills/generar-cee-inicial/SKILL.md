@@ -750,8 +750,36 @@ Antes de escribir el plan, recorre esta lista. Son cosas que el usuario ha tenid
    uno con su depósito, y un nombre repetido lleva « (2)». El SCOP aplicado al AHORRO CAE sigue
    siendo el menor (`scopAplicado`): el bono no cambia. En una hibridación no se reparte así
    (manda el C_b). Regla 148 de `cee-generacion`.
+22. **Cada planta que se certifica lleva SU SUELO y SU TECHO en el `.cex`, y se mira contra QUÉ dan**
+   (Fran, 23/11/2026, 26TER100_4, Autoservicio Rodríguez: «no has tenido en cuenta el suelo de la
+   planta baja… ni el de la planta primera»). Se certificaban las oficinas de la planta 1 y el `.cex`
+   salió **sin suelo**: Catastro llama «LOCAL» a la oficina, al comercio y a lo industrial, así que el
+   forjado sobre la exposición y la nave de la baja (sin calefacción) salía «entre plantas del mismo
+   uso» y no se escribía. El motor ya lo escribe (regla 230 de `envolvente-ce3x`), pero **compruébalo
+   siempre antes de `--escribir`**:
+   - Tras `aplicar` en seco, mira en el volcado del `.cex` (`python implementation/cee-engine/tools/leer_cex.py
+     <copia local> --volcado 3`) que **cada planta certificada** tiene: abajo un `SUELO` (terreno o
+     aire) o un `PH… SUELO SOBRE ESPACIO NO HABITABLE`; arriba una `CU… CUBIERTA` o una `PH… TECHO
+     BAJO ESPACIO NO HABITABLE`. Y que sus m² ≈ la superficie de la zona. **Si falta uno, para**: no se
+     escribe un `.cex` así; busca por qué (el `paredes` y el aviso «forjado entre plantas del mismo uso»).
+   - **Qué hay debajo y encima**: el desglose de Catastro por planta (lcons), el croquis por plantas y lo
+     que cuente el cliente por WhatsApp (qué se calienta y qué no). Una planta **construida en la que no
+     se certifica nada** (comercio, nave, almacén, garaje sin calefacción) es **espacio no habitable**:
+     el forjado contra ella es una partición. **Otra VIVIENDA** del bloque (otro propietario) **no**:
+     ese forjado es adiabático y no se escribe.
+   - **En un TERCIARIO, los Datos generales que no salen de ningún dato** (demanda de ACS y masa de las
+     particiones) van en `ajustes.demanda_acs` / `ajustes.masa_particiones` y **se dicen en
+     `decisiones`**. En 26TER100_4 Fran puso **ACS 30 l/día y masa «Ligera»** al revisar el `.cex`; el defecto de la ficha es «Pesada», el de una vivienda. Si no hay criterio
+     del cliente, propón esos dos y dilo en el informe para que Fran los confirme.
+   - **Un TER100 es la misma sustitución que un RES060**: la caldera del inicial da también el ACS
+     (regla 201), y `aplicar` lo impone por el número (`RES060|TER100`). Sin eso el ACS queda sin
+     cubrir y CE3X no califica («El porcentaje de demanda cubierta debe ser el 100 %»).
 
 ## Lo que el informe final dice SIEMPRE
+
+- **El suelo y el techo de cada planta certificada**: qué son (terreno, aire, espacio no habitable,
+  cubierta), sus m² y contra qué dan (punto 22). Si una planta de abajo o de arriba se ha dejado fuera,
+  por qué.
 
 - Que el aviso **ha salido** (o por qué no) y en qué fase queda: «pendiente de revisión» si el
   encargo es del agente; si hay un técnico asignado, que sigue siendo suyo.

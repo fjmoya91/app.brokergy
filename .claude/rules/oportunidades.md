@@ -67,7 +67,7 @@ paths:
 ## Documentos del área (nivel 3)
 
 - `docs/conocimiento/oportunidades/al-aceptar-el-cliente-confirma-sus-emisores-placas-y-aires.md` — Al ACEPTAR, el cliente confirma sus EMISORES, PLACAS y AIRES (2026-09-29) · 13,0 KB
-- `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 18,1 KB
+- `docs/conocimiento/oportunidades/alta-de-oportunidad-desde-whatsapp-skill-alta-oportunidad.md` — Alta de OPORTUNIDAD desde WhatsApp — skill `alta-oportunidad` (2026-10-01) · 21,3 KB
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md` — Bono por debajo de 3.000 € al dar de alta: se hace el CEE con CE3X y su XML va a la oportunidad (2026-10-23) · 3,1 KB
 - `docs/conocimiento/oportunidades/el-alta-del-partner-con-la-foto-de-la-placa.md` — El alta del PARTNER: la caldera desde la FOTO de su placa, y la oportunidad simplificada (2026-11-16) · 28,2 KB
 - `docs/conocimiento/oportunidades/el-aviso-de-lead-web-trae-lo-necesario-para-decidir.md` — El aviso de LEAD WEB trae lo necesario para decidir (2026-10-20) · 2,5 KB
@@ -100,6 +100,7 @@ vale mientras no ha contestado, y se dice de dónde sale.**
   - **REGLA — sin emisor declarado, RADIADORES convencionales**
   - **REGLA — la edad de la caldera sale de la PLACA, nunca del año de la vivienda**
   - **REGLA — TODO lo que el Catastro declara como VIVIENDA cuenta**
+  - **REGLA — el TERCIARIO se calcula por script IGUAL que en la calculadora**
   - **REGLA — la placa de la caldera viaja con la oportunidad**
   - **REGLA — una vivienda que ya tiene oportunidad PARA la skill y se pregunta**
   - **REGLA — la vivienda se busca por su PARCELA, no por un igual exacto de la RC**
@@ -110,6 +111,7 @@ vale mientras no ha contestado, y se dice de dónde sale.**
   - **REGLA — el partner sale del remitente, como PISTA**
   - **REGLA — la cifra de las placas del plan MANDA sobre la del lector**
   - **REGLA — el `--escribir` usa la MISMA lectura del presupuesto que se revisó en seco**
+  - **REGLA — lo que se hace desde aquí queda guardado igual que desde la calculadora.**
 - `docs/conocimiento/oportunidades/bono-por-debajo-de-3000-se-hace-el-cee-al-dar-de-alta.md`
   - **REGLA — si el bono CAE del alta sale por debajo de 3.000 €, se hace el CEE INICIAL con CE3X
 (skill `generar-cee-inicial`) y su XML se CARGA en la SIMULACIÓN de la oportunidad antes de avisar a

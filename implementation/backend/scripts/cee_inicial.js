@@ -1236,6 +1236,8 @@ async function altaAerotermia() {
  *   "ajustes": { … }                       // cualquier otro ajuste, tal cual
  * }
  */
+const LITROS_TERMO_POR_DEFECTO = 150;
+
 async function aplicar(planDado = null) {
     await saludMotor();
     const ctx0 = await cargar(POS[0]);
@@ -1619,6 +1621,42 @@ ${refsFrame.size} fotograma(s) del vídeo: con --escribir se suben a `
         ];
         console.log(`AIRES ACONDICIONADOS → ${n} · ${modo === 'climatizacion' ? 'calefacción y refrigeración' : 'máquina frigorífica (sólo refrigeración)'}`
             + `${superficie ? ` · ${fmt(superficie)} m²` : ''}`);
+    }
+    // REGLA (Fran, 08/11/2026, 26RES060_275, «grabado a fuego») — en el CEE INICIAL
+    // de un RES060 la caldera que se cambia da SIEMPRE calefacción Y ACS, aunque el
+    // agua la caliente hoy un termo: el termo NO va como equipo aparte, sus litros
+    // son la ACUMULACIÓN de la caldera mixta y el termo se queda fuera. En la MEDIDA
+    // es la obra la que decide: sin ACS en el presupuesto (`cambio_acs: false`), la
+    // ficha pone un TERMO de efecto Joule para el agua y la aerotermia solo da la
+    // calefacción (`instalacionNueva`, termoSiRetira); con ACS, la aerotermia lo da.
+    // `"acs_independiente": true` lo salta, solo con el «sí» de Fran.
+    //
+    // Y en un TER100, igual (23/11/2026, 26TER100_4): es la misma sustitución en el
+    // terciario. La regla miraba solo «RES060» en el número, así que al renombrar
+    // 26RES060_OP389 a TER100 la caldera pasó a «sólo calefacción», el ACS quedó sin
+    // cubrir y CE3X dejó de calificar el inicial («El porcentaje de demanda cubierta
+    // debe ser el 100 %»).
+    const fichaSustitucion = (String(POS[0] || '').match(/RES060|TER100/i) || [])[0];
+    if (fichaSustitucion && !plan.acs_independiente
+        && (plan.acs_aparte || plan.caldera?.da_acs === false)) {
+        //: Sin los litros del termo, 150 l: lo que propone el popup de «antes de
+        //: generar» y lo que puso Fran a mano en 26RES060_275. Se dice.
+        const vistos = Number(plan.acs_aparte?.litros) || 0;
+        const litros = plan.acs_aparte ? (vistos || LITROS_TERMO_POR_DEFECTO) : 0;
+        const nombreTermo = plan.acs_aparte?.nombre || 'el termo';
+        if (litros > 0 && !(Number(ajustes.acumulacion_litros) > 0)) ajustes.acumulacion_litros = litros;
+        ajustes.equipos_extra = (ajustes.equipos_extra || []).filter(x => x.aire || x.slot !== 'ACS');
+        if (ajustes.instalacion?.slot === 'calefaccion') {
+            ajustes.instalacion = { ...ajustes.instalacion };
+            delete ajustes.instalacion.slot;
+        }
+        plan.acs_aparte = null;
+        if (plan.caldera) plan.caldera = { ...plan.caldera, da_acs: true };
+        const msg = `${fichaSustitucion.toUpperCase()}: la caldera da calefacción Y ACS en el inicial; ${nombreTermo} no va aparte`
+            + (litros > 0 ? `: sus ${litros} l${vistos ? '' : ' (por defecto: no se ven en la foto)'} son el depósito de la caldera.`
+                : ' (sin termo: el depósito sale de la medida o se pregunta).');
+        console.log(msg);
+        avisos.push(msg);
     }
     // La caldera: lo que dice su placa. «da_acs: false» = solo calefacción, que es
     // el USO que se cambia en Instalaciones cuando el ACS lo hace otro aparato.

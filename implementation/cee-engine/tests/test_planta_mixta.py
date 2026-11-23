@@ -110,6 +110,48 @@ def test_un_forjado_no_se_escribe_desde_el_lado_no_habitable():
     assert parts == [("P1", "ESPACIO_NO_HABITABLE_INFERIOR")]
 
 
+def test_oficina_sobre_un_local_en_el_que_no_cuenta_nada():
+    """26TER100_4 (23/11/2026): oficinas en la primera sobre la exposicion y la
+    nave de la baja, sin calefaccion. Catastro llama «LOCAL» a las dos plantas y
+    el forjado salia «entre plantas del mismo uso»: la planta 1 iba SIN suelo.
+    Sin nada que cuente en la baja, es una particion con espacio no habitable."""
+    edif = ParteEdificio("part1", box(0, 0, 21, 21), 2, 0)
+    pl = plantas_desde_partes([edif])
+    asignar_usos(pl, {0: {"LOCAL": 441.0}, 1: {"LOCAL": 441.0}})
+    marcar_usos_medidos(pl, {1: {"LOCAL": 441.0}})
+    hz = _escritos(elementos_horizontales(pl))
+    parts = [(h.planta, h.subtipo) for h in hz if h.tipo == "PARTICION_HORIZONTAL"]
+    assert parts == [("P1", "ESPACIO_NO_HABITABLE_INFERIOR")], parts
+    # Y al reves: un local que se mide BAJO otro en el que no cuenta nada.
+    pl = plantas_desde_partes([edif])
+    asignar_usos(pl, {0: {"LOCAL": 441.0}, 1: {"LOCAL": 441.0}})
+    marcar_usos_medidos(pl, {0: {"LOCAL": 441.0}})
+    hz = _escritos(elementos_horizontales(pl))
+    parts = [(h.planta, h.subtipo) for h in hz if h.tipo == "PARTICION_HORIZONTAL"]
+    assert parts == [("PB", "ESPACIO_NO_HABITABLE_SUPERIOR")], parts
+
+
+def test_otra_vivienda_que_no_se_mide_sigue_sin_escribirse():
+    """El piso de abajo es de OTRO propietario y esta acondicionado: ese forjado
+    no es de la envolvente, aunque no se mida. La regla de arriba no lo toca."""
+    edif = ParteEdificio("part1", box(0, 0, 14, 14), 2, 0)
+    pl = plantas_desde_partes([edif])
+    asignar_usos(pl, {0: {"VIVIENDA": 196.0}, 1: {"VIVIENDA": 196.0}})
+    marcar_usos_medidos(pl, {1: {"VIVIENDA": 196.0}})
+    hz = _escritos(elementos_horizontales(pl))
+    assert not [h for h in hz if h.tipo == "PARTICION_HORIZONTAL"]
+
+
+def test_sin_nada_medido_no_cambia_nada():
+    """Sin `marcar_usos_medidos` (nada dice que plantas cuentan) se queda el
+    criterio de siempre: dos LOCAL, mismo uso, no se escribe."""
+    edif = ParteEdificio("part1", box(0, 0, 14, 14), 2, 0)
+    pl = plantas_desde_partes([edif])
+    asignar_usos(pl, {0: {"LOCAL": 196.0}, 1: {"LOCAL": 196.0}})
+    hz = _escritos(elementos_horizontales(pl))
+    assert not [h for h in hz if h.tipo == "PARTICION_HORIZONTAL"]
+
+
 def test_un_porche_que_no_toca_la_planta_no_rompe_nada():
     fuera = {0: [{"geom": Polygon([(20, 20), (21, 20), (21, 21)]), "uso": PORCHE}]}
     pl = _plantas(fuera)

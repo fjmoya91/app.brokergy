@@ -440,6 +440,22 @@ def elementos_horizontales(plantas: list[Planta],
     nivel_min = min(por_nivel)
     n = 1
 
+    # REGLA — un nivel CONSTRUIDO en el que NADA cuenta no esta acondicionado:
+    # el forjado entre el y una planta que SI se mide es una particion con
+    # espacio NO HABITABLE, se llame como se llame su uso en Catastro.
+    # 26TER100_4 (Autoservicio Rodriguez, 23/11/2026): oficinas en la primera
+    # sobre la exposicion y la nave de la baja, sin calefaccion. Catastro llama
+    # «LOCAL» a la oficina, al comercio y a lo industrial, asi que el forjado
+    # salia «entre plantas del mismo uso» y NO se escribia: el .cex llevaba la
+    # planta 1 sin suelo. Solo vale cuando alguna planta se mide (lo decidio
+    # una persona o el uso por defecto) y nunca contra VIVIENDA —otra vivienda
+    # del bloque esta acondicionada— ni contra un uso que no se conoce.
+    hay_medidas = any(p.uso_medido for p in plantas)
+
+    def sin_acondicionar(p: Planta | None) -> bool:
+        return (hay_medidas and p is not None and not p.uso_medido
+                and bool(p.uso_dominante) and p.uso_dominante != "VIVIENDA")
+
     def add(**kw):
         nonlocal n
         pref = {"SUELO": "SU", "CUBIERTA": "CU", "PARTICION_HORIZONTAL": "PH"}[kw["tipo"]]
@@ -478,13 +494,17 @@ def elementos_horizontales(plantas: list[Planta],
             volado = _limpia(resto.difference(abajo.huella))
             for poli in _polis(comun):
                 destino = _uso(abajo)
-                no_hab = destino in NO_HABITABLES
+                fuera = pl.uso_medido is not None and sin_acondicionar(abajo)
+                no_hab = destino in NO_HABITABLES or fuera
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="PARTICION_HORIZONTAL",
                     subtipo="ESPACIO_NO_HABITABLE_INFERIOR" if no_hab else "ENTRE_PLANTAS",
                     poligono=poli, area_m2=round(poli.area, 2),
                     espacio_origen=_uso(pl), espacio_destino=destino,
-                    confianza=round(min(pl.confianza_uso or 0.5, abajo.confianza_uso or 0.5), 2),
-                    nota=f"suelo de {pl.etiqueta} sobre {abajo.etiqueta}",
+                    confianza=(0.7 if fuera else
+                               round(min(pl.confianza_uso or 0.5, abajo.confianza_uso or 0.5), 2)),
+                    nota=(f"suelo de {pl.etiqueta} sobre {abajo.etiqueta}"
+                          + (f" | en {abajo.etiqueta} no cuenta nada ({destino} sin "
+                             "acondicionar): espacio no habitable" if fuera else "")),
                     relevante_ce3x=relevante(_uso(pl), destino, no_hab))
             for poli in _polis(volado):
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="SUELO",
@@ -529,12 +549,16 @@ def elementos_horizontales(plantas: list[Planta],
                     nota=f"la planta {arriba.etiqueta} no cubre esta parte")
             for poli in _polis(comun):
                 destino = _uso(arriba)
-                no_hab = destino in NO_HABITABLES
+                fuera = pl.uso_medido is not None and sin_acondicionar(arriba)
+                no_hab = destino in NO_HABITABLES or fuera
                 add(nivel=pl.nivel, planta=pl.etiqueta, tipo="PARTICION_HORIZONTAL",
                     subtipo="ESPACIO_NO_HABITABLE_SUPERIOR" if no_hab else "ENTRE_PLANTAS",
                     poligono=poli, area_m2=round(poli.area, 2),
                     espacio_origen=_uso(pl), espacio_destino=destino,
-                    confianza=round(min(pl.confianza_uso or 0.5, arriba.confianza_uso or 0.5), 2),
-                    nota=f"techo de {pl.etiqueta} bajo {arriba.etiqueta}",
+                    confianza=(0.7 if fuera else
+                               round(min(pl.confianza_uso or 0.5, arriba.confianza_uso or 0.5), 2)),
+                    nota=(f"techo de {pl.etiqueta} bajo {arriba.etiqueta}"
+                          + (f" | en {arriba.etiqueta} no cuenta nada ({destino} sin "
+                             "acondicionar): espacio no habitable" if fuera else "")),
                     relevante_ce3x=relevante(_uso(pl), destino, no_hab))
     return salida

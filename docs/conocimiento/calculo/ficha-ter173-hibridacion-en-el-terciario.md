@@ -145,6 +145,27 @@ primer reguardado desde la calculadora la devolvería a lo que dijeran los input
 **ID de la oportunidad NO se renombra** (hay documentos y carpetas que lo citan); el
 número del EXPEDIENTE ya nace con la ficha correcta.
 
+**Excepción, A MANO y solo si Fran lo pide** (10/11/2026, 26RES060_OP389 → 26TER100_OP389,
+Autoservicio Rodríguez: «Renombra a TER100»). La app no lo hace sola, ni debe. Antes de
+renombrar se comprueba que el número no lo cita nada más:
+
+- en la BD, solo `oportunidades`: ni `expedientes`, ni `propuestas_programadas`, ni
+  `cee_ia_trabajos`, ni `wa_esperas`;
+- y que el número nuevo esté libre.
+
+Se cambian:
+
+- `id_oportunidad`, con la guarda `where id_oportunidad = <viejo>`;
+- `envolvente_cee.cex_sello.inicial.nombre`;
+- la carpeta de Drive de la oportunidad;
+- todo fichero que lleve el número (CEE inicial, sus OLD y el Catastro);
+- el nombre del chat de WhatsApp (`renombrar --anteponer`);
+- una línea en el historial.
+
+El historial viejo NO se reescribe: es lo que pasó. Lo que ya salió de casa (mensajes, el
+contenido del `.cex`/`.pdf`) sigue citando el número viejo. Con la propuesta ya enviada o un
+expediente creado, no se renombra.
+
 **REGLA — el expediente HEREDA lo que se simuló.** `expedienteService` copia el alcance
 de calefacción, la piscina (con su D_CAP y su SCOP_pwh) y el modo de D_ACS. Sin eso, el
 expediente recalcularía un ahorro distinto del que se le presupuestó al cliente — está

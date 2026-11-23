@@ -94,7 +94,7 @@ Tras tocarlo: `node implementation/backend/scripts/test_bloque_viviendas.mjs`, `
 - `docs/conocimiento/calculo/el-coste-del-informe-de-verificacion-ya-en-la-simulacion.md` — El COSTE DEL INFORME DE VERIFICACIÓN, ya en la simulación (2026-09-11) · 3,2 KB
 - `docs/conocimiento/calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md` — FACTOR MULTIPLICADOR: la Resolución publicada (RES060_FM, RES090_FM…RES094_FM, RES080_FM) (2026-11-07) · 41,0 KB
 - `docs/conocimiento/calculo/ficha-ter100-sector-terciario.md` — Ficha TER100 — Sector TERCIARIO (2026-07-30) · 7,7 KB
-- `docs/conocimiento/calculo/ficha-ter173-hibridacion-en-el-terciario.md` — Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09) · 11,3 KB
+- `docs/conocimiento/calculo/ficha-ter173-hibridacion-en-el-terciario.md` — Ficha TER173 — HIBRIDACIÓN en el terciario (2026-09-09) · 12,2 KB
 - `docs/conocimiento/calculo/fichas-con-factor-de-correccion-res060fc-y-res09xfc.md` — Fichas con FACTOR DE CORRECCIÓN: RES060FC y las de hibridación por zona (2026-10-21) · 7,9 KB
 - `docs/conocimiento/calculo/la-d-acs-por-litros-dia-del-certificado.md` — La D_ACS por LITROS/DÍA del certificado (2026-09-13) · 8,3 KB
 - `docs/conocimiento/calculo/precio-cae-al-cliente-100-mwh-y-solo-hacia-adelante.md` — Precio CAE al cliente — 100 €/MWh, y solo hacia adelante (2026-09-09) · 8,7 KB

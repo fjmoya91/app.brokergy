@@ -150,6 +150,8 @@ Tras tocarlo:
 
 Ver "Cuando el .cex no sale, el asistente dice qué lo para y lo arregla".
 
+230. **Una planta CONSTRUIDA en la que no cuenta nada es espacio NO HABITABLE: el forjado contra la planta que se certifica SE ESCRIBE** (2026-11-23, 26TER100_4, Fran: «no has tenido en cuenta el suelo»). Catastro llama «LOCAL» a la oficina, al comercio y a lo industrial, así que el forjado entre las oficinas de la planta 1 y la exposición y la nave de la baja, sin calefacción, salía «entre plantas del mismo uso» (`relevante_ce3x = false`) y el `.cex` llevaba la planta 1 **sin suelo**. `elementos_horizontales` ([gis/floors.py](implementation/cee-engine/src/gis/floors.py), `sin_acondicionar`) lo da ya como `ESPACIO_NO_HABITABLE_INFERIOR`/`_SUPERIOR` cuando la planta de al lado está construida, no tiene `uso_medido` y hay alguna planta medida. **Nunca contra VIVIENDA** (otra vivienda del bloque está acondicionada: 48.j sigue igual) ni contra un uso desconocido, y sin nada medido no cambia nada. La skill `generar-cee-inicial` (punto 22) comprueba que cada planta certificada lleva su suelo y su techo. Tras tocarlo: `python -m pytest implementation/cee-engine/tests/test_planta_mixta.py`. Ver "Una planta CONSTRUIDA en la que no cuenta nada es espacio NO HABITABLE".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -194,6 +196,7 @@ Ver "Cuando el .cex no sale, el asistente dice qué lo para y lo arregla".
 - `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28) · 8,3 KB
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01) · 3,8 KB
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21) · 10,5 KB
+- `docs/conocimiento/envolvente-ce3x/una-planta-donde-no-cuenta-nada-es-espacio-no-habitable.md` — Una planta CONSTRUIDA en la que no cuenta nada es espacio NO HABITABLE (2026-11-23) · 3,3 KB
 - `docs/conocimiento/envolvente-ce3x/una-ventana-en-una-medianera-la-pasa-a-exterior-y-se-arrastra.md` — Una ventana en una MEDIANERA la pasa a exterior, y las ventanas se ARRASTRAN a su pared (2026-10-28) · 4,1 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -518,6 +521,9 @@ borra la parte del modelo.**
   - **REGLA — al volver a MEDIR se resiembra el trabajo ACTUAL, no el de cuando se
 abrió la ventana.**
   - **REGLA — el trabajo sigue a la PARED, no a su NOMBRE**
+- `docs/conocimiento/envolvente-ce3x/una-planta-donde-no-cuenta-nada-es-espacio-no-habitable.md`
+  - **REGLA — un nivel CONSTRUIDO en el que NADA cuenta no está acondicionado: el forjado entre él y una
+planta que SÍ se mide es una partición con espacio NO HABITABLE**
 - `docs/conocimiento/envolvente-ce3x/una-ventana-en-una-medianera-la-pasa-a-exterior-y-se-arrastra.md`
   - **REGLA — poner una ventana o una puerta en una medianera o una partición la PASA A MURO EXTERIOR, y
 se dice.**

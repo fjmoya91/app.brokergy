@@ -11,7 +11,7 @@
 | `catastro` | Catastro — WAF, endpoints WCF JSON, búsqueda por coordenadas, OCR de la referencia, fachada | `.claude/rules/catastro.md` · 4,6 KB | 2 |
 | `cee` | Módulo CEE — encargo al técnico, subida, revisión, visto bueno, presentación en el Registro, IRPF, Agente IA | `.claude/rules/cee.md` · 48,5 KB | 24 |
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
-| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 55,2 KB | 18 |
+| `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 57,3 KB | 19 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
 | `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 20,9 KB | 6 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
@@ -19,7 +19,7 @@
 | `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,5 KB | 2 |
 | `documentacion-fotos` | Documentación y fotos — DocsManager, alcance, subida en tanda, buzón, ventanas, fotos del WhatsApp, Anexo Fotográfico | `.claude/rules/documentacion-fotos.md` · 20,2 KB | 25 |
 | `documentos` | Documentos oficiales — CIFO, fichas e impresos, Anexo I, Convenio de Cesión, hitos, rechazo y re-firma | `.claude/rules/documentos.md` · 53,0 KB | 14 |
-| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 105,4 KB | 41 |
+| `envolvente-ce3x` | Envolvente y CE3X — plano, motor y geometría, cerramientos y transmitancias, croquis, administrativos del .cex, PVGIS | `.claude/rules/envolvente-ce3x.md` · 107,1 KB | 42 |
 | `expedientes` | Expedientes — ciclo de vida, listado y columnas, rechazo, carpetas de Drive por estado | `.claude/rules/expedientes.md` · 16,4 KB | 5 |
 | `facturacion` | Facturación — presupuestos con partidas, catálogo de artículos y facturas propias | `.claude/rules/facturacion.md` · 19,6 KB | 6 |
 | `facturas` | Facturas — OCR e incidencias de las facturas de obra, PDF único, facturación del certificador | `.claude/rules/facturas.md` · 5,0 KB | 2 |
@@ -30,7 +30,7 @@
 | `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 36,8 KB | 10 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 19,6 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 37,1 KB | 12 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 37,3 KB | 12 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,0 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
@@ -286,6 +286,7 @@
 - **200.c** → `.claude/rules/documentos.md` — En un expediente FM la app GENERA los cinco documentos de firma de la ficha, y cada uno se firma donde ya fi…
 - **200.d** → `.claude/rules/documentos.md` — El Convenio de un expediente FM vale para las DOS fichas: la FM como PRINCIPAL y la general como SUBSIDIARIA…
 - **200.e** → `.claude/rules/documentos.md` — El CIFO de un `26RES060FM_N` / `26RES093FM_N` sale como su ficha FM, con la cifra FM y NUNCA con la vigente
+- **201** → `.claude/rules/cee-generacion.md` — RES060: en el CEE INICIAL la caldera que se cambia da SIEMPRE calefacción Y ACS, y un termo existente es su …
 - **202** → `.claude/rules/documentos.md` — Un PDF que sube un tercero por un enlace público se comprueba que es de ESA obra antes de guardarlo
 - **203** → `.claude/rules/propuesta.md` — Toda propuesta en la que alguna opción sube por el FACTOR MULTIPLICADOR lleva una HOJA más, la 2, y una líne…
 - **203.b** → `.claude/rules/propuesta.md` — El FM de la propuesta se APAGA antes de enviar, con UN interruptor, y queda guardado en la oportunidad
@@ -315,6 +316,7 @@
 - **227** → `.claude/rules/lotes.md` — La CUENTA del S.O. en el REGISTRO NACIONAL DE CAE se guarda TAL CUAL la certifica el MITECO y se CRUZA en ca…
 - **228** → `.claude/rules/instalador-rite.md` — La Memoria RITE declara el ACS con `cambio_acs` VACÍO si hay un equipo de ACS declarado, y el backend y el g…
 - **229** → `.claude/rules/calculo.md` — Un BLOQUE se certifica ENTERO y su vía FM es la del edificio CENTRALIZADO, venga de donde venga el cálculo
+- **230** → `.claude/rules/envolvente-ce3x.md` — Una planta CONSTRUIDA en la que no cuenta nada es espacio NO HABITABLE: el forjado contra la planta que se c…
 - **230** → `.claude/rules/instalador-app.md` — La app del INSTALADOR la decide UN interruptor y lee UNA tabla de pasos; nunca enseña dinero interno
 - **231** → `.claude/rules/instalador-app.md` — En la app del instalador, cada acción de la obra se DESPACHA a la ruta de siempre; la app solo pone el guard…
 - **232** → `.claude/rules/transversal-backend.md` — Un enlace PÚBLICO con token vale para UNA obra: solo borra y solo sirve ficheros de ESA obra, y lo que escri…
@@ -429,6 +431,7 @@
 - `docs/conocimiento/cee-generacion/la-medida-de-mejora-de-una-hibridacion/y-el-cee-final-igual.md` — Y el CEE FINAL, igual (2026-09-16)
 - `docs/conocimiento/cee-generacion/la-medida-del-previsto-res080-va-autocontenida.md` — La medida del PREVISTO (RES080) va AUTOCONTENIDA, no como «Nuevo Edificio» (2026-10-10)
 - `docs/conocimiento/cee-generacion/los-puentes-de-las-ventanas-que-cambian.md` — Los PUENTES TÉRMICOS de las ventanas que CAMBIAN (RES080, 2026-10-05)
+- `docs/conocimiento/cee-generacion/res060-la-caldera-del-inicial-da-siempre-el-acs.md` — RES060: la caldera del CEE INICIAL da SIEMPRE el ACS, y el termo es su depósito (2026-11-08)
 - `docs/conocimiento/cee-generacion/una-cascada-son-varios-generadores-en-el-cex.md` — Una CASCADA son VARIOS generadores en el `.cex`, a partes iguales (2026-10-20)
 - `docs/conocimiento/cee-generacion/y-llega-al-cee-la-pestana-el-encargo-y-la-envolvente.md` — Y llega al CEE: la pestaña, el encargo y la envolvente (2026-09-29)
 
@@ -578,6 +581,7 @@
 - `docs/conocimiento/envolvente-ce3x/un-garaje-dentro-de-la-casa-y-lo-que-se-movia-al-volver-a-medir.md` — Un GARAJE dentro de la casa, y lo que se movía al volver a medir (2026-09-28)
 - `docs/conocimiento/envolvente-ce3x/un-sotano-muros-contra-el-terreno-y-suelos-solo-de-la-vivienda.md` — Un SÓTANO: muros contra el TERRENO y suelos solo de la VIVIENDA (2026-10-01)
 - `docs/conocimiento/envolvente-ce3x/una-edificacion-entera-se-quita-de-un-clic.md` — Una EDIFICACIÓN entera se quita de un clic (2026-09-16 · POR PLANTA 2026-09-21)
+- `docs/conocimiento/envolvente-ce3x/una-planta-donde-no-cuenta-nada-es-espacio-no-habitable.md` — Una planta CONSTRUIDA en la que no cuenta nada es espacio NO HABITABLE (2026-11-23)
 - `docs/conocimiento/envolvente-ce3x/una-ventana-en-una-medianera-la-pasa-a-exterior-y-se-arrastra.md` — Una ventana en una MEDIANERA la pasa a exterior, y las ventanas se ARRASTRAN a su pared (2026-10-28)
 
 ### expedientes
