@@ -78,6 +78,26 @@ const { cerrarRevision } = require('../services/revisionPartner');
     prueba('a las 3:00 (Madrid) no se contesta', !H.puedeContestar(new Date('2026-11-24T02:00:00Z')));
     prueba('a las 10:00 (Madrid) sí', H.puedeContestar(new Date('2026-11-24T09:00:00Z')));
 
+    // ── 4. Las dependencias del clon del PC: falta una → npm install en ESA carpeta ──
+    console.log('\nDependencias del clon del PC');
+    const fs = require('fs'), os = require('os');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'deps-'));
+    const front = path.join(tmp, 'frontend'), back = path.join(tmp, 'backend');
+    for (const d of [front, back]) {
+        fs.mkdirSync(d);
+        fs.writeFileSync(path.join(d, 'package.json'), JSON.stringify({ dependencies: { axios: '^1', '@scope/x': '^1' } }));
+    }
+    const pon = (d, n) => { const p = path.join(d, 'node_modules', ...n.split('/')); fs.mkdirSync(p, { recursive: true }); fs.writeFileSync(path.join(p, 'package.json'), '{}'); };
+    pon(back, 'axios'); pon(back, '@scope/x');
+    prueba('detecta las que faltan (también las de @scope)', pc._faltanDependencias(front).join() === 'axios,@scope/x', pc._faltanDependencias(front).join());
+    const instalados = [];
+    const bien = pc._asegurarDependencias({ dirs: [back, front], instalar: (d) => { instalados.push(d); pon(d, 'axios'); pon(d, '@scope/x'); } });
+    prueba('instala solo donde falta y sigue', bien === null && instalados.length === 1 && instalados[0] === front, JSON.stringify({ bien, instalados }));
+    fs.rmSync(path.join(front, 'node_modules'), { recursive: true, force: true });
+    const mal = pc._asegurarDependencias({ dirs: [front], instalar: () => { throw new Error('sin red'); } });
+    prueba('si npm install no las pone, lo dice (y no se califica)', typeof mal === 'string' && mal.includes('axios'), mal);
+    fs.rmSync(tmp, { recursive: true, force: true });
+
     console.log(`\n${ok} bien, ${ko} mal`);
     process.exit(ko ? 1 : 0);
 })().catch((e) => { console.error(e); process.exit(1); });

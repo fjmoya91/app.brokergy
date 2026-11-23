@@ -858,6 +858,32 @@ async function asegurarMotor() {
     return `el motor (cee-engine) no responde en ${MOTOR} ni arrancándolo`;
 }
 
+// REGLA — antes de un trabajo, el clon del PC tiene TODAS las dependencias del backend y del frontend.
+// El backend importa código del frontend (`ceeExtract.js` → axios) y el clon se actualiza con un
+// `git pull` a secas: el 23/11/2026 el frontend no tenía `node_modules` y las calificaciones de la
+// OP445 y la OP448 acabaron con el CEE hecho pero SIN cargar el XML (ni bono nuevo ni aviso al
+// instalador). Falta alguna → `npm install` en esa carpeta. En el servidor no: lo hace `deploy.sh`.
+function faltanDependencias(dir) {
+    let pkg;
+    try { pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')); } catch { return []; }
+    return Object.keys(pkg.dependencies || {})
+        .filter(n => !fs.existsSync(path.join(dir, 'node_modules', ...n.split('/'), 'package.json')));
+}
+function asegurarDependencias({ instalar = (dir) => require('child_process').execSync('npm install --no-audit --no-fund --loglevel=error',
+    { cwd: dir, stdio: 'ignore', timeout: 10 * 60e3, windowsHide: true }),
+    dirs = [BACKEND, path.join(REPO, 'implementation', 'frontend')] } = {}) {
+    if (ES_SERVIDOR) return null;
+    for (const dir of dirs) {
+        const antes = faltanDependencias(dir);
+        if (!antes.length) continue;
+        log(`Faltan dependencias en ${path.basename(dir)} (${antes.slice(0, 5).join(', ')}${antes.length > 5 ? '…' : ''}): npm install.`);
+        try { instalar(dir); } catch (e) { log(`npm install en ${path.basename(dir)} ha fallado: ${e.message}`); }
+        const despues = faltanDependencias(dir);
+        if (despues.length) return `faltan dependencias en ${path.basename(dir)} (${despues.slice(0, 5).join(', ')}) y npm install no las ha puesto`;
+    }
+    return null;
+}
+
 function lanzarCalificarExt(t) {
     fs.mkdirSync(DIR_PC, { recursive: true });
     const logF = path.join(DIR_PC, `${t.id}.log`);
@@ -1056,8 +1082,10 @@ async function vuelta() {
     }
     if (!tomar(t.id)) { log(`${t.id} lo ha cogido otro PC justo ahora: no lo empiezo.`); return; }
     escribir('cola', cola().map(x => (x.id === t.id ? { ...x, estado: 'en_curso', tomado_at: ahora(), pc: MI_PC, host: os.hostname() } : x)));
+    const sinDeps = asegurarDependencias();
+    if (sinDeps && !esFijo(t)) log(`Aviso: ${sinDeps}.`);
     if (esFijo(t)) {
-        const sinMotor = await asegurarMotor();
+        const sinMotor = sinDeps || await asegurarMotor();
         if (sinMotor) {
             fs.writeFileSync(ACTUAL, JSON.stringify({ id: t.id, tipo: t.tipo, numero: t.numero, pid: 0, inicio: ahora(), log: path.join(DIR_PC, `${t.id}.log`) }, null, 1));
             await terminar({ id: t.id, tipo: t.tipo, numero: t.numero, log: path.join(DIR_PC, `${t.id}.log`) }, `No lo he podido calificar: ${sinMotor}.`);
@@ -1100,7 +1128,7 @@ if (require.main === module) {
 module.exports = { estadoPc, latidos, MI_PC, PC_PRESENTAR, localizarCee, preguntaPresentar, encolarPresentacion, encolarCalificarExt, encolarCalificarOp, TASA, TARJETA, TRABAJOS_CE3X,
     MARCA_CALIFICADA, _promptCe3x: promptCe3x, _resultadoCalificarExt: resultadoCalificarExt, _resultadoCalificarOp: resultadoCalificarOp,
     _abrirRevisionAlta: abrirRevisionAlta, _chatDelInstalador: chatDelInstalador, _comprobarNumero: comprobarNumero,
-    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor, SERVIDOR, DESTINO_CALIFICAR, dondeTrabajoCe3x, textoHazloAqui,
+    _hostPuertoMotor: hostPuertoMotor, _asegurarMotor: asegurarMotor, _asegurarDependencias: asegurarDependencias, _faltanDependencias: faltanDependencias, SERVIDOR, DESTINO_CALIFICAR, dondeTrabajoCe3x, textoHazloAqui,
     _preguntaNoche: preguntaNoche, _informeLote: informeLote, _promptPresentar: promptPresentar,
     _confirmarLote: confirmarLote, _cancelarLote: cancelarLote, _terminar: terminar, _vuelta: vuelta, _tomar: tomar,
     _comprobarCambioDePc: comprobarCambioDePc, _notaPc: notaPc, _confirmar: confirmar, _mover: mover };

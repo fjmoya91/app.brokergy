@@ -215,6 +215,16 @@ Lo que hay ahora:
   ≥ 3.000 € sigue el ENVÍALA de siempre.
 - **`deploy.sh` reconstruye el asistente si el vigía dice que está libre** (`/estado` →
   `trabajando`), y lo vuelve a mirar antes de recrearlo; si está trabajando, lo dice y no lo toca.
+- **REGLA — antes de un trabajo, el clon del PC tiene TODAS las dependencias del backend y del
+  frontend** (`asegurarDependencias`, 2026-11-23). El backend importa código del frontend
+  (`ceeExtract.js` → `axios`) y el clon `brokergy-pc` se actualiza con un `git pull` a secas. Ese día
+  el frontend no tenía `node_modules`: la OP445 y la OP448 acabaron con el CEE calificado y en Drive,
+  pero con «XML del inicial NO cargado en la app: Cannot find package 'axios'», sin bono nuevo y sin
+  aviso al instalador. Ahora la vuelta mira que cada dependencia del `package.json` esté en
+  `node_modules` y, si falta alguna, hace `npm install` en esa carpeta. Si ni así está, el trabajo
+  fijo no se empieza y se dice por qué. En el servidor no se mira: lo hace `deploy.sh`. Tras
+  arreglarlo, las dos se recalificaron en el servidor y los instaladores recibieron la cifra
+  (2.436 → 2.745 € y 2.234 → 4.193 €).
 
 ### Y el SERVIDOR como un PC más para calificar (2026-11-23)
 
