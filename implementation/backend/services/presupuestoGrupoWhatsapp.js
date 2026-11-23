@@ -85,6 +85,8 @@ const MSG = {
 
 // ─── La lógica pura y el MOTOR común con el asistente de la app (fase 6) ──────
 const M = require('./presupuestoMotor');
+// «Es otro cliente» al «¿es este?» de los parecidos.
+const DICE_NUEVO = /\b(nuevo|nueva|otro|otra|distint[oa])\b/i;
 const { logica, limpio, nombreDe, titulo, hoy, eleccionDe, siNoDe,
     fusionar, hayAlgo, faltaObra, entradaDe, cambiaElPresupuesto } = M;
 
@@ -291,7 +293,13 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
     if (!fila && (ext.quiere === 'nada' || ext.quiere === 'cancelar' || ext.quiere === 'confirmar')) {
         return { ...out, ignorado: 'nada que hacer' };
     }
-    if (fila && !hayAlgo(ext)) {
+    // Esperando la CASA, «Dame el catastro» no es charla aunque el modelo no saque nada: se le repite la
+    // pregunta (23/11/2026, RCA). Un «vale» o un «gracias» sí se callan.
+    const hablaDeLaCasa = fila?.espera === 'vivienda'
+        && /catastr|bono|\bcae\b|casa|vivienda|referencia/i.test(nuevos.map(m => m.texto).join(' '));
+    // Y a «¿es este cliente?», un NUEVO a secas es una respuesta, no charla.
+    const contestaCliente = fila?.espera === 'cliente' && DICE_NUEVO.test(nuevos.map(m => m.texto).join(' '));
+    if (fila && !hayAlgo(ext) && !hablaDeLaCasa && !contestaCliente) {
         await deps.pedidos.guardar(fila.id, { mensajes: [...tratadosFila, ...ids].slice(-200), updated_at: ahora.toISOString() }).catch(() => {});
         return { ...out, ignorado: 'nada nuevo', estado: fila.estado };
     }
@@ -356,7 +364,19 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
         if (!p.presupuesto) {
             // 1a. El CLIENTE, antes de nada (el motor común; los textos, los de este canal).
             const yaHabiaCliente = !!(p.cliente_id || p.cliente_listo);
-            const rc = await M.clienteDelPedido(S, { prescriptorId, p, eleccion: espera === 'cliente' ? ext.eleccion : null });
+            const enCliente = espera === 'cliente';
+            const rc = await M.clienteDelPedido(S, {
+                prescriptorId, p, conParecidos: true,
+                eleccion: enCliente ? ext.eleccion : null,
+                respuesta: enCliente ? (ext.respuesta_vivienda || null) : null,
+                nuevo: enCliente && DICE_NUEVO.test(nuevos.map(m => m.texto).join(' ')),
+            });
+            // ¿Ya lo tiene? (23/11/2026, RCA: tres «Gregoria/Gregorio González» en una tarde.)
+            if (rc.pregunta === 'parecido') {
+                return preguntar(rc.lista.length === 1
+                    ? `Ya tienes a ${rc.lista[0]} en tus clientes. ¿Es este? Contesta SÍ, o NUEVO si es otra persona.`
+                    : `Ya tienes clientes que se parecen:\n${rc.lista.map((x, i) => `${i + 1}) ${x}`).join('\n')}\n¿Es alguno? Contesta con el número, o NUEVO si es otra persona.`, 'cliente');
+            }
             if (rc.pregunta === 'eleccion') return preguntar(`Dime un número del 1 al ${rc.n}, o su DNI o teléfono si es otro.`, 'cliente');
             if (rc.pregunta === 'cliente') return preguntar(MSG.cliente, 'cliente');
             if (rc.pregunta === 'contacto') return preguntar(`Me falta el teléfono o la dirección de ${rc.nombre} para darlo de alta.`, 'cliente');
@@ -417,8 +437,17 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
             }
             const { buffer } = await S.pdfDe(prescriptorId, filaP);
             p.presupuesto = { ...p.presupuesto, base: filaP.base, total: filaP.total, at: ahora.toISOString(), impreso: impresoDe(filaP) };
+            // REGLA — si cambia la DIRECCIÓN o la LOCALIDAD y la casa aún no está confirmada, se busca otra
+            // vez con la nueva (23/11/2026, RCA: corrigió «Lambra» por «Alhambra, Argamasilla» y se siguió
+            // enseñando la de Madrid, porque `vivienda_dir` y las candidatas eran las de la dirección vieja).
+            const otraCasa = !p.vivienda?.confirmada && Array.isArray(cambios)
+                && cambios.some(c => /^(dirección|localidad|código postal)/.test(c));
+            if (otraCasa) { delete p.vivienda_dir; delete p.viviendas; delete p.lista; espera = null; }
             await guardar();
             await enviarPdf(filaP, buffer, { actualizado: true, cambios });
+            if (otraCasa && (p.quiere_sim || M.conVivienda(p.obra, p.cliente))) {
+                return { ...(await pasoVivienda({ trasPdf: !p.quiere_sim })), presupuesto: filaP, actualizado: true, cambios };
+            }
             return { ...out, estado, presupuesto: filaP, actualizado: true, cambios };
         }
 
@@ -474,8 +503,12 @@ async function procesar({ chatId, autorTel, mensajes = [], ahora = new Date(), d
                 const rc = ext.referencia_catastral || null;
                 if (espera === 'vivienda' && cands?.length && !ext.referencia_catastral && !ext.numero_otro) {
                     if (ext.respuesta_vivienda === 'no') return preguntar(MSG.numeroCorrecto, 'vivienda');
-                    await guardar();
-                    return { ...out, estado, espera };
+                    // REGLA — esperando la casa, lo que no la contesta NO se calla (23/11/2026, RCA: «Dame el
+                    // catastro», «Prepara el bono energético» y no se le dijo nada): se le repite la pregunta.
+                    const repe = cands.length === 1
+                        ? `Antes necesito saber la casa. Según el Catastro es ${V.describir(cands[0])}. ¿Es esta? Contesta SÍ, o dime el número correcto o pásame la referencia catastral.`
+                        : `Antes necesito saber cuál es la casa:\n${cands.map((v, i) => `${i + 1}) ${M.lineaVivienda(v)}`).join('\n')}\nContesta con el número, o dime el número correcto de la calle o la referencia catastral.`;
+                    return preguntar(repe, 'vivienda');
                 }
                 if (!baseDir && !rc) return preguntar(MSG.direccion, 'vivienda');
                 const res = await M.buscarVivienda(V, { direccion: baseDir, municipio: muni, provincia: p.cliente?.provincia, rc, numeroOtro: ext.numero_otro });

@@ -236,20 +236,35 @@ async function opcionesDe(S, prescriptorId) {
  * @returns {Promise<{ listo: true } | { pregunta: 'cliente' } | { pregunta: 'contacto', nombre }
  *   | { pregunta: 'candidatos', candidatos, lista } | { pregunta: 'eleccion', n }>}
  */
-async function clienteDelPedido(S, { prescriptorId, usuarioId = null, p, eleccion = null }) {
+async function clienteDelPedido(S, { prescriptorId, usuarioId = null, p, eleccion = null, respuesta = null, nuevo = false, conParecidos = false }) {
     if (p.cliente_id || p.cliente_listo) return { listo: true };
+    // Contestando a «¿es este?» (los PARECIDOS): SÍ con uno, su número, o NUEVO/NO → se da de alta otro.
+    if (p.candidatos?.length && p.parecidos) {
+        if (!eleccion && respuesta === 'si' && p.candidatos.length === 1) eleccion = 1;
+        if (!eleccion && (nuevo || respuesta === 'no')) {
+            delete p.candidatos; delete p.lista; delete p.parecidos;
+            p.cliente_nuevo = true;
+        }
+    }
     if (p.candidatos?.length && eleccion) {
         const c = p.candidatos[eleccion - 1];
         if (!c) return { pregunta: 'eleccion', n: p.candidatos.length };
         const rc = await S.resolverCliente({ prescriptorId, usuarioId, clienteId: c.id });
         p.cliente_id = idDe(rc.cliente) || c.id; p.cliente = { ...p.cliente, ...soloDatos(rc.cliente), ...dichoDelCliente(p.cliente) };
-        delete p.candidatos; delete p.lista;
+        delete p.candidatos; delete p.lista; delete p.parecidos;
         return { listo: true };
     }
+    if (p.candidatos?.length && p.parecidos) return { pregunta: 'parecido', candidatos: p.candidatos, lista: p.lista };
     const c = p.cliente || {};
     if (!c.nombre) return { pregunta: 'cliente' };
     if (!c.tlf && !c.direccion && !c.dni) return { pregunta: 'contacto', nombre: titulo(nombreDe(c)) };
-    const rc = await S.resolverCliente({ prescriptorId, usuarioId, cliente: c });
+    const rc = await S.resolverCliente({ prescriptorId, usuarioId, cliente: c, parecidos: conParecidos && !p.cliente_nuevo });
+    if (rc.parecidos?.length) {
+        p.parecidos = true;
+        p.candidatos = rc.parecidos.slice(0, 5).map(x => ({ id: x.id, nombre: x.nombre, municipio: x.municipio || null, direccion: x.direccion || null, tlf: x.tlf || null }));
+        p.lista = p.candidatos.map(x => `${titulo(x.nombre)}${[x.direccion, x.municipio].filter(Boolean).length ? ` (${[x.direccion && titulo(String(x.direccion).split(',')[0]), x.municipio && titulo(x.municipio)].filter(Boolean).join(', ')})` : ''}`);
+        return { pregunta: 'parecido', candidatos: p.candidatos, lista: p.lista };
+    }
     if (rc.candidatos?.length > 1) {
         p.candidatos = rc.candidatos.slice(0, 9).map(x => ({ id: idDe(x), nombre: nombreDe(x), municipio: x.municipio || null, tlf: mascara(x.tlf) }));
         p.lista = p.candidatos.map(x => `${titulo(x.nombre)}${x.municipio ? ` (${titulo(x.municipio)}${x.tlf ? `, ${x.tlf}` : ''})` : x.tlf ? ` (${x.tlf})` : ''}`);
@@ -337,6 +352,12 @@ function conVivienda(obra, cliente = {}) {
  * Por la RC que diga, por otro número de la misma calle o por la dirección del presupuesto.
  * @returns {Promise<{ tipo: 'una'|'varias'|'ninguna'|'sin_direccion', viviendas?, rcFachada?, donde?, dir? }>}
  */
+const sinTildes = (s) => limpio(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+/** Sin uso (lista de una parcela) se da por buena; con uso, solo el residencial. Pura. */
+const esResidencial = (v) => !v?.uso || /residencial|vivienda/i.test(v.uso);
+/** «Argamasilla» vale por «Argamasilla de Alba»; «Madrid» no vale por «Argamasilla de Alba». Pura. */
+const mismoPueblo = (a, b) => !!a && !!b && (a.includes(b) || b.includes(a));
+
 async function buscarVivienda(V, { direccion = '', municipio = '', provincia = '', rc = null, numeroOtro = null } = {}) {
     let dir = limpio(direccion);
     let res;
@@ -345,7 +366,15 @@ async function buscarVivienda(V, { direccion = '', municipio = '', provincia = '
     else if (dir) res = await V.candidatos({ direccion: dir, municipio, provincia });
     else return { tipo: 'sin_direccion' };
     if (!res || res.tipo === 'ninguna') return { tipo: 'ninguna', dir };
-    const viviendas = res.tipo === 'una' ? [res.vivienda] : (res.viviendas || []);
+    let viviendas = res.tipo === 'una' ? [res.vivienda] : (res.viviendas || []);
+    // REGLA — por DIRECCIÓN solo vale una VIVIENDA del MISMO pueblo (23/11/2026, grupo de RCA: el audio
+    // dio «calle Lambra 15», Google lo llevó a Madrid y se enseñó como la casa un recinto DEPORTIVO de
+    // 137.955 m² en El Pardo). Lo que no es residencial, o es de otro municipio, es «no la encuentro».
+    // Por la RC que dicta él no se filtra: la ha dicho él.
+    if (!rc) {
+        const pueblo = sinTildes(municipio);
+        viviendas = viviendas.filter(v => esResidencial(v) && (!pueblo || mismoPueblo(pueblo, sinTildes(v.municipio))));
+    }
     if (!viviendas.length) return { tipo: 'ninguna', dir };
     const donde = limpio([res.direccion || viviendas[0].direccion, viviendas[0].municipio].filter(Boolean).join(', ')).replace(/\s+\d{5}\b.*$/, '');
     return { tipo: viviendas.length === 1 ? 'una' : 'varias', viviendas, rcFachada: res.rcFachada || viviendas[0].rc, donde, dir };

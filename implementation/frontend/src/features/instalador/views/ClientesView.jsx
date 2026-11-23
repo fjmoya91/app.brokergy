@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { useVistaGuardada, useGuardarVista, useScrollLista } from '../../../utils/memoriaVista';
 import {
     Icono, Buscador, Esqueleto, AvisoError, iniciales, nombrePropio, sinTildes,
-    telHref, waHref, telefonoBonito, dniEnmascarado,
+    telHref, waHref, telefonoBonito, dniEnmascarado, useHojaTeclado,
 } from '../ui/piezas';
 import { resumenObrasCliente } from '../logic/obras';
 import { TarjetaObra } from './ObrasView';
@@ -75,8 +75,9 @@ export function ClientesView({ clientes, obras, cargando, error, onReintentar, o
     );
 }
 
-export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObra, onNueva, onPresupuesto }) {
+export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObra, onNueva, onPresupuesto, onBorrar }) {
     const nombre = nombreCliente(c);
+    const [aBorrar, setABorrar] = useState(false);
     const tel = telHref(c.tlf);
     const wa = waHref(c.tlf);
     const suyas = obrasDe(c, obras);
@@ -91,6 +92,7 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
                 <button type="button" className="ia-volver" onClick={onVolver}><Icono n="atras" size={22} /> Clientes</button>
                 {onCambiar && <button type="button" className="ia-link" onClick={() => onCambiar(c)}>Cambiar datos</button>}
             </div>
+            {aBorrar && <HojaBorrarCliente nombre={nombre} onSi={() => onBorrar(c)} onCerrar={() => setABorrar(false)} />}
             <div className="ia-ficha-cab ia-pc-cabecera ia-entra">
                 <div className="ia-pc-cabecera-txt">
                     <h1 className="ia-display">{nombre}</h1>
@@ -132,7 +134,43 @@ export function ClienteView({ cliente: c, obras, onVolver, onCambiar, onAbrirObr
                     <Icono n="factura" size={20} /> Hacerle un presupuesto
                 </button>
             )}
+            {/* Sin obras, se puede quitar (23/11/2026, RCA: el presupuesto por WhatsApp le dejó tres
+                «Gregoria González»). Con obras, presupuestos o certificados, el servidor no deja. */}
+            {onBorrar && !suyas.length && (
+                <button type="button" className="ia-link" style={{ order: 4, alignSelf: 'center', marginTop: 4 }} onClick={() => setABorrar(true)}>
+                    Borrar este cliente
+                </button>
+            )}
             </div>
+            </div>
+        </div>
+    );
+}
+
+/** Confirmar BORRAR un cliente sin obras. `onSi` devuelve una promesa; su error se enseña aquí. */
+function HojaBorrarCliente({ nombre, onSi, onCerrar }) {
+    const ref = useHojaTeclado(onCerrar);
+    const [estado, setEstado] = useState({ enviando: false, error: null });
+    const si = async () => {
+        setEstado({ enviando: true, error: null });
+        try { await onSi(); } catch (e) {
+            setEstado({ enviando: false, error: e?.response?.data?.error || 'No se ha podido borrar. Prueba en un momento.' });
+        }
+    };
+    return (
+        <div className="ia-velo" onPointerDown={(e) => { e.currentTarget.dataset.fondo = e.target === e.currentTarget ? '1' : ''; }}
+            onClick={(e) => { if (!estado.enviando && e.target === e.currentTarget && e.currentTarget.dataset.fondo === '1') onCerrar(); }}>
+            <div ref={ref} className="ia-hoja" role="alertdialog" aria-modal="true" aria-labelledby="ia-bcli-h" aria-describedby="ia-bcli-p" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <span className="ia-baldosa" aria-hidden="true" style={{ background: 'var(--ambar-bg)', color: 'var(--naranja-txt)' }}><Icono n="papelera" size={22} /></span>
+                <h2 id="ia-bcli-h" className="ia-toca-h" style={{ margin: 0 }}>¿Borrar a {nombre}?</h2>
+                <p id="ia-bcli-p" className="ia-pequeno" style={{ margin: 0, fontSize: 15, lineHeight: 1.5 }}>
+                    No tiene obras contigo. Se quita de tu lista de clientes y no se puede deshacer.
+                </p>
+                {estado.error && <p className="ia-pequeno" role="alert" style={{ margin: 0, color: 'var(--naranja-txt)' }}>{estado.error}</p>}
+                <button type="button" className="ia-btn ia-btn-pri" onClick={si} disabled={estado.enviando}>
+                    <Icono n="papelera" size={20} /> {estado.enviando ? 'Borrando…' : 'Sí, borrarlo'}
+                </button>
+                <button type="button" className="ia-btn ia-btn-sec" onClick={onCerrar} disabled={estado.enviando} autoFocus>No, dejarlo</button>
             </div>
         </div>
     );

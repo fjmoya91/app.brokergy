@@ -209,6 +209,19 @@ frente ocupa todo el alto: si no, en una fila de la rejilla más alta asomaba la
 Comprobado en el banco a 360, 375 y 1280 px: deslizar, confirmar, borrar desde la lista y desde la
 ficha, un gesto vertical no abre nada, sin scroll horizontal y sin errores en consola.
 
+### Borrar un cliente (23/11/2026)
+
+**REGLA — el instalador borra un cliente SUYO solo si no tiene NADA colgado y no tiene cuenta en la app.**
+Antes `DELETE /api/clientes/:id` era `adminOnly` y RCA no podía quitar sus tres «Gregoria» repetidos. Ahora
+es `enforceAuth` y, para quien no es ADMIN: staff (TRABAJADOR) → 403 como antes; partner sin empresa → 403;
+cliente ajeno o inexistente → 404 (regla 102); con `id_usuario` → 409 `CLIENTE_CON_CUENTA`; con algo en
+oportunidades, expedientes, CEE directos (cliente o pagador), ofertas de CEE (cliente o propietario),
+facturas emitidas, informes o presupuestos del instalador → 409 `CLIENTE_CON_OBRAS` (`COLGADO_CLIENTE` en
+[routes/clientes.js](implementation/backend/routes/clientes.js); un conteo que FALLA cuenta como «tiene»);
+BD caída al leer → 503. En la app, la ficha del cliente lleva «Borrar este cliente» solo si no tiene obras
+en la lista, con su hoja de confirmación ([ClientesView.jsx](implementation/frontend/src/features/instalador/views/ClientesView.jsx)),
+que enseña el motivo del 409. Prueba: `node implementation/backend/scripts/test_borrar_cliente_partner.js`.
+
 ### Por WhatsApp, en el grupo del instalador
 
 [services/presupuestoGrupoWhatsapp.js](implementation/backend/services/presupuestoGrupoWhatsapp.js). Desde la fase 6 (22/11/2026) las piezas sin canal (fusionar, qué falta, tipo y extras por defecto,
@@ -233,6 +246,21 @@ La conversación (tabla `instalador_wa_pedidos`, una ABIERTA por grupo y autor, 
    teléfono y la dirección de la obra…»). Con nombre, se busca entre los suyos; varios → se listan
    numerados; ninguno → se da de alta.
 2. Falta la obra o el importe → se pide lo que falte, de una vez.
+
+**REGLA — antes de dar de alta un cliente, si hay uno PARECIDO entre los suyos se PREGUNTA «¿Es este?»;
+nunca se crea a ciegas.** (23/11/2026, Fran: «que compruebe si existe y pregunte si es ese. En este caso se
+ha triplicado y además no puedo borrarlos».) RCA acabó con GREGORIA GONZÁLEZ dos veces y GREGORIO GONZÁLEZ
+una, las tres sin nada colgado: la búsqueda solo casaba el nombre EXACTO y el audio dijo una vez «Gregorio».
+Ahora, si no hay coincidencia exacta, `resolverCliente({ parecidos: true })`
+([presupuestoInstaladorService.js](implementation/backend/services/presupuestoInstaladorService.js),
+`pareceElMismo`) devuelve hasta 5 candidatos SUYOS: mismo primer apellido y el nombre a ≤ 2 letras
+(Gregoria/Gregorio) en el mismo pueblo, o la misma calle y número (`calleYNumero`, sin «Calle», «de», «nº»)
+con los dos pueblos compatibles. El grupo pregunta «Ya tienes a GREGORIA GONZÁLEZ (Alhambra 15, Tomelloso)
+en tus clientes. ¿Es este? Contesta SÍ, o NUEVO si es otra persona» (varios → numerados) y espera
+`cliente`; «sí» o el número reutilizan esa ficha, «nuevo»/«no»/«otra» dan de alta (`p.cliente_nuevo`, ya no
+se vuelve a preguntar en ese pedido). Lo lleva `clienteDelPedido(…, { conParecidos })` del motor; el chat
+de la app aún no pregunta (no pasa `conParecidos`). Con el teléfono, enmascarado.
+
 3. Con todo → presupuesto + PDF al grupo. «Ponle 9.500», «añade depósito de inercia» → se cambia el
    MISMO número y se reenvía. También **«la localidad es Argamasilla de Alba»**: un dato del cliente
    (dirección, localidad, CP, provincia, teléfono) distinto del que salió impreso es un cambio.
@@ -285,6 +313,19 @@ Tras el PDF (desde el 23/11/2026; antes la vivienda iba solo si pedía la simula
    `alta-oportunidad`, como las demás; **la propuesta no sale sin el «sí» de Fran**. **La cifra del bono
    NO se calcula en el servidor** (el contenedor va en `node:20-slim` y el cálculo es ESM del frontend):
    es un encargo.
+
+**REGLA — la casa se busca con la dirección de AHORA, solo entre VIVIENDAS de ESE pueblo, y mientras se
+espera la casa el agente nunca se calla.** (23/11/2026, grupo de RCA.) El audio entendió «calle Lambra 15»
+(era Alhambra) y Google lo llevó a Madrid: el Catastro devolvió una parcela DEPORTIVA de 137.955 m² en El
+Pardo, y el agente preguntó «¿es esta la casa?» con esa foto. Después el instalador corrigió la dirección y
+la localidad, el presupuesto se rehízo, pero la casa seguía siendo la de la dirección vieja (`vivienda_dir`
+guardada) y, cuando pidió «dame el catastro» o «prepara el bono», no contestó nada (`pasoVivienda` tenía una
+rama muda). Ahora: (a) sin RC, `buscarVivienda` descarta lo que no es residencial (`uso` del Catastro) y lo
+que no está en el municipio dicho (sin tildes, admite «Argamasilla» por «Argamasilla de Alba»); con RC no
+filtra. (b) Un cambio de dirección, localidad o CP con la casa aún sin confirmar borra la candidata y, tras
+el PDF, la vuelve a buscar con lo nuevo. (c) Esperando la casa, cualquier mensaje que hable de catastro,
+casa, vivienda, referencia o bono vuelve a preguntar (una → «Antes necesito saber la casa. Según el Catastro
+es …», varias → la lista numerada), aunque el modelo lo clasifique como «nada».
 
 **REGLA — solo se atiende a los grupos de `PRESUPUESTO_WA_GRUPOS` y, dentro, a los teléfonos de la ficha
 de ese instalador y a los de `PRESUPUESTO_WA_PROBADORES`; solo se escribe al `chatId` del grupo
@@ -364,7 +405,8 @@ Node 22 en el contenedor o arreglar esos imports (decisión de Fran).
 
 Pruebas: `test_asistente_instalador.js` (26: la tarjeta con `ver_casa` y `dichas`, una vivienda, otro
 número, RC, varias, ninguna, Catastro caído, confirmar, preguntas y escritura, ajeno 404, anulado 409, los
-guardianes de la ruta), `test_presupuesto_grupo_whatsapp.js` (29) y `test_navegacion_instalador.mjs`
+guardianes de la ruta), `test_presupuesto_grupo_whatsapp.js` (35: también el filtro de viviendas, la
+nueva búsqueda al cambiar la localidad, no callarse y los parecidos) y `test_navegacion_instalador.mjs`
 (`simulacionDesde` con rc, emisor, acs y combustible; `embudoDesdePresupuesto`). Banco:
 `?seccion=asistente` y `&casa=varias|ninguna|caida`.
 

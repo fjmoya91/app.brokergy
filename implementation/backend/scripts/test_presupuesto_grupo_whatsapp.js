@@ -386,6 +386,95 @@ prueba('«ponle 9.500» mientras espera la casa → se cambia el presupuesto y l
     assert.strictEqual(e.llamadas.apuntar.length, 1);
 });
 
+// ── RCA, 23/11/2026: «calle Lambra 15» → un recinto deportivo de Madrid; corrige y se calla ──
+prueba('por dirección no vale lo que no es vivienda ni lo de otro pueblo (la RC dictada, sí)', async () => {
+    const M = require('../services/presupuestoMotor');
+    const Vf = (v) => ({ candidatos: async () => ({ tipo: 'una', vivienda: v }), porRc: async () => ({ tipo: 'una', vivienda: v }) });
+    const pardo = { rc: '6301504VK3860A0001QX', uso: 'Deportivo', direccion: 'CR PARDO 24', municipio: 'Madrid', superficie: 137955 };
+    assert.strictEqual((await M.buscarVivienda(Vf(pardo), { direccion: 'calle Lambra 15', municipio: 'Argamasilla de Alba' })).tipo, 'ninguna');
+    const casaMadrid = { ...pardo, uso: 'Residencial', superficie: 120 };
+    assert.strictEqual((await M.buscarVivienda(Vf(casaMadrid), { direccion: 'calle Lambra 15', municipio: 'Argamasilla de Alba' })).tipo, 'ninguna', 'otro pueblo');
+    const casa = { rc: '2108303VJ9320N0001YJ', uso: 'Residencial', direccion: 'CL ALHAMBRA 19', municipio: 'Argamasilla De Alba', superficie: 156 };
+    assert.strictEqual((await M.buscarVivienda(Vf(casa), { direccion: 'calle Alhambra 19', municipio: 'Argamasilla' })).tipo, 'una', '«Argamasilla» vale por «Argamasilla de Alba»');
+    assert.strictEqual((await M.buscarVivienda(Vf(casa), { direccion: 'calle Alhambra 19', municipio: 'Argamasilla de Alba' })).tipo, 'una');
+    assert.strictEqual((await M.buscarVivienda(Vf(pardo), { rc: '6301504VK3860A0001QX' })).tipo, 'una', 'la RC que dicta él no se filtra');
+});
+
+prueba('esperando la casa, lo que no la contesta («Dame el catastro») → se le repite la pregunta, no se calla', async () => {
+    const e = entorno({ guion: { ...G, 'Dame el catastro': { quiere: 'nada' }, 'Prepara el bono energético': { quiere: 'simulacion' } } });
+    await e.decir(COMPLETO);
+    const n = e.llamadas.texto.length;
+    const r = await e.decir('Dame el catastro');
+    assert.strictEqual(r.espera, 'vivienda');
+    assert.strictEqual(e.llamadas.texto.length, n + 1, 'algo se le dice');
+    assert.ok(/Antes necesito saber la casa\. Según el Catastro es CL MURCIA 2, Tomelloso/.test(e.llamadas.texto.at(-1).t), e.llamadas.texto.at(-1).t);
+    await e.decir('Prepara el bono energético');
+    assert.strictEqual(e.llamadas.texto.length, n + 2);
+    assert.strictEqual(e.llamadas.tarea.length, 0, 'sin la casa no se encarga nada');
+});
+
+prueba('corrige la LOCALIDAD mientras espera la casa → se busca OTRA VEZ con la nueva y se enseña esa', async () => {
+    const e = entorno({ guion: G });
+    e.deps.vivienda.candidatos = async (q) => {
+        e.llamadas.candidatos.push(q);
+        return { tipo: 'una', rcFachada: 'RCX', vivienda: { rc: q.municipio === 'Argamasilla de Alba' ? '2108303VJ9320N0001YJ' : '9999999XX0000N0001AA', uso: 'Residencial', direccion: 'CL ALHAMBRA 15', municipio: q.municipio, superficie: 156, anio: 2004 } };
+    };
+    await e.decir(GREGORIA);
+    assert.strictEqual(e.llamadas.candidatos.at(-1).municipio, 'La Macía de Alba');
+    const r = await e.decir('Es Argamasilla de Alba');
+    assert.ok(r.actualizado, JSON.stringify(r));
+    assert.strictEqual(e.llamadas.candidatos.length, 2, 'se vuelve a buscar');
+    assert.strictEqual(e.llamadas.candidatos.at(-1).municipio, 'Argamasilla de Alba');
+    assert.ok(/Argamasilla de Alba/i.test(e.llamadas.imagen.at(-1).o.caption), e.llamadas.imagen.at(-1).o.caption);
+    assert.strictEqual(r.espera, 'vivienda');
+    await e.decir('sí');
+    assert.strictEqual(e.llamadas.apuntar.at(-1).rc, '2108303VJ9320N0001YJ', 'la de Argamasilla, no la vieja');
+});
+
+prueba('cliente PARECIDO (Gregorio / Gregoria) → «¿es este?»; SÍ → se usa ese, sin dar de alta otro', async () => {
+    const e = entorno({ guion: G });
+    const resolver = e.deps.presupuestos.resolverCliente;
+    e.deps.presupuestos.resolverCliente = async (a) => {
+        if (a.parecidos && !a.clienteId) { e.llamadas.resolver.push(a); return { cliente: null, creado: false, parecidos: [{ id: 'cli-viejo', nombre: 'ANTONIO GONZÁLEZ', municipio: 'TOMELLOSO', direccion: 'CL MURCIA 2', tlf: '···333' }] }; }
+        return resolver(a);
+    };
+    const r = await e.decir(COMPLETO);
+    assert.strictEqual(r.espera, 'cliente');
+    assert.strictEqual(e.llamadas.documento.length, 0, 'todavía no hay presupuesto');
+    assert.ok(/^Ya tienes a Antonio González \(Cl Murcia 2, Tomelloso\) en tus clientes\. ¿Es este\? Contesta SÍ, o NUEVO/.test(e.llamadas.texto.at(-1).t), e.llamadas.texto.at(-1).t);
+    await e.decir('sí');
+    assert.strictEqual(e.llamadas.resolver.at(-1).clienteId, 'cli-viejo', 'el que ya tenía');
+    assert.strictEqual(e.llamadas.documento.length, 1, 'y el presupuesto sale');
+    assert.strictEqual(e.llamadas.crear[0].entrada.cliente_id, 'cli-viejo');
+});
+
+prueba('cliente PARECIDO → «NUEVO» → se da de alta otro y sale el presupuesto', async () => {
+    const e = entorno({ guion: { ...G, NUEVO: { quiere: 'nada' } } });
+    const resolver = e.deps.presupuestos.resolverCliente;
+    e.deps.presupuestos.resolverCliente = async (a) => {
+        if (a.parecidos && !a.clienteId) { e.llamadas.resolver.push(a); return { cliente: null, creado: false, parecidos: [{ id: 'cli-viejo', nombre: 'ANTONIO GONZÁLEZ', municipio: 'TOMELLOSO' }] }; }
+        return resolver(a);
+    };
+    await e.decir(COMPLETO);
+    const r = await e.decir('NUEVO');
+    assert.strictEqual(e.llamadas.resolver.at(-1).parecidos, false, 'ya no se buscan parecidos');
+    assert.ok(!e.llamadas.resolver.at(-1).clienteId);
+    assert.strictEqual(e.llamadas.documento.length, 1, JSON.stringify(r));
+    assert.strictEqual(e.llamadas.crear[0].entrada.cliente_id, 'cli-1', 'el nuevo');
+});
+
+prueba('pareceElMismo: Gregorio ≈ Gregoria González del mismo pueblo; la misma calle y nº también; otro pueblo no', async () => {
+    const { _internos: I } = require('../services/presupuestoInstaladorService');
+    const t = { nombre: 'Gregorio', apellidos: 'González', direccion: 'calle Alhambra 15', municipio: 'Argamasilla de Alba' };
+    assert.ok(I.pareceElMismo(t, { nombre_razon_social: 'GREGORIA', apellidos: 'GONZÁLEZ', municipio: 'ARGAMASILLA DE ALBA' }));
+    assert.ok(I.pareceElMismo(t, { nombre_razon_social: 'PEDRO', apellidos: 'RUIZ', direccion: 'CALLE ALHAMBRA 15, ARGAMASILLA DE ALBA', municipio: 'ARGAMASILLA DE ALBA' }));
+    assert.ok(!I.pareceElMismo(t, { nombre_razon_social: 'GREGORIA', apellidos: 'GONZÁLEZ', municipio: 'TOMELLOSO' }));
+    assert.ok(!I.pareceElMismo(t, { nombre_razon_social: 'ANTONIO', apellidos: 'GONZÁLEZ', municipio: 'ARGAMASILLA DE ALBA' }));
+    assert.ok(!I.pareceElMismo(t, { nombre_razon_social: 'PEDRO', apellidos: 'RUIZ', direccion: 'CALLE ALHAMBRA 17', municipio: 'ARGAMASILLA DE ALBA' }));
+    assert.strictEqual(I.calleYNumero('CL. de la Alhambra nº 15'), 'ALHAMBRA 15');
+    assert.strictEqual(I.calleYNumero('Calle Clavel 3'), 'CLAVEL 3', '«CL» no se come el principio de «Clavel»');
+});
+
 prueba('«no, es el 4» → se prueba con ese número y se apunta esa', async () => {
     const e = entorno({ guion: G });
     await e.decir(COMPLETO);

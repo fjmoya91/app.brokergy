@@ -136,7 +136,40 @@ function clienteDeEntrada(c) {
  * de alta a su nombre, como el alta de /api/clientes.
  * @returns {Promise<{ cliente: object|null, creado: boolean, candidatos?: object[] }>}
  */
-async function resolverCliente({ prescriptorId, usuarioId = null, clienteId = null, cliente = null }) {
+// ── ¿Ya lo tiene? Los PARECIDOS (23/11/2026, RCA) ───────────────────────────
+// El audio dice «Gregorio» donde ayer dijo «Gregoria», o la misma casa con otro nombre: por el nombre
+// EXACTO no se encuentra y se daba de alta otro (tres «Gregoria/Gregorio González» en una tarde).
+// Parecido = mismo primer apellido y el nombre a 2 letras o menos, o la misma calle y número en el
+// mismo pueblo. No decide: se le PREGUNTA si es ese (lo hace quien llama con `parecidos: true`).
+const CALLE = /^(CALLE|CL|C|AVENIDA|AVDA|AV|AVD|PLAZA|PZA|PL|PASEO|PS|CAMINO|CM|CTRA|CARRETERA|CR|TRAVESIA|TR|RONDA|RD|URB|URBANIZACION)(\s+|$)/;
+function calleYNumero(direccion) {
+    const d = sinTildes(String(direccion || '').split(',')[0]).replace(/[º°ª.\/-]/g, ' ').replace(/\s+/g, ' ').trim().replace(CALLE, '');
+    const m = /^(.*?)\s*(?:N\s+)?(\d{1,4})(?!\d)/.exec(d);
+    const calle = m ? m[1].replace(/\b(DE|DEL|LA|LAS|LOS|EL|N)\b/g, ' ').replace(/\s+/g, ' ').trim() : '';
+    return calle ? `${calle} ${m[2]}` : null;
+}
+function distancia(a, b) {
+    if (a === b) return 0;
+    const f = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+        let prev = f[0]; f[0] = i;
+        for (let j = 1; j <= b.length; j++) { const t = f[j]; f[j] = Math.min(f[j] + 1, f[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; }
+    }
+    return f[b.length];
+}
+/** ¿Es la misma persona o la misma casa, dicho de otra manera? Pura. */
+function pareceElMismo(t, c) {
+    const pueblo = (x) => sinTildes(x).replace(/[^A-Z ]/g, '').trim();
+    const pa = pueblo(t.municipio), pb = pueblo(c.municipio);
+    const mismoPueblo = !pa || !pb || pa.includes(pb) || pb.includes(pa);
+    const n1 = sinTildes(t.nombre).split(' ')[0], n2 = sinTildes(c.nombre_razon_social).split(' ')[0];
+    const a1 = sinTildes(t.apellidos).split(' ')[0], a2 = sinTildes(c.apellidos).split(' ')[0];
+    if (n1 && n2 && a1 && a1 === a2 && distancia(n1, n2) <= 2 && mismoPueblo) return true;
+    const d1 = calleYNumero(t.direccion), d2 = calleYNumero(c.direccion);
+    return !!(d1 && d1 === d2 && pa && pb && mismoPueblo);
+}
+
+async function resolverCliente({ prescriptorId, usuarioId = null, clienteId = null, cliente = null, parecidos = false }) {
     if (!prescriptorId) throw fallo('Tu cuenta no tiene empresa.', 403, { code: 'SIN_EMPRESA' });
     if (clienteId) return { cliente: await clienteSuyo(prescriptorId, clienteId), creado: false };
     const t = clienteDeEntrada(cliente);
@@ -154,6 +187,15 @@ async function resolverCliente({ prescriptorId, usuarioId = null, clienteId = nu
             cliente: null, creado: false,
             candidatos: hallados.slice(0, 10).map(c => ({ id: c.id_cliente, nombre: nombreCompleto(c), municipio: c.municipio || null, tlf: enmascarar(c.tlf) })),
         };
+    }
+    if (!hallados.length && parecidos) {
+        const p = suyos.filter(c => pareceElMismo(t, c));
+        if (p.length) {
+            return {
+                cliente: null, creado: false,
+                parecidos: p.slice(0, 5).map(c => ({ id: c.id_cliente, nombre: nombreCompleto(c), municipio: c.municipio || null, direccion: c.direccion || null, tlf: enmascarar(c.tlf) })),
+            };
+        }
     }
     const { normalizeCliente } = require('../utils/normalization');
     if (hallados.length === 1) {
@@ -1063,5 +1105,5 @@ module.exports = {
     opcionesNuevo, resolverCliente, pdfDe, vistaPrevia, crear, actualizar, anular, borrar, obtener, listar, apuntarVivienda, marcarSimulacion,
     enviarAlInstaladorPorWhatsapp, vincularOportunidad, entradaDesdeFila, filaParaApp, paraApp,
     nombreFichero, ligadoAObra, numeroSugerido, hojaGenerica,
-    _internos: { calcularEntrada, obraDeEntrada, datosImpresos, direccionObraAparte, seguro, oportunidadSuya, fotoCliente },
+    _internos: { pareceElMismo, calleYNumero, calcularEntrada, obraDeEntrada, datosImpresos, direccionObraAparte, seguro, oportunidadSuya, fotoCliente },
 };

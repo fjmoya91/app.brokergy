@@ -551,10 +551,38 @@ router.put('/:id', enforceAuth, async (req, res) => {
 });
 
 // DELETE /api/clientes/:id -> Eliminar cliente (solo ADMIN)
-router.delete('/:id', adminOnly, async (req, res) => {
+// Lo que tiene colgado un cliente: con algo de esto, el PARTNER no lo borra (las obras, los CEE, las
+// facturas y sus presupuestos son historia). Un `count` que falla cuenta como «tiene» (no se adivina).
+const COLGADO_CLIENTE = [
+    ['oportunidades', 'cliente_id'], ['expedientes', 'cliente_id'], ['cee_directos', 'cliente_id'], ['cee_directos', 'pagador_cliente_id'],
+    ['cee_ofertas', 'cliente_id'], ['cee_ofertas', 'propietario_cliente_id'], ['facturas_emitidas', 'cliente_id'], ['informes', 'cliente_id'],
+    ['instalador_presupuestos', 'cliente_id'],
+];
+async function tieneColgado(idCliente) {
+    for (const [tabla, col] of COLGADO_CLIENTE) {
+        // eslint-disable-next-line no-await-in-loop
+        const { count, error } = await supabase.from(tabla).select('*', { count: 'exact', head: true }).eq(col, idCliente);
+        if (error || count > 0) return tabla;
+    }
+    return null;
+}
+
+// El PARTNER borra un cliente SUYO que no tiene nada colgado (23/11/2026, RCA: el presupuesto por
+// WhatsApp le dejó tres «Gregoria/Gregorio González» repetidos y no podía quitarlos). ADMIN, como siempre.
+router.delete('/:id', enforceAuth, async (req, res) => {
     try {
         if (req.user.rol_nombre !== 'ADMIN') {
-            return res.status(403).json({ error: 'Solo el administrador puede eliminar clientes' });
+            if (isStaff(req) || !req.user.prescriptor_id) {
+                return res.status(403).json({ error: 'Solo el administrador puede eliminar clientes' });
+            }
+            const { data: c, error: e1 } = await supabase.from('clientes')
+                .select('id_cliente, prescriptor_id, id_usuario').eq('id_cliente', req.params.id).maybeSingle();
+            if (e1) return res.status(503).json({ error: 'Ahora mismo no se puede comprobar el cliente. Prueba en un momento.' });
+            // Uno que no es suyo, como si no existiera (regla 102).
+            if (!c || String(c.prescriptor_id) !== String(req.user.prescriptor_id)) return res.status(404).json({ error: 'Cliente no encontrado' });
+            if (c.id_usuario) return res.status(409).json({ error: 'Este cliente tiene cuenta en BROKERGY: escríbenos y lo quitamos nosotros.', code: 'CLIENTE_CON_CUENTA' });
+            const colgado = await tieneColgado(c.id_cliente);
+            if (colgado) return res.status(409).json({ error: 'Este cliente tiene obras, presupuestos o certificados: no se puede borrar.', code: 'CLIENTE_CON_OBRAS' });
         }
 
         const { error } = await supabase

@@ -265,6 +265,8 @@ const CLIENTES = [
     { id_cliente: 'c-5', nombre_razon_social: 'HERMANOS CALVO, S.L.', apellidos: '', es_empresa: true, tlf: '600000005', municipio: 'POZO ALTO', dni: 'B00000000' },
     { id_cliente: 'c-6', nombre_razon_social: 'ROSARIO', apellidos: 'NÚÑEZ CAMPOS', tlf: '600000006', municipio: 'FUENTENUEVA' },
     { id_cliente: 'c-7', nombre_razon_social: 'TOMÁS', apellidos: 'HERRERA LAGO', tlf: '600000007', municipio: 'POZO ALTO' },
+    // Sin ninguna obra: el que se puede BORRAR (un alta repetida, como los de RCA del 23/11/2026).
+    { id_cliente: 'c-8', nombre_razon_social: 'TOMÁS', apellidos: 'HERRERA LAGOS', tlf: '600000008', municipio: 'POZO ALTO' },
 ];
 
 // Lo que devuelve /instalador/:id (las tareas del CIFO, el RITE y el FM) de cada obra.
@@ -671,6 +673,10 @@ const api = {
     // Con la MISMA forma que el servidor ({ obra }) y el mismo desenvoltorio que la app real.
     obra: (id) => espera(obraDe(id) ? { obra: copia(obraDe(id)) } : Promise.reject(new Error('404')), 250).then(obraDeRespuesta),
     clientes: () => espera(VACIO ? [] : CLIENTES),
+    // Como DELETE /api/clientes/:id para un partner: solo lo SUYO y sin nada colgado.
+    borrarCliente: (id) => (CLIENTES.some((c) => c.id_cliente === id)
+        ? envia(() => { CLIENTES.splice(CLIENTES.findIndex((c) => c.id_cliente === id), 1); }).then(() => ({ success: true }))
+        : Promise.reject(errorDemo(404, 'Cliente no encontrado'))),
     propuestaPdf: (id) => espera(pdfDeMentira('Propuesta de ayuda CAE', [
         ['Cliente', obraDe(id)?.cliente || ''], ['Bono CAE', milesD(obraDe(id)?.bono || 0)], ['Presupuesto de la obra', obraDe(id)?.presupuesto?.importe ? milesD(obraDe(id).presupuesto.importe) : 'Estimado'],
     ])),

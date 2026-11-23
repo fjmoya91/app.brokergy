@@ -79,6 +79,7 @@ export function apiReal(axios) {
         obras: () => axios.get(`${B}/obras`).then((r) => r.data),
         obra: (id) => axios.get(obra(id)).then((r) => obraDeRespuesta(r.data)),
         clientes: () => axios.get('/api/clientes').then((r) => (Array.isArray(r.data) ? r.data : [])),
+        borrarCliente: (id) => axios.delete(`/api/clientes/${encodeURIComponent(id)}`).then((r) => r.data),
         // ── La propuesta: verla y decir que ya se la ha pasado a su cliente ──
         propuestaPdf: (id) => axios.get(`${obra(id)}/propuesta/pdf`, { responseType: 'arraybuffer' }).then((r) => r.data),
         propuestaPasada: (id) => axios.post(`${obra(id)}/propuesta/pasada`).then((r) => r.data),
@@ -491,7 +492,8 @@ export default function AppInstalador({
         const actual = (clientes.datos || []).find((c) => c.id_cliente === ficha.cliente.id_cliente) || ficha.cliente;
         contenido = <ClienteView cliente={actual} obras={obras.datos?.obras} onVolver={cerrarFicha}
             onCambiar={onCambiarCliente} onAbrirObra={abrirObra} onNueva={onNueva}
-            onPresupuesto={(c) => nuevoPresupuesto({ cliente: c }, { tipo: 'cliente', cliente: c })} />;
+            onPresupuesto={(c) => nuevoPresupuesto({ cliente: c }, { tipo: 'cliente', cliente: c })}
+            onBorrar={api.borrarCliente ? async (c) => { await api.borrarCliente(c.id_cliente); cerrarFicha(); clientes.reintentar?.(); } : null} />;
     } else if (ficha?.tipo === 'equipo') {
         contenido = <EquipoView key={ficha.equipo.id} id={ficha.equipo.id} base={ficha.equipo} proveedores={catalogo.datos?.proveedores} api={api}
             onVolver={cerrarFicha} onCalcular={onNueva ? calcularCon : null} onCambio={onCambio} />;
