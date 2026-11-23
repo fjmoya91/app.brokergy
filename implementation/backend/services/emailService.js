@@ -1795,7 +1795,8 @@ const sendCeeInicialRegistradoClientEmail = async (to, clientName, numExp, porta
  */
 // `consejo` (opcional, solo al INSTALADOR): `{ html, texto }` del consejo de factura
 // (utils/consejoFactura.js). El correo lo ANUNCIA y el recuadro va al final.
-const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null, consejo = null) => {
+// `cc` (opcional): los demás contactos del partner, en COPIA REAL de un solo correo.
+const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ubicacion, techName, phaseLabel, portalLink, notifyClientLink = null, consejo = null, cc = null) => {
     // El asunto SIEMPRE empieza por el nº de expediente (mismo criterio que el resto
     // de emails): es por lo que se busca y se ordena en la bandeja.
     const subject = `${numExp} · ✅ Registro ${phaseLabel} presentado`;
@@ -1830,7 +1831,7 @@ const sendCeeRegistradoStaffEmail = async (to, isPartner, numExp, clientName, ub
             (consejo?.html || ''),
     });
 
-    return sendMail({ to, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}${consejo?.texto ? `
+    return sendMail({ to, cc: Array.isArray(cc) && cc.length ? cc : undefined, subject, html, text: `El justificante de registro del ${phaseLabel} ha sido presentado para el expediente ${numExp} del cliente ${clientName}. ${notifyClientLink && !isPartner ? 'Enlace para notificar al cliente: ' + notifyClientLink : ''}${consejo?.texto ? `
 
 Texto recomendado para la factura:
 

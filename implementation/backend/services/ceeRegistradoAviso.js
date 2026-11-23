@@ -19,6 +19,7 @@ const whatsappService = require('./whatsappService');
 const reformaUploadService = require('./reformaUploadService');
 const botVinculos = require('./botVinculos');
 const recordatorios = require('./recordatorios');
+const { partnerNotifyTargets, PARTNER_CONTACT_FIELDS } = require('./notifyContacts');
 
 // ─── Helpers de notificación CEE registrado ───────────────────────────────────
 // Extraídos de los IIFE async dentro de PUT /:id para que también se puedan
@@ -135,26 +136,28 @@ async function loadNotificationContext(expediente) {
         if (certData?.razon_social) techName = certData.razon_social;
     }
 
-    let partnerPhone = null;
-    let partnerEmail = null;
+    // REGLA — el aviso de CEE registrado es asunto COMERCIAL (facturas, fotos de la
+    // obra): va a los contactos con rol `comercial` de la ficha, por el reparto de
+    // `notifyContacts` (regla 44), y si hay varios, a TODOS — WhatsApp a cada uno y
+    // UN email con el primero en el «Para» y los demás en copia real. Antes elegía
+    // con el contacto plano de siempre (`tlf_contacto`) y en 26RES060_279
+    // (22/11/2026) el aviso de JOSÉ ÁLVAREZ ALMARCHA salió a FRAN, su contacto
+    // TÉCNICO (el que firma con su certificado), y no le llegó ni a José ni a Juani.
+    let partnerTargets = [];
     // Preferimos el INSTALADOR asociado de la obra; si no, el prescriptor genérico.
     const partnerId = op?.instalador_asociado_id || op?.prescriptor_id;
     if (partnerId && String(partnerId) !== '1') {
-        // OJO: prescriptores NO tiene columnas `telefono`/`movil` — seleccionarlas hace
-        // que supabase-js devuelva error y pData=null (el partner se quedaba sin avisar).
         const { data: pData } = await supabase.from('prescriptores')
-            .select('tlf, tlf_contacto, tlf_responsable, landing_telefono_contacto, email, email_contacto, email_responsable, nombre_contacto, contacto_notificaciones_activas')
+            .select(PARTNER_CONTACT_FIELDS)
             .eq('id_empresa', partnerId).maybeSingle();
-        if (pData) {
-            const useContact = pData.contacto_notificaciones_activas === true || pData.contacto_notificaciones_activas === 'true';
-            // Sin desvío activo manda la PERSONA DE CONTACTO (su propio tlf/email);
-            // si no los tiene, la empresa. Mismo criterio que partnerNotifyTargets.
-            partnerPhone = (useContact ? (pData.tlf_contacto || pData.tlf) : (pData.tlf_responsable || pData.tlf || pData.tlf_contacto)) || pData.landing_telefono_contacto || null;
-            partnerEmail = (useContact ? (pData.email_contacto || pData.email) : (pData.email_responsable || pData.email || pData.email_contacto)) || null;
-        }
+        if (pData) partnerTargets = partnerNotifyTargets(pData, 'comercial');
     }
+    const partnerPhones = [...new Set(partnerTargets.map(t => t.tlf).filter(Boolean))];
+    const emails = [...new Set(partnerTargets.map(t => (t.email || '').toLowerCase()).filter(Boolean))];
+    const partnerEmail = emails[0] || null;
+    const partnerCc = emails.slice(1);
 
-    return { cli, op, techName, partnerPhone, partnerEmail };
+    return { cli, op, techName, partnerPhones, partnerEmail, partnerCc, partnerTargets };
 }
 
 // Construye los textos de WhatsApp de la notificación de "CEE registrado", por
@@ -242,7 +245,7 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
     const chFilter = filters.channels || ['email', 'whatsapp'];
     const tag = `[CEE-INICIAL ${expediente.id}]`;
     try {
-        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
+        const { cli, op, techName, partnerPhones, partnerEmail, partnerCc } = await loadNotificationContext(expediente);
         if (!cli) {
             console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
             return { ok: false, reason: 'cliente-not-found' };
@@ -317,14 +320,16 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
                     .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
             }
 
-            if (targets.includes('PARTNER') && partnerPhone) {
+            if (targets.includes('PARTNER') && partnerPhones.length) {
                 channels.whatsapp.push('partner');
-                botVinculos.sembrarEnDiferido(partnerPhone, expediente.oportunidad_id);
-                // En ORDEN (aviso → consejo → concepto solo): van seguidos y el
-                // segundo es el que se copia.
+                // A cada contacto comercial, en ORDEN (aviso → consejo → concepto
+                // solo): van seguidos y el segundo es el que se copia.
                 (async () => {
-                    await whatsappService.sendText(partnerPhone, partnerMsg);
-                    for (const t of consejo?.whatsapp || []) await whatsappService.sendText(partnerPhone, t);
+                    for (const tel of partnerPhones) {
+                        botVinculos.sembrarEnDiferido(tel, expediente.oportunidad_id);
+                        await whatsappService.sendText(tel, partnerMsg);
+                        for (const t of consejo?.whatsapp || []) await whatsappService.sendText(tel, t);
+                    }
                 })().catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
         }
@@ -352,7 +357,7 @@ async function notifyCeeInicialRegistrado(expediente, filters = {}) {
                         attachments: consejo.facturaWord ? [consejo.facturaWord] : [],
                     }
                     : null;
-                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink, null, consejoEmail)
+                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE INICIAL', expedienteLink, null, consejoEmail, partnerCc)
                     .catch(e => console.error(`${tag} Email Partner:`, e.message));
             }
         }
@@ -370,7 +375,7 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
     const chFilter = filters.channels || ['email', 'whatsapp'];
     const tag = `[CEE-FINAL ${expediente.id}]`;
     try {
-        const { cli, op, techName, partnerPhone, partnerEmail } = await loadNotificationContext(expediente);
+        const { cli, op, techName, partnerPhones, partnerEmail, partnerCc } = await loadNotificationContext(expediente);
         if (!cli) {
             console.warn(`${tag} cliente_id=${expediente.cliente_id} no encontrado, abortando notificaciones`);
             return { ok: false, reason: 'cliente-not-found' };
@@ -414,10 +419,11 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
                     .catch(e => console.error(`${tag} WhatsApp Admin:`, e.message));
             }
 
-            if (targets.includes('PARTNER') && partnerPhone) {
+            if (targets.includes('PARTNER') && partnerPhones.length) {
                 channels.whatsapp.push('partner');
-                whatsappService.sendText(partnerPhone, partnerMsg)
-                    .catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
+                (async () => {
+                    for (const tel of partnerPhones) await whatsappService.sendText(tel, partnerMsg);
+                })().catch(e => console.error(`${tag} WhatsApp Partner:`, e.message));
             }
         }
 
@@ -430,7 +436,7 @@ async function notifyCeeFinalRegistrado(expediente, filters = {}) {
             }
             if (targets.includes('PARTNER') && partnerEmail) {
                 channels.email.push('partner');
-                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink)
+                await emailService.sendCeeRegistradoStaffEmail(partnerEmail, true, numExp, clienteFull, ubicacion, techName, 'CEE FINAL', expedienteLink, null, null, partnerCc)
                     .catch(e => console.error(`${tag} Email Partner:`, e.message));
             }
         }

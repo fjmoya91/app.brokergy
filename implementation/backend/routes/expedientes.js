@@ -2964,10 +2964,9 @@ router.post('/:id/notify-registration', enforceAuth, async (req, res) => {
             if (op.prescriptor_id) {
                 const { data: partner } = await supabase.from('prescriptores').select('*').eq('id_empresa', op.prescriptor_id).maybeSingle();
                 if (partner) {
-                    // Lista de destinatarios (varios interlocutores posibles). Si la
-                    // redirección de notificaciones está activa, se avisa a TODOS los
-                    // contactos configurados; si no, al contacto principal del partner.
-                    const targets = partnerNotifyTargets(partner);
+                    // Lista de destinatarios: los contactos COMERCIALES del partner, todos
+                    // (el CEE registrado es asunto comercial, como en ceeRegistradoAviso).
+                    const targets = partnerNotifyTargets(partner, 'comercial');
                     console.log(`[Notify] Partner ${partner.id_empresa} → ${targets.length} destinatario(s)`,
                         targets.map(t => ({ email: t.email, tlf: t.tlf })));
 

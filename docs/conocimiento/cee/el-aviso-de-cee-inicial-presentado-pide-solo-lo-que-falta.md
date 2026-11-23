@@ -49,6 +49,15 @@ desde el email o el popup. Un fallo del aviso no tumba la subida.
 26RES060_253: el «¡Hola Félix!» había ido al email de la titular). Ver «Los avisos de sus
 clientes, al PARTNER».
 
+**REGLA — al instalador le llega en sus contactos COMERCIALES, todos** (2026-11-23, 26RES060_279).
+Es asunto comercial (facturas y fotos de la obra), así que `loadNotificationContext` pide
+`partnerNotifyTargets(p, 'comercial')` (regla 44): WhatsApp a cada uno y un solo email, con el primero
+en el «Para» y los demás en copia real (`cc` de `sendCeeRegistradoStaffEmail`). Vale también para el
+del CEE final. Antes cogía el contacto plano de siempre (`tlf_contacto`, con el desvío activo), y el
+aviso de JOSÉ ÁLVAREZ ALMARCHA del 22/11 salió a FRAN, su contacto TÉCNICO (el que firma con su
+certificado), en vez de a José o a Juani. Ese día se dio de alta a José como contacto comercial,
+delante de Juani, en su ficha.
+
 **Apagado en LOCAL** (`CEE_REGISTRO_AVISO_AUTO=false`): local escribe en producción. Encendido por defecto
 (en el VPS no hace falta tocar el `.env`).
 
