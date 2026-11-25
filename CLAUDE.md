@@ -147,6 +147,7 @@ Cada una tiene su regla `.claude/rules/<área>.md` y su carpeta `docs/conocimien
 | `cee-directos` | El segundo negocio: alta, encargo, entrega, oferta y factura |
 | `informes` | Memorias, legalizaciones e informes `{AAAA}INF_{n}` (todo lo que no es CAE ni CEE) y RITE sueltos `{AAAA}CIT_{n}`: aceptación, firma, presentación, factura, cobro y entrega |
 | `certificadores-app` | La app para certificadores externos (cee.brokergy.es): beta, obras, cuestionario, generar con IA, entrega |
+| `rite-app` | La app RITE (rite.brokergy.es): la memoria RITE suelta de un instalador, rápida o extendida (radiadores por estancia) |
 | `lotes` | Verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados del S.O., factura |
 | `seguimiento` | Parte diario, radar, enlaces de acción, envío en bloque |
 | `clientes` | Fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada |

@@ -106,13 +106,36 @@ def _m2_texto(m2: float) -> str:
     return str(int(m2)) if float(m2).is_integer() else f"{m2:.1f}".replace(".", ",")
 
 
+def _elementos_reales(v) -> int:
+    """Nº de elementos de radiador TECLEADO para una estancia (modo extendido), o 0."""
+    try:
+        n = int(float(str(v).replace(",", ".")))
+    except (TypeError, ValueError):
+        return 0
+    return n if 0 < n <= 200 else 0
+
+
+def _w_elemento(v, por_defecto: float = W_POR_ELEMENTO) -> float:
+    """W de UN elemento: 30-400 W es un radiador de verdad; fuera de eso, el de por defecto."""
+    w = _num(v)
+    return w if 30 <= w <= 400 else float(por_defecto)
+
+
 def cargas_desde_locales(rite_locales: dict, zona_climatica: str,
                          emisor: str = "RADIADORES") -> list:
     """Tabla de cargas a partir de las ESTANCIAS que se confirmaron en la app
     (`documentacion.rite_locales`). El nombre, la orientación y los m² vienen ya
     resueltos (fuente única: frontend logic/localesRite.js); aquí solo se aplica el
-    factor de la zona y se cuentan los elementos. Devuelve [] si no hay estancias."""
+    factor de la zona y se cuentan los elementos. Devuelve [] si no hay estancias.
+
+    MODO EXTENDIDO (app RITE, 25/11/2026): si una estancia trae `elementos` (los
+    que tiene de verdad) y el emisor es de RADIADORES, la POTENCIA INSTALADA es
+    elementos × W por elemento (`l.w_elemento`, o `rite_locales.w_elemento`, o
+    100 W), y la carga de cálculo sigue siendo m² × factor de la zona. Sin
+    `elementos` (modo rápido) se deduce como siempre: ⌈carga / 100 W⌉."""
     factor = factor_por_zona(zona_climatica)
+    radiadores = str(emisor or "").upper().startswith("RADIADOR")
+    w_defecto = _w_elemento((rite_locales or {}).get("w_elemento"))
     cargas = []
     for p in (rite_locales or {}).get("plantas") or []:
         planta = str(p.get("planta", "0"))
@@ -122,11 +145,18 @@ def cargas_desde_locales(rite_locales: dict, zona_climatica: str,
                 continue
             m2 = round(max(0.0, _num(l.get("m2"))), 1)
             w = round(m2 * factor)
+            n_real = _elementos_reales(l.get("elementos")) if radiadores else 0
+            if n_real:
+                elementos = str(n_real)
+                potencia = round(n_real * _w_elemento(l.get("w_elemento"), w_defecto))
+            else:
+                elementos = elementos_radiador(w, emisor)
+                potencia = w
             cargas.append({
                 "planta": planta, "tipo_local": nombre, "num": len(cargas) + 1,
                 "superficie_m2": _m2_texto(m2),
                 "orientacion": str(l.get("orientacion") or "-"),
                 "cargas_calculo": f"{_m2_texto(m2)}x{factor}", "emisor": emisor,
-                "elementos": elementos_radiador(w, emisor), "potencia_instalada": w,
+                "elementos": elementos, "potencia_instalada": potencia,
             })
     return cargas[:MAX_FILAS]

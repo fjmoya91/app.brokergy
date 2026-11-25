@@ -33,6 +33,7 @@
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 39,3 KB | 13 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,7 KB | 11 |
+| `rite-app` | App RITE — rite.brokergy.es: la memoria RITE suelta de un instalador, rápida o extendida | `.claude/rules/rite-app.md` · 2,9 KB | 1 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 14,6 KB | 4 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 17,3 KB | 7 |
@@ -334,6 +335,7 @@
 - **243** → `.claude/rules/cee-generacion.md` — El VPS califica con CE3X 3.2 sin el PC: servicio `ce3x-engine`, y lo que pide CE3X por WhatsApp pasa por el …
 - **243** → `.claude/rules/instalador-app.md` — La PORTADA de la ficha de brokergy.es la elige el instalador entre sus fotos PUBLICADAS, sin otra revisión, …
 - **244** → `.claude/rules/oportunidades.md` — Varios INSTALADORES pueden pedir la MISMA obra: la oportunidad sigue siendo UNA y el bono CAE es el MISMO pa…
+- **245** → `.claude/rules/rite-app.md` — La memoria RITE SUELTA de la app RITE (rite.brokergy.es, `{AAAA}RIT_{n}`) pasa por las MISMAS funciones que …
 
 ## Documentos por área
 
@@ -730,6 +732,10 @@
 - `docs/conocimiento/propuesta/presupuesto-estimado-la-propuesta-lo-dice-y-dice-a-que-afecta.md` — Presupuesto ESTIMADO — la propuesta lo dice, y dice a qué afecta (2026-09-03)
 - `docs/conocimiento/propuesta/programar-el-envio-de-una-propuesta.md` — PROGRAMAR el envío de una propuesta (2026-09-19)
 - `docs/conocimiento/propuesta/versiones-de-la-propuesta.md` — Versiones de la PROPUESTA (2026-08-25)
+
+### rite-app
+
+- `docs/conocimiento/rite-app/00-la-app-rite.md` — La app RITE — rite.brokergy.es (2026-11-25)
 
 ### seguimiento
 
