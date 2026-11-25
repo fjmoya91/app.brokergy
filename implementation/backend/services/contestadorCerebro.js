@@ -367,6 +367,12 @@ LO QUE FRAN YA HA CORREGIDO (no lo repitas):
   problemas», «si hiciera falta algo más, te lo digo». Lo que aún no sabes no se anuncia: va en "aviso".
 - Lo que le pedimos en la conversación hace un rato (la misma lista de fotos, el mismo enlace) no se le vuelve a
   mandar salvo que pregunte por ello. Contesta solo lo nuevo; si no hay nada nuevo que decir, CALLAR.
+- Nunca le digas a nadie que pague, que NO pague o que retenga un pago a un proveedor, a un oficio o al instalador
+  (C1076, 25/11/2026: «no se la pagues hasta que te diga»). Lo que sí se dice es lo de siempre: la obra no se factura
+  hasta que el certificado inicial esté registrado. Si pregunta qué hacer con un pago, ESCALAR con "por": "PRECIO".
+- De una obra que aún NO está en la app no se promete cómo se va a tramitar («va todo en un único expediente», «por
+  uso industrial», «si los números salen bien lo tramitamos»; C1081, 25/11/2026): «Lo vamos a revisar y te pasamos la
+  propuesta», y nada más.
 ${peticionNueva ? `
 ES UNA PETICIÓN NUEVA (manda sobre los casos de abajo): lo que ha mandado${queNuevas.length ? ` (${queNuevas.join(', ')})` : ''} es de una vivienda
 que aún no está en la app. Cuando nos pasan el Catastro, la foto de la caldera o de su placa, o un presupuesto, es
@@ -543,7 +549,8 @@ function sinYo(s) {
  */
 function sinLoReviso(s) {
     const t = String(s || '');
-    const r = t.replace(/\s*[,;]\s*(?:y\s+)?(?:lo|la|los|las|te\s+lo|te\s+la)\s+(?:estoy\s+(?:revisando|mirando|comprobando)|reviso|miro|compruebo|repaso)(?:\s+y\s+te\s+(?:confirmo|digo|aviso|comento)(?:\s+algo)?)?(?=\s*[.!]|\s*$)/gi, '');
+    // 25/11/2026: también «; lo del orden lo reviso» (C1129) y «, los revisamos» (C1093).
+    const r = t.replace(/\s*[,;]\s*(?:y\s+)?(?:lo\s+del?\s+[^.,;!?]{1,60}?\s+)?(?:lo|la|los|las|te\s+lo|te\s+la)\s+(?:estoy\s+(?:revisando|mirando|comprobando)|estamos\s+(?:revisando|mirando|comprobando)|reviso|revisamos|miro|miramos|compruebo|comprobamos|repaso|repasamos)(?:\s+y\s+te\s+(?:confirmo|digo|aviso|comento|confirmamos|decimos|avisamos)(?:\s+algo)?)?(?=\s*[.!]|\s*$)/gi, '');
     return r.replace(/\s+/g, ' ').trim().length >= 12 ? r : t;
 }
 
@@ -633,7 +640,7 @@ function sinLoQueNoLleva(pendientes, textoChat) {
  * Una persona contesta lo que sabe y calla lo que todavía no; lo que queda por mirar ya va en el aviso a
  * Fran. Se quita la FRASE entera; si no queda nada, se deja como estaba. Pura.
  */
-const FRASE_APUNTADO = /^(?:y\s+)?lo\s+de\b[^.!?]{0,80},\s*(?:apuntad[oa]|anotad[oa]|tomo\s+nota)\s*[.!]?$/i;
+const FRASE_APUNTADO = /^(?:y\s+)?lo\s+de\b[^.!?]{0,80},\s*(?:apuntad[oa]|anotad[oa]|tomo\s+nota)\s*[.!]?$|^(?:(?:perfecto|vale|bien|genial|estupendo|de\s+acuerdo|ok|entendido)\s*[,.]?\s*)?(?:apuntad[oa]|anotad[oa]|tomo\s+nota\s+de)\s+lo\s+de\b[^.!?]{0,80}[.!]?$/i;
 const FRASE_PROMESA = /\b(?:lo|la|los|las)\s+(?:miro|miramos|compruebo|comprobamos|reviso|revisamos|vemos|veo|consulto|consultamos)\b(?![^.!?]*\b(?:pasamos|paso|enviamos|mando|mandamos)\s+(?:la|las)\s+propuestas?\b)[^.!?]*?(?:\bte\s+(?:lo\s+|la\s+)?(?:digo|confirmo|aviso|comento|decimos|confirmamos|avisamos)\b|\bpara\s+que\s+no\b|\bsi\s+(?:hiciera|hace|faltara|falta|hubiera|hay)\s+(?:falta\s+)?(?:algo|alguna|algún|otra|más)\b)[^.!?]*[.!]?/i;
 function sinFrasesVacias(texto) {
     const t = String(texto || '');
@@ -662,14 +669,23 @@ function sinLoYaDicho(mensaje, dichos = [], { pregunta = false } = {}) {
     const urlsAntes = new Set(dichos.join('\n').match(/https?:\/\/\S+/g) || []);
     let quitados = 0;
     const parrafos = t.split(/\n{2,}/);
-    const quedan = parrafos.filter((p) => {
+    const quedan = parrafos.map((p) => {
         const negritas = [...p.matchAll(/\*([^*\n]{3,80})\*/g)].map(m => normDicho(m[1])).filter(Boolean);
         const urls = p.match(/https?:\/\/\S+/g) || [];
-        if (!negritas.length && !urls.length) return true;
+        if (!negritas.length && !urls.length) return p;
         const repetido = negritas.every(n => antes.includes(n)) && urls.every(u => urlsAntes.has(u));
-        if (repetido) quitados += 1;
-        return !repetido;
-    });
+        if (!repetido) return p;
+        quitados += 1;
+        // Con una PREGUNTA dentro, el párrafo se queda y solo se va el enlace repetido (25/11/2026,
+        // C1107: a Irene se le fue «¿en qué apartado te pide las fechas?» con el enlace de aceptar).
+        if (/[¿?]/.test(p)) {
+            // Se va el enlace y la frase que lo presentaba («Y lo de aceptar sigue aquí:»).
+            const esc = (u) => u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            return urls.reduce((acc, u) => acc.replace(new RegExp(`[^.?!\\n]*:?[ \\t]*\\n?[ \\t]*${esc(u)}`), ''), p)
+                .replace(/\n{2,}/g, '\n').replace(/[ \t]+$/gm, '').trim();
+        }
+        return null;
+    }).filter(p => p !== null && p !== '');
     const out = quedan.join('\n\n').replace(/:\s*$/, '.').trim();
     return { mensaje: quitados ? out : t, quitados, vacio: quitados > 0 && out.replace(/\s+/g, ' ').length < 12 };
 }
@@ -721,8 +737,28 @@ ACS incluido.»
 - Ni MWh, ni €/MWh, ni la palabra «vigente»: solo esos importes.`;
 }
 
+/**
+ * Lo que NO puede salir solo, aunque el modelo lo escriba: decirle a alguien que no pague (o que
+ * retenga) a un proveedor (C1076, 25/11/2026: «no se la pagues hasta que te diga») y prometer cómo
+ * se tramitará una obra que aún no está en la app (C1081: «si los números salen bien, lo tramitamos
+ * todo en un único expediente»). Pasa a Fran con lo que iba a decir como borrador. Pura.
+ */
+const CONSEJO_PAGO = /\bno\s+(?:se\s+)?(?:la|lo|las|los|le|les)\s+pagu(?:es|éis|eis|e)\b|\bno\s+pagu(?:es|éis|eis)\b|\bno\s+(?:le|les)\s+(?:pagues|pagu[eé]is|abones|adelantes)\b|\bespera(?:d)?\s+a\s+pagar|\bret[eé]n(?:ed)?\s+(?:el\s+)?pago|\bno\s+(?:hag[aá]is|hagas)\s+(?:el|ning[uú]n)\s+pago|\bpaga(?:le|les|lo|la)?\s+(?:ya|ahora)\b/i;
+const PROMESA_TRAMITE = /\bun\s+(?:[uú]nico|solo)\s+expediente\b|\blo\s+tramitamos\s+todo\b|\bsi\s+los\s+n[uú]meros\s+salen\b|\bpor\s+(?:el\s+)?uso\s+industrial\b/i;
+function loQueNoSaleSolo(mensaje) {
+    const t = String(mensaje || '');
+    if (CONSEJO_PAGO.test(t)) return { por: 'PRECIO', motivo: 'le iba a aconsejar sobre un pago (pagar o no pagar a un proveedor): eso lo dices tú' };
+    if (PROMESA_TRAMITE.test(t)) return { por: 'SIN_DATOS', motivo: 'le iba a prometer cómo se tramitaría una obra que aún no está en la app' };
+    return null;
+}
+
 function ajustarRespuesta(r, llegado, extra = {}) {
     if (!r || r.accion !== 'RESPONDER' || !r.mensaje) return r;
+    const freno = loQueNoSaleSolo(r.mensaje);
+    if (freno) {
+        return { ...r, accion: 'ESCALAR', mensaje: '', acuse: '', borrador: r.mensaje, por: freno.por, aviso: '',
+            motivo: `${freno.motivo}${r.motivo ? ` (${r.motivo})` : ''}`, ajustes: ['no_sale_solo'] };
+    }
     let mensaje = r.mensaje;
     const ajustes = [];
     // Lo que dijo que no lleva y se le quitó de lo pendiente: que Fran lo confirme.
@@ -1116,5 +1152,5 @@ module.exports = {
     bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES,
     saludoDeLaHora, sinColetillaOtraObra, decisionTrasInvestigar, soloDeFran, POR_FRAN,
     sinSaludoInicial, sinNoFaltaNada, quedaAlgoPorMirar, ajustarRespuesta, sinYo, sinLoReviso, loQueNoLleva, sinLoQueNoLleva,
-    sinFrasesVacias, sinLoYaDicho, preguntaPorLoPendiente, fmSinAcs, bloqueFmSinAcs,
+    sinFrasesVacias, sinLoYaDicho, preguntaPorLoPendiente, fmSinAcs, bloqueFmSinAcs, loQueNoSaleSolo,
 };

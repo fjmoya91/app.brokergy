@@ -84,6 +84,8 @@ const CFG = {
     // Altas que se encargan solas al asistente en 24 h (cada una es un trabajo de Claude con la
     // suscripción, dentro de su tope de 40). Pasado el tope, a Fran.
     altasDia: num(process.env.CONTESTADOR_ALTAS_DIA, 10),
+    // Encargos de COLOCAR lo que se queda sin apartado (25/11/2026): cada uno es un trabajo del asistente.
+    documentarDia: num(process.env.CONTESTADOR_DOCUMENTAR_DIA, 8),
     purgaDias: 90,
 };
 // La PETICIÓN NUEVA se da de alta sola (20/11/2026, Fran: «cuando nos pasan catastro, foto de caldera
@@ -323,6 +325,8 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     const c = {
         ref: '', telefono: tel9, titulo: comun.titulo, rol, obras: Ronda.obrasDeChat(personas, u),
         filas: [], sinLeer: [], adjuntosObra: 0, obrasTocadas: [],
+        // Los instaladores de este chat (de la BD): a su carpeta van sus carnés (contestadorDocumentos).
+        instaladores: [...new Map(personas.filter(p => p.tipo === 'partner' && p.id).map(p => [p.id, { id: p.id, nombre: p.nombre || null }])).values()],
     };
     const cont = { fotos: 0, documentos: 0, audios: 0, videos: 0, yaColocadas: 0 };
     const cuenta = { llamadas: 0, in: 0, out: 0, think: 0, reintentos: 0, usd: 0 };
@@ -603,6 +607,48 @@ async function encargarAlta(fila, d) {
     }
 }
 
+/**
+ * El ENCARGO de COLOCAR lo que el contestador no ha sabido poner en su apartado, de una obra que YA
+ * existe (25/11/2026, Fran: 13 de 41 adjuntos del día —fotos de techos, de la parte de atrás, del
+ * interior— que pedimos para el CEE se quedaban en el chat). Como el alta: lo compone el CÓDIGO con
+ * datos fijos (hora y tipo; nada que haya escrito quien lo manda) y lo hace el asistente con la skill
+ * alta-oportunidad (`documentar`). Puro.
+ */
+function textoDocumentar({ tel9, obra, quien, items }) {
+    const ts = (items || []).map(x => Number(x.t)).filter(Boolean).sort((a, b) => a - b);
+    const desde = ts.length ? desdeMadrid(ts[0] - 60) : null;
+    const lista = (items || []).map(x => `${x.t ? desdeMadrid(Number(x.t)).slice(11) : '¿?'} ${NOMBRE_TIPO[x.tipo] || 'documento'}`);
+    return [
+        `COLOCAR DOCUMENTACIÓN de ${obra} que ha llegado por WhatsApp y el contestador no ha sabido poner en su apartado (Fran ha dejado dicho que esto se coloca solo, sin preguntarle).`,
+        '',
+        `- Chat: teléfono ${tel9} · ${quien}.`,
+        `- Obra: ${obra} (ya existe en la app).`,
+        `- Sin colocar (${lista.length}, hora de Madrid): ${lista.join(' · ')}.`,
+        '- A quien lo manda NO le escribas: lo suyo lo lleva el contestador.',
+        '',
+        `Hazlo con la skill alta-oportunidad sobre ESE chat: \`node scripts/alta_oportunidad.js chat ${tel9}${desde ? ` --desde "${desde}"` : ''}\`, y \`documentar --op ${obra} --plan /tmp/docs_${obra}.json\` (lo temporal, en /tmp), en seco y luego \`--escribir\`. Solo esos adjuntos y solo a ${obra}. Lo que ya esté colocado no se repite; lo que no tengas claro a qué apartado va, NO lo coloques; un documento firmado, un DNI o un justificante tampoco (eso lo decide Fran).`,
+        'Al terminar, a Fran UNA línea si todo ha quedado colocado; si algo queda sin colocar o es dudoso, UN mensaje corto con qué y por qué.',
+    ].join('\n');
+}
+
+/** Le encarga al asistente colocar lo de una obra. Clave por chat y obra; tope al día. Nunca lanza. */
+async function encargarDocumentar(fila, { tel9, obra, quien, items }) {
+    try {
+        const desde = new Date(Date.now() - 24 * 3_600_000).toISOString();
+        const { count, error } = await supabase.from('wa_contestador').select('id', { count: 'exact', head: true })
+            .gte('detalle->>documentar_at', desde);
+        if (error) return { ok: false, motivo: `no he podido contar los encargos de hoy (${error.message})` };
+        if ((count || 0) >= CFG.documentarDia) return { ok: false, motivo: `tope de encargos de colocar del día (${CFG.documentarDia})` };
+        const r = await require('./asistenteCanal').pedirTarea({
+            texto: textoDocumentar({ tel9, obra, quien, items }),
+            clave: `documentar:${fila.chat_id}:${obra}`,
+        });
+        return r?.ok ? { ok: true } : { ok: false, motivo: `el asistente no lo ha cogido${r?.motivo ? ` (${recorta(r.motivo, 120)})` : ''}` };
+    } catch (e) {
+        return { ok: false, motivo: `no se pudo encargar (${recorta(e.message, 120)})` };
+    }
+}
+
 function resumenPendientes(ms) {
     return ms.slice(-6).map((m) => {
         const que = m.tipo === 'chat' ? recorta(m.texto, 300)
@@ -620,7 +666,7 @@ const cita = (txt) => String(txt || '').split('\n').map(l => `> ${l}`).join('\n'
  */
 function lineasGuardar(items) {
     const lista = (items || []).filter(Boolean);
-    const linea = (x) => `- ${recorta(x.que || x.tipo, 90)} → ${x.destino || x.slot}${x.obra ? ` (${x.obra})` : ''}`;
+    const linea = (x) => `- ${recorta(x.que || x.tipo, 90)} → ${x.destino || x.slot}${x.obra ? ` (${x.obra})` : ''}${x.hecho && x.aviso ? ` — ${recorta(x.aviso, 160)}` : ''}`;
     const hechos = lista.filter(x => x.guardar && x.hecho);
     const fallidos = lista.filter(x => x.guardar && !x.hecho && x.error);
     const porHacer = lista.filter(x => x.guardar && !x.hecho && !x.error);
@@ -641,7 +687,7 @@ function textoParaFran(fila, d, { m = modo(), enviado = false, acuseEnviado = fa
     const guardar = lineasGuardar(d.guardar);
     // Lo que ha contestado al seguimiento, ya aplicado (o lo que se haría, en copia).
     const seg = (d.seguimientoLineas || []).filter(Boolean);
-    const bloqueGuardar = [...(guardar.length ? ['', ...guardar] : []), ...(seg.length ? ['', 'Del seguimiento:', ...seg] : [])];
+    const bloqueGuardar = [...(guardar.length ? ['', ...guardar] : []), ...((d.documentarLineas || []).length ? ['', ...d.documentarLineas] : []), ...(seg.length ? ['', 'Del seguimiento:', ...seg] : [])];
     const porGuardar = (d.guardar || []).some(x => x.guardar && !x.hecho && !x.error) && mg === 'copia';
     const fuentes = (d.fuentes || []).length ? `_He mirado: ${d.fuentes.slice(0, 5).join(' · ')}_` : null;
     // La petición nueva: lo que ha pasado con su alta (actuar → `d.altaLinea`), o lo que se haría.
@@ -792,6 +838,23 @@ async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
         }
     }
     upd.detalle.guardar = Docs.paraFila(items);
+    // 1.b Lo que se ha quedado SIN colocar de una obra que ya existe (fotos sin apartado claro,
+    //     documentos sueltos): se le encarga al asistente (skill alta-oportunidad, `documentar`).
+    //     Solo cuando el contestador ya guarda de verdad; en copia, Fran ve lo que no se ha guardado.
+    if (mg === 'real') {
+        const quien = recorta(d.titulo || fila.nombre || 'número de la app', 80);
+        const lineas = [];
+        for (const [obra, its] of Docs.paraColocar(items)) {
+            const r = await encargarDocumentar(fila, { tel9: upd.tel9, obra, quien, items: its });
+            if (r.ok) upd.detalle.documentar_at = new Date().toISOString();
+            else upd.detalle.documentar_error = r.motivo;
+            lineas.push(r.ok
+                ? `*Colocar:* ${its.length} de ${obra} sin apartado claro; se lo he encargado al asistente.`
+                : `*Colocar:* ${its.length} de ${obra} sin apartado claro, pero no lo he podido encargar (${r.motivo}).`);
+            log(`C${fila.id}: colocar ${its.length} de ${obra} → ${r.ok ? 'encargado al asistente' : r.motivo}`);
+        }
+        if (lineas.length) d.documentarLineas = lineas;
+    }
     // 2. Lo que ha contestado al SEGUIMIENTO de una propuesta (sigue, no sigue, más adelante): se
     //    aplica aunque aquí estemos en copia, porque es lo que ha DICHO él (seguimientoWhatsapp
     //    decide, con su propio modo, si toca la oportunidad). Nunca lanza.
@@ -803,7 +866,7 @@ async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
     if (d.accion === 'CALLAR') {
         // Nada que decirle; pero si hay algo suyo que guardar, Fran lo sabe (en copia, para que
         // diga «C12»; en real, ya está guardado).
-        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length || d.aviso) {
+        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length || d.aviso || upd.detalle.documentar_error) {
             try {
                 if (await mandarAFran(textoParaFran(fila, d, { m, mg }))) upd.copia_at = new Date().toISOString();
             } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -868,7 +931,9 @@ async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
     // memoria, dar de alta la vivienda…): se le contesta solo, pero Fran lo sabe.
     // También lo callado que a Fran le interesa saber (el cartel de un curso sobre CAEs).
     const conAviso = d.accion !== 'ESCALAR' && !!d.aviso;
-    if (m === 'copia' || d.accion === 'ESCALAR' || conAviso || altaFallida || (leadSinObra && d.accion !== 'CALLAR')) {
+    // Un RITE corregido que SUSTITUYE al anterior, o un encargo de colocar que no ha salido: Fran lo sabe.
+    const paraSaber = (d.guardar || []).some(x => x.hecho && x.reemplaza) || !!upd.detalle.documentar_error;
+    if (m === 'copia' || d.accion === 'ESCALAR' || conAviso || paraSaber || altaFallida || (leadSinObra && d.accion !== 'CALLAR')) {
         try {
             if (await mandarAFran(textoParaFran(fila, d, { m, mg, enviado, acuseEnviado }))) upd.copia_at = new Date().toISOString();
         } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }
@@ -1168,5 +1233,5 @@ module.exports = {
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado, trasRedactar,
-    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid, yaLeEscribimos, loQueLeDijimos, silencioPara,
+    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, textoDocumentar, desdeMadrid, yaLeEscribimos, loQueLeDijimos, silencioPara,
 };

@@ -350,6 +350,54 @@ Tras tocarlo: `test_contestador_whatsapp.js` (bloque «Que no parezca un robot (
 `contestador.js seco --antes --tel …` sobre los chats de Lucía, Aurelio, Justo, Sebastián, Juanra, Milagros y
 Gema.
 
+### El repaso del primer día con esas reglas (2026-11-25)
+
+81 turnos (C1028–C1140): 40 respuestas, 19 calladas, 11 a Fran. Mejor que el 24: ninguna lista repetida, las
+cortesías calladas, los plazos con la frase de Fran y la del ACS saliendo por primera vez (C1079, OP452). Lo
+que seguía mal y se cambia (Fran: «sí, haz las cuatro y despliégalo»):
+
+**REGLA — un párrafo con una PREGUNTA no se quita por llevar un enlace ya dado** (`sinLoYaDicho`): se va solo
+el enlace y la frase que lo presentaba. C1107: a Irene (OP114) se le iba a preguntar en qué apartado le pedía
+las fechas y le llegó solo «Recibido el certificado de los vidrios, gracias»: la pregunta iba en el mismo
+párrafo que el enlace de aceptar, que ya tenía.
+
+**Más frases vacías fuera**: «Perfecto, **apuntado** lo de la planta de arriba» (C1069, `sinFrasesVacias`),
+«…; lo del orden **lo reviso**» (C1129) y «…, **los revisamos**» (C1093) (`sinLoReviso`, ahora con «lo de X»
+delante y en plural).
+
+**REGLA — lo que no sale solo aunque el modelo lo escriba** (`loQueNoSaleSolo`, en `ajustarRespuesta`):
+decirle a alguien que no pague, que retenga o que pague ya a un proveedor (C1076, 26RES080_106: «no se la
+pagues hasta que te diga») y prometer cómo se tramitará una obra que aún no está en la app (C1081: «si los
+números salen bien, lo tramitamos todo en un único expediente»). Pasa a Fran como ESCALAR, sin acuse, con lo
+que iba a decir de borrador («C12» lo manda). El prompt también lo dice.
+
+**REGLA — lo que se queda sin apartado de una obra que YA existe se le ENCARGA al asistente** (13 de los 41
+adjuntos del día: los techos de Irene, la parte de atrás de Juanjo, el interior de Lucía, el termostato de
+Tomás). `paraColocar` (contestadorDocumentos) junta, por obra, las fotos sin apartado claro y los documentos
+sueltos —nunca firmados, DNI, justificantes, lo de una obra nueva, lo dudoso de obra ni lo que ya tiene su
+foto— y `encargarDocumentar` (contestadorWhatsapp) se lo pide al asistente como el alta: el texto lo compone
+el CÓDIGO (hora y tipo, nada de lo que escribió quien lo manda), con la skill alta-oportunidad (`chat` +
+`documentar --op`), sin escribir a nadie, y con un tope de 8 al día (`CONTESTADOR_DOCUMENTAR_DIA`). Solo con
+`CONTESTADOR_GUARDAR` en real. Si no se puede encargar, Fran lo sabe.
+
+**REGLA — una foto que no es una ventana no va a un apartado de ventanas** (`apartadoNoCuadra`): C1074, la
+foto del techo de una habitación de Irene acabó en «Las ventanas de ahora» con confianza alta. Ahora la
+descripción tiene que hablar de ventana, carpintería, vidrio, hueco, persiana… o se queda para colocar.
+
+**REGLA — un RITE «corregido / modificado / rectificado» SUSTITUYE al que ya tiene el expediente**
+(C1087, 26RES060_274): si lo dice la descripción, el nombre del fichero o el pie, y pasa las mismas pruebas
+(PDF que trae el nº o la RC de la obra), el de antes va a `OLD` (`archiveExistingToOld`, como el CIFO firmado de
+nuevo), el nuevo entra por `escribirSubidaEnDocumentacion` (se borra el visto bueno: hay que volver a
+validarlo, regla 196) y Fran lo sabe siempre. Sin esa palabra, el que ya hay no se pisa.
+
+**REGLA — los CARNÉS del instalador van a SU carpeta** (C1089, Aeroconfor): carné RITE, certificado de
+competencia, cualificación profesional… de un chat de instalador con UN instalador en la BD van a
+«00. DOCUMENTACIÓN INSTALADORES/<empresa> (<id>)» bajo `DRIVE_ROOT_FOLDER_ID`, con el id del mensaje en el
+nombre (no se guarda dos veces). La ficha del instalador no tiene todavía dónde enlazarlos: están en Drive.
+
+Tras tocarlo: `test_contestador_whatsapp.js` (bloques «Lo que se guarda desde el 25/11/2026» y «El repaso del
+25/11/2026»).
+
 ## El LISTADO para repasar las respuestas (2026-11-21)
 
 Fran, 21/11/2026: «quiero que luego se pueda sacar un listado de las respuestas que se dan para analizar cómo han

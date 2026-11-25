@@ -76,6 +76,27 @@ function comprobadorPdf() {
 }
 const SIN_COMPROBADOR = 'el RITE no lo guardo solo: este servidor aún no comprueba que el PDF sea de esta obra';
 
+// Un RITE «corregido / modificado / rectificado» SUSTITUYE al que ya tiene el expediente: el de
+// antes pasa a OLD (`archiveExistingToOld`, como el CIFO firmado de nuevo) y la validación se
+// borra (25/11/2026, Fran; C1087, 26RES060_274: «Recibido el certificado corregido» y se quedaba
+// en el chat). Sin esa palabra, uno que ya está NO se pisa. Pura.
+const RITE_CORREGIDO = /\b(?:corregid[oa]|modificad[oa]|rectificad[oa]|subsanad[oa]|actualizad[oa]|nueva\s+versi[oó]n|bueno\s+ya|el\s+bueno)\b/i;
+const esRiteCorregido = (...textos) => RITE_CORREGIDO.test(textos.filter(Boolean).join(' '));
+
+// Una foto que el repartidor manda a un apartado de VENTANAS sin que lo que se ve sea una ventana
+// no se guarda sola (25/11/2026, C1074: la foto del techo de una habitación de Irene acabó en «Las
+// ventanas de ahora»). Pura.
+const ES_DE_VENTANA = /ventan|carpinter|vidri|cristal|hueco|persian|balc[oó]n|puerta\s+(?:de\s+)?(?:la\s+)?(?:terraza|calle|balc)|marco|contraventan/i;
+const apartadoNoCuadra = (slot, que) => /VENTANA/i.test(String(slot || '')) && !ES_DE_VENTANA.test(String(que || ''));
+
+// Los CARNÉS del instalador (carné RITE, certificado de competencia…) no son de ninguna obra: van a
+// la carpeta del INSTALADOR en Drive, «00. DOCUMENTACIÓN INSTALADORES/<empresa> (<id>)» bajo la
+// raíz de BROKERGY (25/11/2026, Fran; C1089, Aeroconfor). Solo de un instalador del chat, y solo
+// PDF o imagen. Pura.
+const ES_CARNE = /\bcarn[eé]t?\b|\bcompetencia\s+profesional|\bcertificado\s+acreditativo|cualificaci[oó]n\s+profesional|instalador\s+(?:autorizado|habilitado)|habilitaci[oó]n\s+profesional/i;
+const CARPETA_INSTALADORES = '00. DOCUMENTACIÓN INSTALADORES';
+const SLOT_CARNE = 'CARNE_INSTALADOR';
+
 const huella = (buf) => crypto.createHash('sha1').update(buf).digest('hex');
 const esPdf = (mt) => /pdf/i.test(String(mt || ''));
 const esImagen = (mt) => /^image\//i.test(String(mt || ''));
@@ -184,6 +205,20 @@ async function planear({ c, adjuntos }) {
         const no = (motivo) => { it.motivo = motivo; items.push(it); f.guardado = motivo; };
         if (items.filter(x => x.guardar).length >= MAX_POR_CHAT) { no('fuera del tope de lo que se guarda solo'); continue; }
         if (!m || !m._fichero?.buffer) { no('no se ha podido bajar'); continue; }
+        // Los carnés del instalador, de ninguna obra: a su carpeta.
+        const instaladores = (c.instaladores || []).filter(x => x && x.id);
+        if (ES_CARNE.test(String(f.que || '')) && ['OTRO_DOCUMENTO', 'DNI', 'CERTIFICADO_RITE'].includes(f.tipo) && (c.rol === 'instalador' || c.rol === 'ambos')) {
+            if (instaladores.length !== 1) { no(instaladores.length ? 'un carné del instalador, pero en el chat hay varios instaladores' : 'un carné del instalador, pero no sé de qué instalador es'); continue; }
+            if (!esPdf(m._fichero.mimetype) && !esImagen(m._fichero.mimetype)) { no(`un carné en ${m._fichero.mimetype || 'formato desconocido'}`); continue; }
+            const h0 = huella(m._fichero.buffer);
+            if (vistos.has(h0)) { no('repetido: es el mismo fichero que otro de este chat'); continue; }
+            vistos.add(h0);
+            Object.assign(it, { obra: null, guardar: true, slot: SLOT_CARNE, destino: `Documentación del instalador (${instaladores[0].nombre || instaladores[0].id})`, instalador_id: instaladores[0].id, instalador_nombre: instaladores[0].nombre || null });
+            ficheros.set(f.msg, m._fichero);
+            f.guardado = true;
+            items.push(it);
+            continue;
+        }
         const obra = (c.obras || []).find(o => o.codigo === f.obra);
         if (!obra) { no(f.obra === 'NUEVA' ? 'es de una obra que aún no está en la app' : 'no se sabe de qué obra es'); continue; }
         if (obra.tipo === 'cee' || !obra.oportunidad_id) { no('es de un CEE directo'); continue; }
@@ -206,7 +241,9 @@ async function planear({ c, adjuntos }) {
         } else if (f.tipo === 'CERTIFICADO_RITE') {
             if (!d.exp) { no('el RITE solo se guarda en un expediente'); continue; }
             const { estadoInstalador } = await instaladorPendientes();
-            if (estadoInstalador(d.exp.documentacion || {}).rite.certificadoRecibido) { no('el expediente ya tiene un certificado RITE: no lo piso'); continue; }
+            const yaTiene = estadoInstalador(d.exp.documentacion || {}).rite.certificadoRecibido;
+            const corregido = yaTiene && esRiteCorregido(f.que, m?._fichero?.nombre, m?.texto);
+            if (yaTiene && !corregido) { no('el expediente ya tiene un certificado RITE: no lo piso'); continue; }
             // Solo en PDF: una foto del RITE no se puede comprobar (24/11/2026).
             if (!esPdf(it.mimetype)) { no(`un RITE en ${it.mimetype || 'formato desconocido'}: solo guardo solo el PDF`); continue; }
             const comprobar = comprobadorPdf();
@@ -219,13 +256,16 @@ async function planear({ c, adjuntos }) {
             // enlace deja pasar lo ilegible con aviso; aquí no hay nadie mirando).
             if (!r.coincide) { no(`no he podido comprobar que el RITE sea de esta obra${r.aviso ? ` (${r.aviso})` : ''}`); continue; }
             if (r.aviso) it.aviso = r.aviso;
-            Object.assign(it, { guardar: true, slot: 'DOC_RITE', destino: 'Certificado RITE' });
+            Object.assign(it, corregido
+                ? { guardar: true, slot: 'DOC_RITE', destino: 'Certificado RITE (sustituye al anterior, que pasa a OLD)', reemplaza: true }
+                : { guardar: true, slot: 'DOC_RITE', destino: 'Certificado RITE' });
         } else if (FOTOS.has(f.tipo)) {
             if (!f.slot) { no('el repartidor no sabe en qué apartado va'); continue; }
             const slotDef = d.checklist.find(s => s.key === f.slot);
             if (!slotDef) { no(`«${f.slot}» no es un apartado de esa obra`); continue; }
             const label = slotDef.labelCliente || slotDef.label;
             if (f.confianza_slot !== 'alta') { no(`no está claro el apartado (sería «${label}»)`); continue; }
+            if (apartadoNoCuadra(f.slot, f.que)) { no(`no está claro el apartado (sería «${label}», y no parece una ventana)`); continue; }
             if (!slotDef.multiple) {
                 const ya = d.opp.datos_calculo?.reforma_uploads?.[f.slot];
                 if ((Array.isArray(ya) && ya.length) || unicoOcupado.has(`${obra.codigo}:${f.slot}`)) { no(`«${label}» ya tiene su foto: no la piso`); continue; }
@@ -295,7 +335,7 @@ async function guardarRite(it, fichero, { subidoPor = 'instalador', avisar = fal
     const exp = await leerExpediente(it.expediente_id);
     if (!exp) throw new Error('no encuentro el expediente');
     const { estadoInstalador } = await instaladorPendientes();
-    if (estadoInstalador(exp.documentacion || {}).rite.certificadoRecibido) throw new Error('el expediente ya tiene un certificado RITE');
+    if (estadoInstalador(exp.documentacion || {}).rite.certificadoRecibido && !it.reemplaza) throw new Error('el expediente ya tiene un certificado RITE');
     const { pdf } = await require('./ceeOcrService').normalizeToPdf([{
         buffer: fichero.buffer, mimetype: fichero.mimetype, originalname: fichero.nombre || `rite.${extDe(fichero.mimetype)}`,
     }]);
@@ -310,14 +350,33 @@ async function guardarRite(it, fichero, { subidoPor = 'instalador', avisar = fal
     if (!raiz) throw new Error('el expediente no tiene carpeta de Drive');
     const sub = await drive.getOrCreateSubfolderNormalized(raiz, CARPETA_RITE);
     const nombre = `${exp.numero_expediente || exp.id} - Certificado RITE.pdf`;
-    // Nunca se pisa: si ya hay uno con ese nombre en Drive, que lo mire una persona.
-    if (await drive.findFileByName(sub, nombre)) throw new Error(`ya hay un «${nombre}» en Drive`);
+    const previo = await drive.findFileByName(sub, nombre);
+    let anterior = null;
+    if (previo && it.reemplaza) {
+        // El CORREGIDO: el de antes a «OLD» (como el CIFO firmado de nuevo); si no se puede mover,
+        // no se pisa nada.
+        anterior = await drive.archiveExistingToOld(sub, previo, nombre);
+        if (!anterior) throw new Error(`no he podido pasar el «${nombre}» anterior a OLD`);
+    } else if (previo) {
+        // Nunca se pisa: si ya hay uno con ese nombre en Drive, que lo mire una persona.
+        throw new Error(`ya hay un «${nombre}» en Drive`);
+    }
     const saved = await drive.saveFileToFolder(sub, nombre, 'application/pdf', pdf);
     if (!saved?.link) throw new Error('Google Drive no lo ha aceptado');
     try { if (saved.id) await drive.setFolderPublic(saved.id, 'reader'); } catch (e) { /* como las rutas: no tumba nada */ }
-    // Enlace + sello «esto es el certificado» con la RPC de MERGE (regla 22: nada de reescribir
-    // `documentacion` entera). Es lo que hace la subida por el enlace (syncRiteToExpediente).
-    await reformaUploadService.syncRiteToExpediente(exp.oportunidad_id, saved.link);
+    if (it.reemplaza) {
+        // Versión nueva: el visto bueno del anterior NO vale para este (regla 196), y el enlace el
+        // último, clave a clave (utils/documentacionAtomica.js, como la subida por el enlace).
+        await require('../utils/documentacionAtomica').escribirSubidaEnDocumentacion(supabase, {
+            expedienteId: exp.id, oportunidadId: exp.oportunidad_id, docLeida: exp.documentacion || {},
+            subidos: ['cert_rite_drive_link'], quien: { usuario: 'contestador', origen: 'WhatsApp del instalador (corregido)' },
+            campos: { cert_rite_aportado_at: new Date().toISOString(), cert_rite_drive_link: saved.link },
+        });
+    } else {
+        // Enlace + sello «esto es el certificado» con la RPC de MERGE (regla 22: nada de reescribir
+        // `documentacion` entera). Es lo que hace la subida por el enlace (syncRiteToExpediente).
+        await reformaUploadService.syncRiteToExpediente(exp.oportunidad_id, saved.link);
+    }
     let lectura = null;
     try {
         const { procesarCertificadoRite } = require('./riteCertificado');
@@ -331,7 +390,26 @@ async function guardarRite(it, fichero, { subidoPor = 'instalador', avisar = fal
             oportunidadUuid: exp.oportunidad_id, slotKey: 'DOC_RITE', slotLabel: 'Certificado RITE', fase: null, subidoPor,
         });
     }
-    return { link: saved.link, driveId: saved.id, nombre, pruebas: lectura?.fechas?.pruebas || null, aviso: r.aviso || null };
+    const avisoAnterior = anterior ? `el RITE anterior queda en OLD como «${anterior}»; hay que volver a validarlo` : null;
+    return { link: saved.link, driveId: saved.id, nombre, pruebas: lectura?.fechas?.pruebas || null, aviso: [r.aviso, avisoAnterior].filter(Boolean).join('; ') || null };
+}
+
+/** Nombre de la carpeta del instalador: «ACRÓNIMO (id)». Puro. */
+const carpetaDeInstalador = (id, nombre) => `${String(nombre || 'INSTALADOR').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60)} (${id})`;
+
+async function guardarCarne(it, fichero) {
+    const raiz = String(process.env.DRIVE_ROOT_FOLDER_ID || '').trim();
+    if (!raiz) throw new Error('no hay carpeta raíz de Drive (DRIVE_ROOT_FOLDER_ID)');
+    const drive = require('./driveService');
+    const todos = await drive.getOrCreateSubfolderNormalized(raiz, CARPETA_INSTALADORES);
+    const suya = await drive.getOrCreateSubfolderNormalized(todos, carpetaDeInstalador(it.instalador_id, it.instalador_nombre));
+    const base = String(fichero.nombre || `carne.${extDe(fichero.mimetype)}`).replace(/[\\/:*?"<>|]+/g, ' ').trim();
+    // El id del mensaje en el nombre: la misma foto no se guarda dos veces.
+    const nombre = `${String(it.msg || '').slice(-6)} - ${base}`;
+    if (await drive.findFileByName(suya, nombre)) return { link: null, driveId: null, nombre, ya: true };
+    const saved = await drive.saveFileToFolder(suya, nombre, fichero.mimetype || 'application/pdf', fichero.buffer);
+    if (!saved?.link) throw new Error('Google Drive no lo ha aceptado');
+    return { link: saved.link, driveId: saved.id, nombre };
 }
 
 async function guardarJustificante(it, fichero) {
@@ -369,9 +447,12 @@ async function ejecutar(items, ficheros = new Map(), { fuente = null, rol = 'cli
             }
             const r = it.slot === 'DOC_RITE' ? await guardarRite(it, fichero, { subidoPor, avisar })
                 : it.slot === SLOT_JUSTIFICANTE ? await guardarJustificante(it, fichero)
-                    : await guardarEnApartado(it, fichero, { subidoPor, avisar });
+                    : it.slot === SLOT_CARNE ? await guardarCarne(it, fichero)
+                        : await guardarEnApartado(it, fichero, { subidoPor, avisar });
             delete it.error;   // un reintento («manda C12» otra vez) que ahora sí entra
-            Object.assign(it, { hecho: true, link: r.link, driveId: r.driveId, archivo: r.nombre, ...(r.pruebas ? { rite_pruebas: r.pruebas } : {}), ...(r.aviso ? { aviso: r.aviso } : {}) });
+            Object.assign(it, { hecho: true, link: r.link, driveId: r.driveId, archivo: r.nombre, ...(r.ya ? { ya_estaba: true } : {}), ...(r.pruebas ? { rite_pruebas: r.pruebas } : {}), ...(r.aviso ? { aviso: r.aviso } : {}) });
+            // Lo que no es de ninguna obra (los carnés) no va a la pista del «Traer del WhatsApp».
+            if (!it.oportunidad_id) continue;
             if (!colocadas.has(it.oportunidad_id)) colocadas.set(it.oportunidad_id, []);
             colocadas.get(it.oportunidad_id).push({ waMsgId: it.msg, slot: it.slot, tipo: esPdf(it.mimetype) ? 'pdf' : 'image', t: it.t });
         } catch (e) {
@@ -390,9 +471,32 @@ async function ejecutar(items, ficheros = new Map(), { fuente = null, rol = 'cli
 }
 
 /** Lo planeado, sin buffers, para guardarlo en la fila (`detalle.guardar`). */
-const paraFila = (items) => (items || []).map(({ msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, cliente_id, hecho, error, ya_estaba, aviso, rite_pruebas }) => ({
+const paraFila = (items) => (items || []).map(({ msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, cliente_id, hecho, error, ya_estaba, aviso, rite_pruebas, reemplaza, instalador_id, instalador_nombre }) => ({
     msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, ...(cliente_id ? { cliente_id } : {}),
+    ...(reemplaza ? { reemplaza } : {}), ...(instalador_id ? { instalador_id, instalador_nombre: instalador_nombre || null } : {}),
     ...(hecho ? { hecho } : {}), ...(error ? { error } : {}), ...(ya_estaba ? { ya_estaba } : {}), ...(aviso ? { aviso } : {}), ...(rite_pruebas ? { rite_pruebas } : {}),
 }));
 
-module.exports = { planear, ejecutar, situacionInstalador, pedidosAnteriores, paraFila, MAX_POR_CHAT, QUE_ES, _pruebas };
+/**
+ * Lo que se quedó SIN colocar de una obra que YA existe y que el asistente puede colocar con la skill
+ * alta-oportunidad (`documentar`): fotos sin apartado claro y documentos sueltos de esa obra
+ * (25/11/2026, Fran: 13 de 41 adjuntos del día eran fotos para el CEE que nadie colocaba). NO entra
+ * lo que no se guarda a propósito (firmados, DNI, justificantes, lo de otra obra o de una nueva, lo
+ * que ya tiene su foto). Pura.
+ * @returns {Map<string, object[]>} obra → items
+ */
+const PARA_COLOCAR_TIPOS = new Set(['FOTO_OBRA', 'FOTO_PLACA', 'PLANO_CROQUIS', 'OTRO_DOCUMENTO', 'CAPTURA_CATASTRO']);
+const PARA_COLOCAR_MOTIVO = /repartidor no sabe|no está claro el apartado|no lo guardo solo|no es un apartado de esa obra/i;
+function paraColocar(items) {
+    const out = new Map();
+    for (const x of items || []) {
+        // Con obra y de las del chat: los motivos de abajo solo salen tras casar con una (planear).
+        if (!x || x.guardar || !x.obra || x.obra === 'NUEVA') continue;
+        if (!PARA_COLOCAR_TIPOS.has(x.tipo) || !PARA_COLOCAR_MOTIVO.test(String(x.motivo || ''))) continue;
+        if (!out.has(x.obra)) out.set(x.obra, []);
+        out.get(x.obra).push(x);
+    }
+    return out;
+}
+
+module.exports = { planear, ejecutar, situacionInstalador, pedidosAnteriores, paraFila, paraColocar, MAX_POR_CHAT, QUE_ES, _pruebas, _puras: { esRiteCorregido, apartadoNoCuadra, ES_CARNE, carpetaDeInstalador } };
