@@ -543,7 +543,10 @@ async function vueltaUnica() {
             lineasApp.join('\n\n'),
             sinWhatsapp ? '\n⚠️ AHORA MISMO EL WHATSAPP DEL SERVIDOR NO RESPONDE. Trabaja igual: lo que digas con `decir` se guarda y le llegará en cuanto vuelva (no lo repitas).' : '',
             enSilencio
-                ? '\nSon encargos de la APP DE CERTIFICADORES: NO le escribas a Fran, ni al empezar, ni a mitad, ni al acabar. El aviso de «listo para revisar» lo manda la app cuando CE3X lo haya calificado. Solo si algo te PARA y necesitas que decida él, se lo dices en UN mensaje.'
+                // Silenciosos: los de la app de certificadores (el «listo» lo manda la app) y, desde el
+                // 25/11/2026, la revisión de la documentación del agente de la aceptación y el «colocar»
+                // del contestador (Fran solo quiere el HITO, que el propio encargo dice cuándo y cómo).
+                ? '\nSon encargos SILENCIOSOS: NO le escribas a Fran, ni al empezar, ni a mitad, ni al acabar, salvo el aviso de una línea que el propio encargo te pida expresamente (p. ej. el del hito «CEE inicial hecho»). Solo si algo te PARA y necesitas que decida él, se lo dices en UN mensaje.'
                 : !lineas.length && lineasApp.length
                     ? '\nLo ha pedido desde la APP y allí ya ve que está en marcha: NO le escribas al empezar ni a mitad (nada de «me pongo con ello»). UN solo mensaje, al TERMINAR, con el resultado o con lo que haya que preguntarle.'
                     : '',

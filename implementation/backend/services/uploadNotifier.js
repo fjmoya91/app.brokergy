@@ -24,6 +24,15 @@ const { buildCertClienteData } = require('./certClienteData');
 // alta interesa acortarla.
 const VENTANA_MS = Number(process.env.UPLOAD_NOTIFY_WINDOW_MS || 30 * 60 * 1000);
 
+// ¿Se le avisa a Fran de CADA tanda de documentación que llega? Desde el 25/11/2026,
+// NO por defecto (Fran: «me está petando el WhatsApp; que se le pida al cliente, se
+// revise y, si está todo, se haga el CEE; a mí solo el hito»). La tanda se sigue
+// agrupando igual —la ventana es la que hace que doce fotos sean UNA revisión del
+// agente— y al cerrarse se sigue retomando el agente y cerrando las esperas; solo
+// se calla el WhatsApp y el email. `AVISO_DOC_RECIBIDA_ENABLED=true` lo devuelve.
+// El FIN DE OBRA no entra aquí: es un hito y avisa siempre.
+const avisarDocRecibida = () => process.env.AVISO_DOC_RECIBIDA_ENABLED === 'true';
+
 const FRONTEND = () => process.env.FRONTEND_URL || 'https://app.brokergy.es';
 const adminPhone = () => process.env.WHATSAPP_ADMIN_CHAT || '34623926179';
 const adminEmail = () => process.env.ADMIN_EMAIL || 'franciscojavier.moya.s2e2@gmail.com';
@@ -87,6 +96,13 @@ async function vaciar(oportunidadUuid) {
     if (bucket.timer) clearTimeout(bucket.timer);
 
     try {
+        const total0 = [...bucket.slots.values()].reduce((a, s) => a + s.n, 0);
+        if (!avisarDocRecibida()) {
+            console.log(`[UploadNotify] ${oportunidadUuid}: ${total0} archivo(s) recibidos, sin aviso (AVISO_DOC_RECIBIDA_ENABLED).`);
+            await trasLaTanda(oportunidadUuid, bucket, total0);
+            return;
+        }
+
         const ctx = await cargarContexto(oportunidadUuid);
         if (!ctx) return;
 
@@ -141,6 +157,15 @@ ${ctx.expedienteLink}${ctx.driveLink ? `\n📂 Carpeta de Drive:\n${ctx.driveLin
 
         console.log(`[UploadNotify] Resumen enviado — ${ctx.numExp}: ${total} archivo(s).`);
 
+        await trasLaTanda(oportunidadUuid, bucket, total);
+    } catch (e) {
+        console.error('[UploadNotify] vaciar:', e.message);
+    }
+}
+
+/** Lo que sigue a cada tanda, se avise a Fran o no. Nunca lanza. */
+async function trasLaTanda(oportunidadUuid, bucket, total) {
+    try {
         // Si el agente le había pedido documentación tras la aceptación, que la
         // revise y siga (pedir lo que aún falte o hacer el CEE inicial).
         await require('./aceptacionAgente').retomarTrasSubida(oportunidadUuid);
@@ -151,7 +176,7 @@ ${ctx.expedienteLink}${ctx.driveLink ? `\n📂 Carpeta de Drive:\n${ctx.driveLin
         await require('./esperasWhatsapp').cerrarPorSubida(oportunidadUuid,
             `ha subido ${total} archivo${total === 1 ? '' : 's'} por el enlace (${subido})`);
     } catch (e) {
-        console.error('[UploadNotify] vaciar:', e.message);
+        console.error('[UploadNotify] trasLaTanda:', e.message);
     }
 }
 
@@ -296,5 +321,6 @@ module.exports = {
     registrarSubida,
     notificarFinObra,
     vaciar,
+    avisarDocRecibida,
     VENTANA_MS,
 };

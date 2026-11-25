@@ -119,6 +119,22 @@ un expediente con el CEE inicial sin encargar y el material COMPLETO se le pasa 
 expediente. Y los recordatorios del material que manda el seguimiento quedan apuntados en su historial con
 `registrarPedido({ …, espera: false })`: la espera ya la abrió el pedido y no se abre otra.
 
+### Las rondas van en SILENCIO; a Fran, solo el hito (2026-11-25)
+
+**REGLA — la revisión de la documentación no le cuenta nada a Fran: solo el HITO o lo que la pare.**
+Fran (25/11/2026): «que se le vaya pidiendo al cliente de manera autónoma, pero yo no quiero saber nada de
+ello». El encargo va con `silencioso: true` (sin el acuse «Ha llegado documentación de X…» y sin el informe
+final), la instrucción ya no le pide «dime en el grupo qué has pedido» (el historial lo apunta el script) y,
+al terminar el CEE inicial, el ÚNICO mensaje es una línea por `asistente_whatsapp.js decir`: «✅ *N*:
+documentación completa y CEE inicial hecho. Ya puedes revisarlo.». Lo que PARA al agente (aporta su CEE, un
+técnico ya lo tiene, algo no cuadra, se queda a medias) sí se le dice, en UN mensaje. **El vigilante de 24 h
+sigue** (es la red de seguridad de un trabajo caído, ahora que no hay informe de cada ronda). Mismo
+interruptor que el resumen de la documentación recibida: `AVISO_DOC_RECIBIDA_ENABLED=true` lo devuelve como
+antes. Prueba: `node implementation/backend/scripts/test_aviso_doc_recibida.js`. Pendiente (fase 2): lo
+mismo para la fase FINAL (fin de obra → fotos del después, factura, RITE → CEE final y expediente, con el
+hito «ya se puede finalizar»).
+
 **Tras tocarlo:** `node implementation/backend/scripts/test_aceptacion_agente.js`,
+`node implementation/backend/scripts/test_aviso_doc_recibida.js`,
 `node implementation/backend/scripts/auditar_rutas_sin_guardian.js` y
 `node implementation/backend/scripts/aceptacion.js estado <nº>` con un expediente aceptado.

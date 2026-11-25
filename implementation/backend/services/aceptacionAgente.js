@@ -53,6 +53,10 @@ const VENTANA_WA_MS = (Number(process.env.ACEPTACION_AGENTE_WA_MIN) || 10) * 60_
 const CADUCA_DIAS = 45;
 
 const activo = () => process.env.ACEPTACION_AGENTE_ENABLED === 'true';
+// Desde el 25/11/2026 la revisión de la documentación no le cuenta nada a Fran salvo el
+// HITO («documentación completa y CEE inicial hecho») o lo que la pare. Mismo
+// interruptor que el resumen de la documentación recibida (uploadNotifier).
+const rondasEnSilencio = () => !require('./uploadNotifier').avisarDocRecibida();
 const ahoraIso = () => new Date().toISOString();
 const ult9 = (t) => String(t || '').replace(/\D/g, '').slice(-9) || null;
 
@@ -135,12 +139,17 @@ const MOTIVOS = {
 /** El encargo que le llega al Claude del WhatsApp. Lo compone el SERVIDOR. */
 function instruccion(numero, { motivo = 'aceptacion', ronda = 1, tel = null } = {}) {
     const porque = (MOTIVOS[motivo] || MOTIVOS.aceptacion)(numero, ronda, tel);
+    const silencio = rondasEnSilencio();
     return `${porque} Revisa si hay todo lo necesario para el CEE INICIAL y actúa sin preguntarme:
 1. \`node scripts/aceptacion.js estado ${numero}\`: lo que tiene según la app (el mismo criterio que el parte), las notas del alta, si ya hay un borrador del CEE inicial y a quién se le escribe.
 2. MIRA tú las fotos que haya. IMPRESCINDIBLES, sin ellas no hay CEE inicial ni expediente (regla 162): la caldera INSTALADA en su sala, clara y no demasiado cerca (que se vea entera y el cuarto donde está; un primer plano del frontal no vale), y su placa que se LEA (marca, modelo, potencia; una etiqueta con solo el código de artículo no vale). Que las fachadas sean de esta casa. Si el alta vino de un WhatsApp con cosas sin subir, súbelas antes a la obra con la skill alta-oportunidad (documentar). Las fachadas que falten, primero con Street View (orden \`streetview\` de generar-cee-inicial); los patios, solo si la vivienda los tiene.
-3. Si falta algo que solo pueden darnos ellos: \`node scripts/aceptacion.js pedir ${numero} --texto "<lo que falta, en lenguaje de casa, una línea por cosa>" [--slots K1,K2] [--a instalador]\` en seco, revísalo y repítelo con --enviar. Por defecto va al CLIENTE; \`--a instalador\` cuando lo tiene el instalador (las fotos o la placa que hizo él, o si el alta vino de su chat y el cliente no las tiene). Ese envío está AUTORIZADO por Fran (22/10/2026) sin preguntarle: es la única excepción. Fuera de 9 a 21 h el script lo programa para las 9:00. Después dime en el grupo qué has pedido y a quién, y apúntalo en el cuaderno.
-4. Si NO falta nada, haz el CEE inicial con la skill generar-cee-inicial, entera. Si \`estado\` dice que YA hay un borrador del CEE inicial (lo hizo el Agente IA en la oportunidad), PARTE DE ÉL: completa lo que le faltaba con lo nuevo (\`aplicar\` conserva lo hecho y añade encima; los huecos estimados, mídelos con las fotos nuevas) en vez de empezar otro.
-Si el cliente aporta su propio CEE, si un técnico externo ya tiene el encargo o si algo no cuadra, no pidas ni generes nada: cuéntamelo.`;
+3. Si falta algo que solo pueden darnos ellos: \`node scripts/aceptacion.js pedir ${numero} --texto "<lo que falta, en lenguaje de casa, una línea por cosa>" [--slots K1,K2] [--a instalador]\` en seco, revísalo y repítelo con --enviar. Por defecto va al CLIENTE; \`--a instalador\` cuando lo tiene el instalador (las fotos o la placa que hizo él, o si el alta vino de su chat y el cliente no las tiene). Ese envío está AUTORIZADO por Fran (22/10/2026) sin preguntarle: es la única excepción. Fuera de 7 a 21 h el script lo programa para las 7:00. ${silencio
+        ? 'Lo pedido NO se lo cuentes a Fran (no quiere saber nada del día a día de la documentación: el historial del expediente ya lo apunta el script); apúntalo solo en el cuaderno.'
+        : 'Después dime en el grupo qué has pedido y a quién, y apúntalo en el cuaderno.'}
+4. Si NO falta nada, haz el CEE inicial con la skill generar-cee-inicial, entera. Si \`estado\` dice que YA hay un borrador del CEE inicial (lo hizo el Agente IA en la oportunidad), PARTE DE ÉL: completa lo que le faltaba con lo nuevo (\`aplicar\` conserva lo hecho y añade encima; los huecos estimados, mídelos con las fotos nuevas) en vez de empezar otro.${silencio
+        ? ` Al terminarlo, el ÚNICO mensaje a Fran, de una línea: \`node scripts/asistente_whatsapp.js decir "✅ *${numero}*: documentación completa y CEE inicial hecho. Ya puedes revisarlo." --enviar\` (si se queda a medias, en su lugar UNA línea con lo que lo para).`
+        : ''}
+Si el cliente aporta su propio CEE, si un técnico externo ya tiene el encargo o si algo no cuadra, no pidas ni generes nada: cuéntamelo${silencio ? ' en UN mensaje corto' : ''}.`;
 }
 
 /** Sella el estado del agente en el expediente (RPC de MERGE: solo esa clave). */
@@ -194,6 +203,9 @@ async function encargar({ expediente, motivo, ronda, tel = null }) {
     const r = await pedirTarea({
         texto: instruccion(n, { motivo, ronda, tel }),
         clave: `aceptacion:${n}`,
+        // Las rondas van en SILENCIO (25/11/2026): Fran solo recibe el hito que pide
+        // la instrucción (o lo que pare al agente). El vigilante de 24 h sigue igual.
+        silencioso: rondasEnSilencio(),
         acuse: motivo === 'aceptacion'
             ? `Han aceptado ${n}: reviso su documentación y pido lo que falte o, si está todo, me pongo con el CEE inicial.`
             : `Ha llegado documentación de ${n}${motivo === 'whatsapp' ? ' por WhatsApp' : ''}: la reviso y, si ya está todo, me pongo con el CEE inicial.`,

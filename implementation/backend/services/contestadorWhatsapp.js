@@ -627,7 +627,10 @@ function textoDocumentar({ tel9, obra, quien, items }) {
         '- A quien lo manda NO le escribas: lo suyo lo lleva el contestador.',
         '',
         `Hazlo con la skill alta-oportunidad sobre ESE chat: \`node scripts/alta_oportunidad.js chat ${tel9}${desde ? ` --desde "${desde}"` : ''}\`, y \`documentar --op ${obra} --plan /tmp/docs_${obra}.json\` (lo temporal, en /tmp), en seco y luego \`--escribir\`. Solo esos adjuntos y solo a ${obra}. Lo que ya esté colocado no se repite; lo que no tengas claro a qué apartado va, NO lo coloques; un documento firmado, un DNI o un justificante tampoco (eso lo decide Fran).`,
-        'Al terminar, a Fran UNA línea si todo ha quedado colocado; si algo queda sin colocar o es dudoso, UN mensaje corto con qué y por qué.',
+        require('./uploadNotifier').avisarDocRecibida()
+            ? 'Al terminar, a Fran UNA línea si todo ha quedado colocado; si algo queda sin colocar o es dudoso, UN mensaje corto con qué y por qué.'
+            // 25/11/2026: lo colocado no se le cuenta; solo lo que queda sin colocar.
+            : 'Si todo ha quedado colocado, a Fran NO le escribas nada. Solo si algo queda sin colocar o es dudoso, UN mensaje corto con qué y por qué.',
     ].join('\n');
 }
 
@@ -642,6 +645,8 @@ async function encargarDocumentar(fila, { tel9, obra, quien, items }) {
         const r = await require('./asistenteCanal').pedirTarea({
             texto: textoDocumentar({ tel9, obra, quien, items }),
             clave: `documentar:${fila.chat_id}:${obra}`,
+            // Colocar lo que ha mandado es rutina: si sale bien, no se le escribe a Fran (25/11/2026).
+            silencioso: !require('./uploadNotifier').avisarDocRecibida(),
         });
         return r?.ok ? { ok: true } : { ok: false, motivo: `el asistente no lo ha cogido${r?.motivo ? ` (${recorta(r.motivo, 120)})` : ''}` };
     } catch (e) {
@@ -865,8 +870,13 @@ async function actuar(fila, d, { fuente = fuenteLocal() } = {}) {
     const quedaPorGuardar = items.some(x => x.guardar && !x.hecho && !x.error);
     if (d.accion === 'CALLAR') {
         // Nada que decirle; pero si hay algo suyo que guardar, Fran lo sabe (en copia, para que
-        // diga «C12»; en real, ya está guardado).
-        if (items.some(x => x.guardar) || (d.seguimientoLineas || []).length || d.aviso || upd.detalle.documentar_error) {
+        // diga «C12»). Lo que YA se ha guardado de verdad no se le cuenta desde el 25/11/2026
+        // (Fran: la documentación que llega no la quiere saber; el agente la revisa y le avisa
+        // del hito): solo con `AVISO_DOC_RECIBIDA_ENABLED=true`, como el resumen del enlace.
+        const docsParaFran = require('./uploadNotifier').avisarDocRecibida()
+            ? items.some(x => x.guardar)
+            : quedaPorGuardar;
+        if (docsParaFran || (d.seguimientoLineas || []).length || d.aviso || upd.detalle.documentar_error) {
             try {
                 if (await mandarAFran(textoParaFran(fila, d, { m, mg }))) upd.copia_at = new Date().toISOString();
             } catch (e) { log(`no se pudo avisar a Fran de C${fila.id}: ${e.message}`); }

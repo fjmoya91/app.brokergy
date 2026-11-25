@@ -49,7 +49,7 @@ paths:
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/00-modulo-documentacion-fotografica-superficie-unificada.md` — Módulo Documentación Fotográfica — Superficie unificada (2026-05-29) · 0,6 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/alcance-documental-a-cada-expediente-se-le-pide-lo-suyo.md` — Alcance documental — a cada expediente se le pide LO SUYO (2026-08-11) · 7,3 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/almacenamiento-incremental-sin-esquema-nuevo.md` — Almacenamiento (incremental, sin esquema nuevo) · 0,8 KB
-- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/aviso-al-staff-cuando-suben-documentacion.md` — Aviso al staff cuando suben documentación (2026-07-30) · 1,6 KB
+- `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/aviso-al-staff-cuando-suben-documentacion.md` — Aviso al staff cuando suben documentación (2026-07-30) · 2,7 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/checklist-por-fases-computado-no-persistido.md` — Checklist por fases (computado, NO persistido) · 0,7 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/componente-nucleo-docsmanager.md` — Componente núcleo: `DocsManager` · 1,0 KB
 - `docs/conocimiento/documentacion-fotos/modulo-documentacion-fotografica-superficie-unificada/el-enlace-del-cliente-se-usa-con-el-movil.md` — El enlace del cliente se usa CON EL MÓVIL (2026-08-11) · 9,1 KB
