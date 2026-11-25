@@ -108,6 +108,11 @@ const srv = app.listen(0, async () => {
     q('anónimo', 'POST', r, 401, {});
     q('tok-partner', 'POST', r, 400, {});
   }
+  // La foto de la CALLE (Street View, de pago por foto) en «Confirma el inmueble»: el
+  // anónimo NO; el partner con sesión SÍ (25/11/2026). Con un punto fuera de España, 400:
+  // ha pasado el guardián sin pedir nada a Google.
+  q('anónimo', 'GET', '/api/catastro/fachada-calle?lat=39.1598&lng=-3.0270', 401);
+  q('tok-partner', 'GET', '/api/catastro/fachada-calle?lat=48.85&lng=2.35', 400);
   // Una sesión de Supabase SIN fila en `usuarios` (certificador de cee.brokergy.es) no entra al CRM.
   q('tok-ext', 'GET', '/api/oportunidades', 403);
   q('tok-ext', 'POST', '/api/oportunidades', 403, {});

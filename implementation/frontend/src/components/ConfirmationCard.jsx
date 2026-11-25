@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { DwellingPicker } from './DwellingPicker';
+import { latLonDeUtm, enlacesGoogle } from '../utils/enlacesInmueble';
 
-export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }) {
+export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap, fotoCalle = false }) {
     const [selected, setSelected] = React.useState(candidate);
     const [loadingDetails, setLoadingDetails] = React.useState(false);
     const [details, setDetails] = React.useState(candidate.fullData || null);
@@ -84,6 +85,46 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
 
     const isOriginal = selected.rc === candidate.rc;
 
+    // Comprobar la fachada en Google (Maps con la chincheta y Street View) en el
+    // PUNTO de la parcela elegida: la UTM de su ficha y, si aún no ha llegado, el
+    // punto de la búsqueda. Se recalcula al elegir un vecino o una vivienda.
+    const punto = React.useMemo(() => {
+        const utm = (details?.rc === selected.rc ? details : selected.fullData)?.utm;
+        const loc = selected.rc === candidate.rc ? (selected.location || candidate.location) : selected.location;
+        return latLonDeUtm(utm)
+            || (loc && Number.isFinite(Number(loc.lat)) && Number.isFinite(Number(loc.lng ?? loc.lon))
+                ? { lat: Number(loc.lat), lon: Number(loc.lng ?? loc.lon) } : null);
+    }, [details, selected, candidate]);
+    const google = React.useMemo(() => enlacesGoogle(punto), [punto]);
+
+    // La FOTO de la calle dentro de la tarjeta (25/11/2026): solo con sesión
+    // (`fotoCalle`, equipo y partner) y solo al pulsar «Calle» — cada foto se
+    // paga a Google. Va con axios (lleva el token) y se pinta como blob.
+    const [vista, setVista] = React.useState('catastro');   // 'catastro' | 'calle'
+    const [calle, setCalle] = React.useState({ estado: 'nada' }); // nada | cargando | ok | sin | error
+    const clavePunto = punto ? `${punto.lat.toFixed(5)},${punto.lon.toFixed(5)}` : '';
+    useEffect(() => {
+        // Otra parcela: se vuelve a la foto del Catastro y se olvida la de la calle.
+        setVista('catastro');
+        setCalle(prev => { if (prev.url) URL.revokeObjectURL(prev.url); return { estado: 'nada' }; });
+    }, [clavePunto]);
+    useEffect(() => () => { if (calle.url) URL.revokeObjectURL(calle.url); }, [calle.url]);
+    const verCalle = async () => {
+        setVista('calle');
+        if (!punto || calle.estado === 'ok' || calle.estado === 'cargando') return;
+        setCalle({ estado: 'cargando' });
+        try {
+            const r = await axios.get('/api/catastro/fachada-calle', {
+                params: { lat: punto.lat.toFixed(5), lng: punto.lon.toFixed(5) },
+                responseType: 'blob',
+            });
+            if (r.status === 204 || !r.data?.size) { setCalle({ estado: 'sin' }); return; }
+            setCalle({ estado: 'ok', url: URL.createObjectURL(r.data), fecha: r.headers?.['x-fecha-panorama'] || null });
+        } catch (e) {
+            setCalle({ estado: 'error', tope: e?.response?.status === 429 });
+        }
+    };
+
     return (
         <div className="glass-card p-6 border-l-4 border-amber-500 animate-fade-in">
             {/* Header */}
@@ -137,8 +178,10 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left Column: Image */}
                 <div className="relative group">
-                    <div className="aspect-square max-h-[38vh] md:max-h-none w-full rounded-xl overflow-hidden border border-white/10 bg-black/40">
-                        {selected.imageUrl ? (
+                    <div className="relative aspect-square max-h-[38vh] md:max-h-none w-full rounded-xl overflow-hidden border border-white/10 bg-black/40">
+                        {vista === 'calle' ? (
+                            <FotoCalle calle={calle} streetview={google?.streetview} />
+                        ) : selected.imageUrl ? (
                             <img
                                 src={selected.imageUrl}
                                 alt="Fachada"
@@ -153,13 +196,69 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
                             </div>
                         )}
                         {/* Overlay Gradient */}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60"></div>
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-60 pointer-events-none"></div>
+                        {/* La foto del Catastro o la de la CALLE (Street View), en la
+                            misma caja: se comparan sin salir de la tarjeta. */}
+                        {fotoCalle && punto && (
+                            <div className="absolute top-2 left-2 flex rounded-lg overflow-hidden border border-black/20 shadow-md text-[11px] font-bold" style={{ background: 'rgba(0,0,0,0.55)' }}>
+                                {[['catastro', 'Catastro'], ['calle', 'Calle']].map(([id, txt]) => (
+                                    <button key={id} type="button"
+                                        onClick={() => (id === 'calle' ? verCalle() : setVista('catastro'))}
+                                        className="px-2.5 py-1.5 transition-colors"
+                                        style={vista === id
+                                            ? { background: '#ff7a1a', color: '#fff' }
+                                            : { background: 'transparent', color: 'rgba(255,255,255,0.85)' }}>
+                                        {txt}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                         <div className="absolute bottom-3 left-3 right-3">
                             <p className="text-white text-sm font-medium truncate drop-shadow-md">
                                 {selected.address || selected.description}
                             </p>
                         </div>
                     </div>
+
+                    {/* La fachada en Google, en el punto de ESTA parcela: para no
+                        confirmar una referencia que no es la casa (Fran, 25/11/2026). */}
+                    {google && (
+                        <div className="mt-3">
+                            <div className="grid grid-cols-2 gap-2">
+                                <a
+                                    href={google.mapa}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-white/80 text-sm font-semibold transition-colors"
+                                    title="Abre Google Maps con la chincheta en esta parcela"
+                                >
+                                    <svg className="w-4 h-4 flex-shrink-0 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                                    </svg>
+                                    Google Maps
+                                </a>
+                                {google.streetview && (
+                                    <a
+                                        href={google.streetview}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-white/20 text-white/80 text-sm font-semibold transition-colors"
+                                        title="Abre Street View delante de esta parcela para ver la fachada"
+                                    >
+                                        <svg className="w-4 h-4 flex-shrink-0 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <circle cx="12" cy="5" r="2" strokeWidth={2} />
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 21v-6H8v-4a2 2 0 012-2h4a2 2 0 012 2v4h-2v6M5 18c-1.8.6-3 1.3-3 2 0 1.1 4.5 2 10 2s10-.9 10-2c0-.7-1.2-1.4-3-2" />
+                                        </svg>
+                                        Street View
+                                    </a>
+                                )}
+                            </div>
+                            <p className="text-white/40 text-[11px] mt-1.5 text-center leading-snug">
+                                Comprueba en Google que es esta casa antes de confirmar
+                            </p>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right Column: Details & Actions.
@@ -265,6 +364,45 @@ export function ConfirmationCard({ candidate, onConfirm, onCancel, onPickOnMap }
                 }}
             />
 
+        </div>
+    );
+}
+
+const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const fechaPanorama = (f) => {
+    const m = /^(\d{4})-(\d{2})/.exec(String(f || ''));
+    return m ? `${MESES[Number(m[2]) - 1] || ''} ${m[1]}`.trim() : null;
+};
+
+/** Lo que se ve en la caja con «Calle»: la foto, cargando, o por qué no hay. */
+function FotoCalle({ calle, streetview }) {
+    if (calle.estado === 'ok') {
+        const fecha = fechaPanorama(calle.fecha);
+        return (
+            <>
+                <img src={calle.url} alt="La calle en Street View" className="w-full h-full object-cover" />
+                <span className="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px] font-bold"
+                    style={{ background: 'rgba(0,0,0,0.6)', color: '#fff' }}>
+                    Google Street View{fecha ? ` · ${fecha}` : ''}
+                </span>
+            </>
+        );
+    }
+    const texto = calle.estado === 'cargando' ? 'Buscando la calle…'
+        : calle.estado === 'sin' ? 'Google no tiene Street View cerca de esta parcela'
+        : calle.tope ? 'Hoy ya se han pedido muchas fotos de la calle'
+        : 'No se ha podido traer la foto de la calle';
+    return (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-3 px-6 text-center text-white/60 text-sm">
+            {calle.estado === 'cargando'
+                ? <span className="w-7 h-7 rounded-full border-2 border-white/20 border-t-brand animate-spin" />
+                : null}
+            <span>{texto}</span>
+            {calle.estado !== 'cargando' && streetview && (
+                <a href={streetview} target="_blank" rel="noopener noreferrer" className="text-brand text-xs font-bold underline">
+                    Abrir Street View en Google
+                </a>
+            )}
         </div>
     );
 }

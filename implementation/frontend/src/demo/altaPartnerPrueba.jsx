@@ -62,6 +62,20 @@ axios.interceptors.request.use((config) => {
                 ok({ data: LECTURAS[MODO_PLACA] || LECTURAS.ok, status: 200, statusText: 'OK', headers: {}, config });
             }
         }, 900));
+    } else if (url.includes('/fachada-calle')) {
+        // La foto de la CALLE (Street View): SIMULADA, que la de verdad se paga y pide
+        // sesión. `?calle=ok|sin|tope|error`; con «ok», la foto del Catastro de la
+        // parcela de prueba hace de foto de la calle.
+        const modo = params.get('calle') || 'ok';
+        config.adapter = () => new Promise((ok, ko) => setTimeout(async () => {
+            if (modo === 'sin') return ok({ data: new Blob([]), status: 204, statusText: 'No Content', headers: {}, config });
+            if (modo === 'tope' || modo === 'error') {
+                const status = modo === 'tope' ? 429 : 502;
+                return ko(Object.assign(new Error('simulado'), { response: { status, data: {} }, config }));
+            }
+            const blob = await fetch('/api/catastro/image/7847709VJ9374N0001DD').then(r => r.blob());
+            ok({ data: blob, status: 200, statusText: 'OK', headers: { 'x-fecha-panorama': '2023-05' }, config });
+        }, 800));
     } else if (url.includes('/peticion-fm')) {
         // «Pedir que vaya por FM»: SIMULADO, devuelve lo que guardaría el servidor.
         const body = typeof config.data === 'string' ? JSON.parse(config.data || '{}') : (config.data || {});

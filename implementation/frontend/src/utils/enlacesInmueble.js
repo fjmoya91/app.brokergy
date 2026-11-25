@@ -6,6 +6,8 @@
 // de la app tienen que llevar al MISMO sitio.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { husoDe, utmALatLon, enlacesMapas } from '../features/cee-envolvente/logic/ortofoto.js';
+
 /**
  * La ficha del inmueble en la Sede Electrónica del Catastro.
  *
@@ -36,6 +38,45 @@ export function enlaceMaps(direccion) {
 }
 
 /**
+ * El PUNTO del inmueble (lat/lon) desde la UTM que devuelve el Catastro con la
+ * ficha (`utm: { x, y, srs | zone }`), con la MISMA cuenta que el plano de la
+ * envolvente. Sin coordenadas de verdad (el Catastro a veces no las da y la ficha
+ * trae x = 0), null: un enlace al golfo de Guinea es peor que ninguno.
+ */
+export function latLonDeUtm(utm) {
+    const x = Number(utm?.x), y = Number(utm?.y);
+    const huso = husoDe(utm?.srs) || Number(utm?.zone) || null;
+    if (!(x > 0) || !(y > 0) || !huso) return null;
+    const { lat, lon } = utmALatLon(x, y, huso);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    // España (con Canarias): lo de fuera es una UTM mal leída.
+    if (lat < 27 || lat > 44.5 || lon < -19 || lon > 5) return null;
+    return { lat, lon };
+}
+
+/**
+ * Comprobar la FACHADA en Google antes de confirmar (Fran, 25/11/2026: «un botón
+ * de Google Maps por si tenemos que buscar la fachada… para no errar en la
+ * referencia catastral»). Por COORDENADAS del Catastro y no por dirección: lo que
+ * se comprueba es que la parcela elegida es la casa de la foto, y la dirección del
+ * Catastro (Es:1 Pl:00…) Google la entiende a medias.
+ *  · `mapa`: Google Maps con la chincheta EN la parcela (abajo a la izquierda,
+ *    la miniatura de Street View de ese punto).
+ *  · `streetview`: el panorama más cercano a ese punto.
+ * Las URL son las de `enlacesMapas` (la vista aérea de la envolvente): una sola
+ * fuente de los enlaces a Google.
+ */
+export function enlacesGoogle(latlon) {
+    if (!latlon || !Number.isFinite(latlon.lat) || !Number.isFinite(latlon.lon)) return null;
+    const p = `${latlon.lat.toFixed(6)},${latlon.lon.toFixed(6)}`;
+    const sv = enlacesMapas(latlon).find(e => e.id === 'streetview');
+    return {
+        mapa: `https://www.google.com/maps/search/?api=1&query=${p}`,
+        streetview: sv?.href || null,
+    };
+}
+
+/**
  * Lo que hace falta para los dos enlaces de un CLIENTE.
  *
  * La referencia catastral no es del cliente sino de lo que se le tramita: se
@@ -53,4 +94,4 @@ export function inmuebleDeCliente(cliente, { oportunidades, ceeDirectos } = {}) 
     return { rc, direccion };
 }
 
-export default { enlaceSedeCatastro, enlaceMaps, inmuebleDeCliente };
+export default { enlaceSedeCatastro, enlaceMaps, latLonDeUtm, enlacesGoogle, inmuebleDeCliente };

@@ -20,6 +20,7 @@ import React, { useState, useEffect } from 'react';
 import { desgloseConstrucciones } from '../../../utils/construcciones';
 import { ZonasCalefaccion } from '../components/ZonasCalefaccion';
 import { EnlacesInmueble } from '../../../components/EnlacesInmueble';
+import { latLonDeUtm } from '../../../utils/enlacesInmueble';
 
 const API_URL = '/api/catastro';
 
@@ -182,7 +183,8 @@ export function LandingPropertyReview({ catastro, onConfirm, onBack, onElegirOtr
                                 <code className="text-amber-400 font-mono text-xs font-black">{catastro.rc}</code>
                             </div>
                         )}
-                        <EnlacesInmueble rc={catastro?.rc} direccion={direccionLegible(catastro?.address)} compacto />
+                        <EnlacesInmueble rc={catastro?.rc} direccion={direccionLegible(catastro?.address)}
+                            latlon={latLonDeUtm(catastro?.utm)} compacto />
                         {onElegirOtro && (
                             <button type="button" onClick={onElegirOtro}
                                 className="h-9 px-3 rounded-lg border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 text-[11px] font-black flex items-center gap-1.5">

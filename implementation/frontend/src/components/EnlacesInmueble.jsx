@@ -11,7 +11,7 @@
 // abre una búsqueda vacía es peor que no tenerlo.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { enlaceSedeCatastro, enlaceMaps } from '../utils/enlacesInmueble';
+import { enlaceSedeCatastro, enlaceMaps, enlacesGoogle } from '../utils/enlacesInmueble';
 
 /**
  * Los dos botones.
@@ -21,9 +21,14 @@ import { enlaceSedeCatastro, enlaceMaps } from '../utils/enlacesInmueble';
  * llevan desde siempre. Las clases de esa variante son las que ya tenía
  * `PropertySheet`: el mismo botón, en un sitio más.
  */
-export function EnlacesInmueble({ rc, direccion, compacto = false, soloIconos = false, className = '' }) {
+export function EnlacesInmueble({ rc, direccion, latlon = null, compacto = false, soloIconos = false, className = '' }) {
     const catastro = enlaceSedeCatastro(rc);
-    const maps = enlaceMaps(direccion);
+    // Con el PUNTO del Catastro (`latlon`), Maps pone la chincheta en la parcela y
+    // sale además Street View: es para comprobar la fachada antes de seguir
+    // (25/11/2026). Sin él, por dirección, como siempre.
+    const google = enlacesGoogle(latlon);
+    const maps = google?.mapa || enlaceMaps(direccion);
+    const streetview = soloIconos ? null : google?.streetview || null;
     if (!catastro && !maps) return null;
 
     // Solo iconos: con la misma caja que los accesos al expediente
@@ -96,6 +101,20 @@ export function EnlacesInmueble({ rc, direccion, compacto = false, soloIconos = 
                     </svg>
                     <span className="hidden sm:inline">
                         {compacto ? 'Maps' : 'Ver en Maps'}
+                    </span>
+                </a>
+            )}
+            {streetview && (
+                <a href={streetview} target="_blank" rel="noreferrer" className={caja}
+                   title="Ver la fachada en Street View">
+                    <svg className={`${icono} text-brand flex-shrink-0`} fill="none"
+                         stroke="currentColor" viewBox="0 0 24 24">
+                        <circle cx="12" cy="5" r="2" strokeWidth={2} />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                              d="M10 21v-6H8v-4a2 2 0 012-2h4a2 2 0 012 2v4h-2v6M5 18c-1.8.6-3 1.3-3 2 0 1.1 4.5 2 10 2s10-.9 10-2c0-.7-1.2-1.4-3-2" />
+                    </svg>
+                    <span className="hidden sm:inline">
+                        {compacto ? 'Fachada' : 'Ver la fachada'}
                     </span>
                 </a>
             )}

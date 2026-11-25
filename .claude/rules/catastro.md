@@ -30,7 +30,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/catastro/enlace-a-la-ficha-de-la-sede.md` — El ENLACE a la ficha del inmueble en la Sede (2026-10-07) · 4,9 KB
+- `docs/conocimiento/catastro/enlace-a-la-ficha-de-la-sede.md` — El ENLACE a la ficha del inmueble en la Sede (2026-10-07) · 9,0 KB
 - `docs/conocimiento/catastro/modulo-catastro-cambios-profundos.md` — Módulo Catastro — Cambios profundos (2026-05-19) · 11,7 KB
 
 ## Las «REGLA —» que contienen esos documentos
@@ -43,6 +43,10 @@ paths:
   - **REGLA — `mun` es el código del CATASTRO (`dt.cmc`), no el del INE.**
   - **REGLA — `UrbRus` lleva U o R según el `cn` del Catastro**
   - **REGLA — si el Catastro no contesta o está bloqueado, se va al atajo de siempre.**
+  - **REGLA — para comprobar la fachada, Google se abre por las COORDENADAS de la parcela, no por la
+dirección.**
+  - **REGLA — la foto de la calle se paga por foto, así que: solo con SESIÓN, solo al pulsar «Calle»,
+UNA vez por punto y día, y con tope por usuario.**
 - `docs/conocimiento/catastro/modulo-catastro-cambios-profundos.md`
   - **REGLA — el modelo solo LEE; qué es una referencia lo decide el código.**
   - **REGLA — con VARIAS referencias en la imagen se pregunta.**

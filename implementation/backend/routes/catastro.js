@@ -273,6 +273,27 @@ router.get('/sede/:rc', async (req, res) => {
     return res.redirect(302, catastroService.urlSedeCatastro(consulta, info));
 });
 
+// GET /fachada-calle?lat=&lng= — la foto de Street View de ese punto, para
+// comprobar la fachada en «Confirma el inmueble» (25/11/2026). enforceAuth: se
+// paga por foto, así que no la pide un anónimo (la landing pública sigue con los
+// enlaces). Caché y tope por usuario en services/fachadaCalle.js. 204 = no hay
+// panorama cerca. En el punto no va ningún dato del cliente.
+router.get('/fachada-calle', enforceAuth, async (req, res) => {
+    try {
+        const { fotoCalle } = require('../services/fachadaCalle');
+        const foto = await fotoCalle(req.query.lat, req.query.lng, req.user?.id);
+        res.set('Cache-Control', 'private, max-age=86400');
+        if (!foto) return res.status(204).end();
+        if (foto.fecha) res.set('X-Fecha-Panorama', String(foto.fecha));
+        res.set('Content-Type', foto.mime || 'image/jpeg');
+        return res.send(foto.buffer);
+    } catch (e) {
+        const status = e.status || 500;
+        if (status >= 500) console.error('[catastro/fachada-calle]', e.message);
+        return res.status(status).json({ error: e.message });
+    }
+});
+
 // GET /image/:rc - Proxy para imagen de fachada de Catastro
 router.get('/image/:rc', async (req, res) => {
     try {

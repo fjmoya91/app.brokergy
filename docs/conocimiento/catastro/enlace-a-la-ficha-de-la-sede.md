@@ -68,3 +68,61 @@ Responde con `Cache-Control: no-store` para que un atajo de un mal momento no se
 
 ⚠️ El enlace de la ficha técnica a la **cartografía** (`Cartografia/mapa.aspx?del=&mun=&refcat=`,
 en `PropertySheet`) es OTRO enlace y no se ha tocado.
+
+## Y la FACHADA en Google, por las coordenadas de la parcela (2026-11-25)
+
+Fran (25/11/2026): «un botón de Google Maps por si tenemos que buscar la fachada… para no errar
+en la referencia catastral». La foto del Catastro es a veces vieja o del bloque entero, y se
+confirmaba una referencia sin poder ver la casa de verdad.
+
+**REGLA — para comprobar la fachada, Google se abre por las COORDENADAS de la parcela, no por la
+dirección.** Lo que se comprueba es que la parcela ELEGIDA es la casa, y la dirección del Catastro
+(`Es:1 Pl:00 Pt:L1…`) Google la entiende a medias: cae en otro número. El punto sale de la UTM que
+trae la ficha (`utm { x, y, srs | zone }`) con la misma cuenta que la vista aérea de la envolvente
+(`husoDe` + `utmALatLon` de `ortofoto.js`); si aún no hay ficha, el punto de la búsqueda
+(`candidate.location`). Sin coordenadas válidas (x = 0, o fuera de España), **sin botón**.
+
+- `latLonDeUtm(utm)` y `enlacesGoogle(latlon)` en
+  [utils/enlacesInmueble.js](../../../implementation/frontend/src/utils/enlacesInmueble.js):
+  `mapa` = Google Maps con la chincheta en ese punto (abajo a la izquierda, la miniatura de Street
+  View); `streetview` = el panorama más cercano. Las URL de Street View son las de `enlacesMapas`:
+  una sola fuente.
+- **«Confirma el inmueble»** ([ConfirmationCard.jsx](../../../implementation/frontend/src/components/ConfirmationCard.jsx)):
+  «Google Maps» y «Street View» bajo la foto, con «Comprueba en Google que es esta casa antes de
+  confirmar». Se recalculan al elegir un vecino o una vivienda del bloque. Salen en los TRES
+  sitios: el CRM (oscuro), el partner y la landing pública (`.theme-light`).
+- **Ficha del inmueble interna** (`LandingPropertyReview`): `EnlacesInmueble` recibe `latlon`;
+  con él, «Maps» va por coordenadas y aparece «Fachada» (Street View). Sin `latlon` (las demás
+  pantallas) todo sigue por dirección, como siempre.
+
+En las URL va solo el punto, ningún dato del cliente.
+
+### La foto de la CALLE dentro de la tarjeta (2026-11-25, «haz esa mejora»)
+
+En la caja de la foto de «Confirma el inmueble» hay un selector **Catastro | Calle**: «Calle»
+enseña la foto de Street View del panorama más cercano a la parcela, mirando hacia ella, con su
+fecha («Google Street View · feb 2026»). Así se comparan las dos sin salir de la app. Sin panorama
+cerca: «Google no tiene Street View cerca de esta parcela» y el enlace a Google.
+
+**REGLA — la foto de la calle se paga por foto, así que: solo con SESIÓN, solo al pulsar «Calle»,
+UNA vez por punto y día, y con tope por usuario.**
+- Ruta `GET /api/catastro/fachada-calle?lat=&lng=` con `enforceAuth` (equipo y partner). La
+  **landing pública NO la tiene** (`fotoCalle={isInternal && !!user}` en `LandingFunnelView`): se
+  queda con los enlaces, o un anónimo la convertiría en un grifo de nuestra cuenta de Google.
+- No se pide sola al abrir la tarjeta: la pide el clic en «Calle». Cambiar de parcela (vecino,
+  vivienda del bloque) vuelve a «Catastro» y olvida la foto.
+- [services/fachadaCalle.js](../../../implementation/backend/services/fachadaCalle.js): punto
+  redondeado a 5 decimales (~1 m) y validado en España (fuera, 400 sin llamar a Google); caché en
+  memoria 24 h (un «no hay panorama», 2 min: Street View a veces contesta vacío y luego sí); tope
+  `FACHADA_CALLE_MAX_DIA` (150) por usuario y día, que solo cuenta lo que se pide a Google (429).
+  204 = no hay panorama.
+- La foto la saca `streetView` de la app de certificadores (`certapp/vistoIa.js`: metadata gratis
+  → imagen 640×480 desde el panorama hacia el punto). Una sola cuenta de Street View en el backend.
+- Se pide con axios (lleva el token) y se pinta como blob.
+
+Medido el 25/11/2026: CL AMPARO 9 (Tomelloso), 51 KB, panorama de 2026-02, 0,6 s; la segunda vez,
+de la caché. Banco sin sesión ni coste: `/alta-partner-prueba.html?vista=alta&calle=ok|sin|tope|error`
+(la foto de la calle va SIMULADA). Tras tocarlo: `test_rutas_sin_sesion.js` y el build.
+
+⚠️ Esto NO contradice la regla 91 (de Google solo enlaces en la envolvente): aquella es no poner
+la imagen de Google DEBAJO de un plano propio. Aquí es una foto suelta para mirar, pedida a mano.

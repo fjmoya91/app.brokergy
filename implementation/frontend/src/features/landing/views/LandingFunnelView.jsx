@@ -783,6 +783,10 @@ export default function LandingFunnelView({ route, mode = 'public', variant = 'd
                                     onConfirm={handleConfirmCandidate}
                                     onCancel={() => setConfirmCandidate(null)}
                                     onPickOnMap={lastGeoCoords ? () => setShowMapPicker(true) : undefined}
+                                    // La foto de la CALLE (Street View) en la tarjeta: se paga
+                                    // por foto y la ruta pide sesión (equipo y partner); la
+                                    // landing pública se queda con los enlaces a Google.
+                                    fotoCalle={isInternal && !!user}
                                 />
                             )}
 
