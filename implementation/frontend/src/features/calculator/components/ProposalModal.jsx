@@ -3154,7 +3154,7 @@ info@brokergy.es · 623 926 179`;
                 {renderBarra(2)}
                 <div className="prop-pb" style={{ paddingTop: '16px' }}>
                     <div className="prop-stag"><span className="prop-sn">+</span><span className="prop-st ver">Nueva normativa · factor multiplicador</span></div>
-                    <h2 className="prop-h2">Su bono puede llegar a <span className="prop-mark">{t.titular}</span></h2>
+                    <h2 className="prop-h2">{t.titularPre} <span className="prop-mark">{t.titular}</span></h2>
                     <p className="prop-sintro">{t.intro}</p>
 
                     {varias ? (
@@ -3163,7 +3163,7 @@ info@brokergy.es · 623 926 179`;
                             <div className="prop-fmtab-h"><span>Opción</span><span>Vía actual<br /><small>se pide ya · importe firme</small></span><span>Factor multiplicador<br /><small>desde el 15/01/2027 · estimado</small></span></div>
                             {hojaFm.opciones.map((o) => (
                                 <div key={o.clave} className="prop-fmtab-r">
-                                    <span>{o.titulo}</span>
+                                    <span>{o.titulo}{o.sinAcs && <><br /><small>sin ACS · con el factor, añadiendo el ACS</small></>}</span>
                                     <span>{formatNumber(o.actual)} €</span>
                                     <span><b>{eur(o, o.fm)}</b><small> +{formatNumber(o.extra)} €</small></span>
                                 </div>
@@ -3174,19 +3174,19 @@ info@brokergy.es · 623 926 179`;
                         return (
                             <div className="prop-fmcmp">
                                 <div className="prop-card prop-fmc vig">
-                                    <div className="prop-eyebrow" style={{ color: 'var(--gris)' }}>Vía actual</div>
+                                    <div className="prop-eyebrow" style={{ color: 'var(--gris)' }}>{t.tarjetaActual.rotulo}</div>
                                     <div className="prop-importe">{formatNumber(o.actual)}<small>€</small></div>
-                                    <div className="prop-fmc-n"><b>Se puede pedir ya.</b> Es el importe firme de esta propuesta.</div>
+                                    <div className="prop-fmc-n"><b>{t.tarjetaActual.b}</b> {t.tarjetaActual.resto}</div>
                                 </div>
                                 <div className="prop-card prop-fmc">
                                     <div className="f"></div>
-                                    <div className="prop-eyebrow">Con el factor multiplicador</div>
+                                    <div className="prop-eyebrow">{t.tarjetaFm.rotulo}</div>
                                     <div className="prop-importe">{o.estimada && <small className="pre">≈</small>}{formatNumber(o.fm)}<small>€</small></div>
                                     <div className="prop-fmc-chips">
-                                        <span className="prop-chip prop-chip-verde">+ {formatNumber(o.extra)} €</span>
-                                        <span className="prop-chip prop-chip-crema">Se pide desde el 15/01/2027</span>
+                                        <span className="prop-chip prop-chip-verde">+ {formatNumber(o.extra)} €{t.acs?.vecesTxt ? ` · ${t.acs.vecesTxt}` : ''}</span>
+                                        {!t.tarjetaFm.sinChipFecha && <span className="prop-chip prop-chip-crema">Se pide desde el 15/01/2027</span>}
                                     </div>
-                                    <div className="prop-fmc-n"><b>Estimado</b> y sujeto a cupo: ver los riesgos más abajo.</div>
+                                    <div className="prop-fmc-n"><b>{t.tarjetaFm.b}</b> {t.tarjetaFm.resto}</div>
                                 </div>
                             </div>
                         );

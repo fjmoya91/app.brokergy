@@ -226,6 +226,34 @@ que añadir a la instalación / al presupuesto el depósito de ACS: esa cifra ya
 caldera eléctrica sigue con su aviso, sin cambios. Pruebas: `test_res060fc.mjs` y
 `test_via_fm_precio.mjs` (sección 5).
 
+**REGLA — sin ACS, la propuesta da DOS cifras rotuladas y recomienda la de CON ACS** (Fran, 24/11/2026,
+dictado: «los presupuestos que se den o las propuestas siempre serán cuando vaya el ACS incluido. Si un
+instalador nos da una propuesta sin el ACS, se le escribe y se le dice que, ojo, si la propuesta va con ACS
+es el doble, se le indica cuánto más sería y se le recomienda que se le dé con ACS»). Hasta ese día la
+cifra principal de una propuesta sin ACS ya era la VIGENTE (no engañaba), pero la FM de la hoja 2 y del
+mensaje salía como «Con el factor multiplicador», con el ACS supuesto y una frase suelta de «habría que
+añadir el depósito». Ahora, con `acs` `supuesto` (o `sin_scop`) y el FM mayor:
+- **«Tal como viene el presupuesto, sin ACS: X €»** — la vigente, la cifra firme de la propuesta. Sin ACS
+  por la bomba no hay FM (lectura prudente del apartado 1, FAQ 1).
+- **«Añadiendo un aerotermo o acumulador de ACS: Y € (Z € más)»** — la FM con el ACS supuesto, y «más del
+  doble» solo si Y ≥ 2·X. Recomendada.
+Dónde: la hoja 2 (titular «Con el ACS incluido, su bono puede llegar a…», tarjetas rotuladas, «Le
+recomendamos pedir el presupuesto con el ACS incluido» en «¿Por qué vía vamos?»), la línea de la fila del
+bono de la portada («Esta cifra es sin ACS. Añadiendo…»), el mensaje aparte (`lineaFactorCorreccion`: las
+dos en viñetas y «Te recomendamos pedirle a tu instalador…» / «Os recomendamos darle al cliente el
+presupuesto con el ACS incluido») y el aviso ámbar del popup de envío. Fuente única: `cifrasSinAcs` y los
+rótulos de [logic/fmPropuesta.js](../../../implementation/frontend/src/features/calculator/logic/fmPropuesta.js).
+Con ACS, una sola cifra como siempre. Y `via_fm` v5 las guarda para el contestador (abajo).
+**Lo que NO se promete** (memoria «aún no sabemos seguro cómo llegar al máximo», 26RES060_284): la cifra
+con ACS sigue siendo «estimada y sujeta a cupo» y se pide desde el 15/01/2027; la firme es la de sin ACS.
+Que un aerotermo de ACS APARTE (no la misma bomba) cuente para el FM no está cotejado con los
+verificadores: la Resolución habla de la bomba que da calefacción y ACS. Son las palabras de Fran; si un
+verificador dice otra cosa, se cambia el rótulo en `fmPropuesta.js`.
+Medido el 24/11/2026 en local (26RES060_OP346, D3, la hoja de más requisitos): hoja 2 con **25 px** de
+margen hasta el pie (pisaba 19 con el rótulo largo en la tarjeta: por eso la tarjeta lleva el corto «Con
+aerotermo o acumulador de ACS» y la fecha va en la nota, sin chip); con ACS (26RES060_OP77), 41 px, como
+antes. Pruebas: `test_fm_propuesta.mjs` (sección 8) y `test_via_fm_precio.mjs` (sección 5).
+
 **REGLA — toda propuesta va ACOMPAÑADA del cálculo por la vía FM** (Fran, 08/11/2026, 26RES060_OP376: «a
 partir de ahora las propuestas deben ir acompañadas del cálculo con FM»). El conmutador del aviso FM del
 popup de envío (`includeFc` de `ProposalModal`) nace **encendido**: el mensaje lleva el párrafo de
@@ -245,6 +273,14 @@ hasta el 09/11/2026, solo reforma: desde la v3 una solo-reforma lleva la RES080_
 la app»); `acs` (`supuesto` / `sin_scop`) es la simulación sin ACS. `VIA_FM_VERSION` = 2 desde
 que el ACS se supone (07/11/2026): un `via_fm` v1 ya guardado solo se rehace volviendo a guardar la
 oportunidad o con el relleno y `--forzar` (sin él, no pisa lo que ya hay). El listado la pide con `datos_calculo->via_fm` (regla 22: nunca el JSONB entero).
+**v5 (24/11/2026)**: sin ACS, elegible y con el FM mayor, cuatro escalares más para que el contestador de
+WhatsApp se lo diga al instalador sin recalcular: `sin_acs_eur` (= `eur_vigente`), `con_acs_eur` (=
+`eur_fm`), `acs_mas_eur` (la diferencia) y `acs_veces` (cociente, 2 decimales). Con ACS, no aplica o no
+elegible, no van. Un `via_fm` v4 guardado no los tiene hasta volver a guardar la oportunidad o el relleno
+con `--escribir --forzar` (tras el deploy y con el «sí» de Fran); mientras, la misma cuenta sale de v4:
+`acs === 'supuesto' && elegible && eur_fm > eur_vigente` → `eur_fm − eur_vigente`. En seco el 24/11/2026:
+**92 oportunidades vivas** (LEAD 4, PTE ENVIAR 19, ENVIADA 69) sin ACS que ganan con él: 371.414 € sin ACS
+→ 800.783 € con ACS (+429.369 €); 68 sin CEE (D_cal estimada) y 30 con la bomba que no llega a la carga.
 
 **REGLA — solo ADMIN** (regla 102): `via_fm` está en `SOLO_ADMIN_DEEP` de
 [financialScrub.js](../../../implementation/backend/utils/financialScrub.js), así que a quien no es ADMIN
@@ -475,10 +511,8 @@ reforma puede pedir por la RES060_FM está **sin decidir**: no se promete nada a
 
 ### Pendiente (dudas abiertas en la app)
 
-- **ACS en el mensaje de la propuesta**: `lineaFactorCorreccion` ya acepta `acs` y `estadoFc` lo
-  devuelve, pero la llamada de `ProposalModal.jsx` (de la sesión del expediente) aún no lo pasa
-  (`acs: fcInfo.acs`); hasta entonces el párrafo del mensaje no dice lo del depósito. El aviso del popup
-  de envío sí lo dice.
+- ~~ACS en el mensaje de la propuesta~~ — **resuelto**: `ProposalModal` pasa `acs: fcInfo.acs` y, desde
+  el 24/11/2026, el mensaje da las dos cifras (sin ACS / con ACS) y recomienda incluirlo.
 - Eléctrica: aviso «pendiente de consulta» (FAQ 3).
 - No se detecta la comunidad de propietarios (fechas de CC. PP.); la geotermia no se toma del equipo
   (columna nueva del C_b).

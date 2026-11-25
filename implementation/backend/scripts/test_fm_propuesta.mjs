@@ -1,7 +1,7 @@
 // La hoja del FACTOR MULTIPLICADOR de la propuesta (calculator/logic/fmPropuesta.js)
 // y el párrafo del mensaje (avisoFc.js) en RES060, RES09x y RES080.
 // node implementation/backend/scripts/test_fm_propuesta.mjs
-import { fmPropuesta, textosHojaFm, fichaVigenteDe } from '../../frontend/src/features/calculator/logic/fmPropuesta.js';
+import { fmPropuesta, textosHojaFm, fichaVigenteDe, cifrasSinAcs, ROTULO_SIN_ACS, ROTULO_CON_ACS } from '../../frontend/src/features/calculator/logic/fmPropuesta.js';
 import { estadoFc, lineaFactorCorreccion } from '../../frontend/src/features/calculator/logic/avisoFc.js';
 import { esVulnerableFm } from '../../frontend/src/features/calculator/logic/viaFm.js';
 import { createRequire } from 'module';
@@ -92,6 +92,37 @@ ok(!textosHojaFm(fmPropuesta(aero(fm060), { zona: 'D3' })).requisitos.some((r) =
 const mS = lineaFactorCorreccion({ ...eS, hoja: true });
 ok(/1,5 de consumidor vulnerable/.test(mS) && /página 2/.test(mS), 'mensaje: dice el × 1,5 y remite a la página 2');
 ok(!/vulnerable|página 2/.test(lineaFactorCorreccion({ actual: 1000, fc: 4000 })), 'sin vulnerable ni hoja: el párrafo de siempre');
+
+// 8) SIN ACS (Fran, 24/11/2026): dos cifras rotuladas y la recomendación de añadirlo;
+//    con ACS, una sola como siempre. Y `via_fm` las guarda para el contestador.
+const fmSinAcs = { ...fm060, acsSupuesto: true };
+d = fmPropuesta({ res060fc: fmSinAcs, financials: { caeBonus: 3000 }, financialsRes060FC: { caeBonus: 6500 } }, { tipo: 'unifamiliar', zona: 'C3' });
+t = textosHojaFm(d);
+ok(d.sinAcs && d.principal.sinAcs, 'sin ACS: la opción lo marca');
+ok(cifrasSinAcs(d.principal)?.mas === 3500 && cifrasSinAcs(d.principal).vecesTxt === 'más del doble', 'sin ACS: 3.000 → 6.500, 3.500 € más, más del doble');
+ok(t.tarjetaActual.rotulo === ROTULO_SIN_ACS && /aerotermo o acumulador de ACS/.test(t.tarjetaFm.rotulo) && /Recomendado/.test(t.tarjetaFm.b), 'sin ACS: las dos tarjetas rotuladas y la de ACS recomendada');
+ok(/Con el ACS incluido/.test(t.titularPre) && /recomendamos/.test(t.decision) && /3\.500 €/.test(t.decision), 'sin ACS: titular y decisión recomiendan el ACS');
+ok(/sin ACS/.test(t.linea(d.principal)) && /3\.500 € más/.test(t.linea(d.principal)), 'sin ACS: la línea de la portada da las dos');
+ok(t.requisitos.some((r) => /aerotermo o un acumulador de ACS/.test(r.d)), 'sin ACS: el requisito dice qué añadir');
+const mAcs = lineaFactorCorreccion({ ...estadoFc({ res060fc: fmSinAcs, financials: { caeBonus: 3000 }, financialsRes060FC: { caeBonus: 6500 } }, {}), tuteo: false });
+ok(/Tal como viene el presupuesto, sin ACS: \*3\.000 €\*/.test(mAcs) && /acumulador de ACS: unos \*6\.500 €\* \(\*3\.500 € más\*, más del doble\)/.test(mAcs), 'mensaje sin ACS: las dos cifras');
+ok(/Os recomendamos darle al cliente el presupuesto con el ACS incluido/.test(mAcs), 'mensaje al instalador: recomienda darlo con ACS');
+ok(/El importe firme de esta propuesta es el de \*3\.000 €\*/.test(mAcs), 'mensaje sin ACS: la firme sigue siendo la de sin ACS');
+// Con ACS: una sola cifra, sin rótulos de ACS.
+d = fmPropuesta(aero(fm060), { tipo: 'unifamiliar', zona: 'C3' });
+t = textosHojaFm(d);
+ok(!d.sinAcs && !t.acs && t.tarjetaActual.rotulo === 'Vía actual' && t.titularPre === 'Su bono puede llegar a', 'con ACS: una cifra, como siempre');
+ok(!/ACS: \*/.test(lineaFactorCorreccion({ actual: 3603, fc: 6184 })), 'con ACS: el mensaje de siempre');
+// via_fm v5: las cifras sin/con ACS, solo sin ACS y elegible.
+const { resumenViaFm } = await import('../../frontend/src/features/calculator/logic/viaFm.js');
+const { FM_NORMATIVA } = await import('../../frontend/src/features/calculator/logic/res060fc.js');
+const resAcs = { res060fc: { ...fmSinAcs, normativa: FM_NORMATIVA }, savings: { savingsKwh: 30000 }, financials: { caeBonus: 3000 }, financialsRes060FC: { caeBonus: 6500 } };
+const v = resumenViaFm(resAcs, { caePriceClient: 100 }, { hoy: '2026-11-24' });
+ok(v.v === 5 && v.acs === 'supuesto' && v.sin_acs_eur === 3000 && v.con_acs_eur === 6500 && v.acs_mas_eur === 3500 && v.acs_veces === 2.17, 'via_fm v5: sin_acs_eur, con_acs_eur, acs_mas_eur, acs_veces');
+const vCon = resumenViaFm({ ...resAcs, res060fc: { ...fm060, normativa: FM_NORMATIVA } }, { caePriceClient: 100 }, { hoy: '2026-11-24' });
+ok(!('acs_mas_eur' in vCon), 'via_fm con ACS: sin esos campos');
+const vBloq = resumenViaFm({ ...resAcs, res060fc: { ...fmSinAcs, normativa: FM_NORMATIVA, elegible: false, avisos: [{ tono: 'bloquea', texto: 'sólido' }] } }, {}, { hoy: '2026-11-24' });
+ok(!('acs_mas_eur' in vBloq), 'via_fm no elegible: sin esos campos');
 
 // 7) La siembra del expediente con el conmutador de la oportunidad.
 const { semillaBonoSocial } = require('../services/expedienteService.js');

@@ -130,8 +130,9 @@ console.log('\n5. Sin ACS en la simulación (Fran, 07/11/2026: «que sea un avis
     check(e.procede && e.acs === 'supuesto', 'el aviso de la propuesta sabe que falta el ACS', JSON.stringify(e));
     const txtCliente = lineaFactorCorreccion({ ...e, tuteo: true });
     const txtPartner = lineaFactorCorreccion({ ...e, tuteo: false });
-    check(/añadir a la instalación el depósito de ACS: esa cifra ya lo tiene en cuenta/.test(txtCliente), 'al cliente: hay que añadir el depósito y la cifra lo cuenta');
-    check(/añadir al presupuesto el depósito de ACS/.test(txtPartner), 'al partner: al presupuesto');
+    // Desde el 24/11/2026 (Fran): dos cifras rotuladas y la recomendación de incluir el ACS.
+    check(/sin ACS: \*1\.000 €\*/.test(txtCliente) && /acumulador de ACS: unos \*5\.000 €\*/.test(txtCliente) && /pedirle a tu instalador el presupuesto con el ACS incluido/.test(txtCliente), 'al cliente: las dos cifras y que lo pida con ACS');
+    check(/Os recomendamos darle al cliente el presupuesto con el ACS incluido/.test(txtPartner), 'al partner: que lo presupueste con ACS');
     check(!/depósito de ACS/.test(lineaFactorCorreccion({ actual: 1000, fc: 5000 })), 'con ACS, el párrafo no cambia');
 }
 

@@ -1051,7 +1051,7 @@ export function EnviarPropuestaModal({
                     {fcVisible && fcEstado?.procede && fcEstado.acs && (
                         <p className="-mt-2 text-[10px] text-amber-300/90 leading-relaxed px-1">
                             ⚠️ La simulación no lleva el ACS y la vía FM lo pide: {fcEstado.acs === 'supuesto'
-                                ? 'esa cifra ya supone que se añade el depósito de ACS al presupuesto.'
+                                ? `esa cifra ya supone que se añade un aerotermo o acumulador de ACS. La propuesta da las DOS: sin ACS ${eur(fcEstado.actual)} y con ACS ${eur(fcEstado.fc)}, y recomienda la segunda.`
                                 : 'sin SCOP de ACS, esa cifra es solo la calefacción; subirá al añadir el depósito.'}
                         </p>
                     )}

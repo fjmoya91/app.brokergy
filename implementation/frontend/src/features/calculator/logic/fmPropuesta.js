@@ -85,6 +85,10 @@ export function fmPropuesta(result, inputs = {}) {
             veces: e.actual > 0 ? e.fc / e.actual : 0,
             estimada: !!e.estimada,
             acs: e.acs || null,
+            // La simulación NO lleva el ACS (Fran, 24/11/2026): la cifra de la vía
+            // actual es «tal como viene el presupuesto, sin ACS» y la FM es «añadiendo
+            // un aerotermo o acumulador de ACS». Sin ACS por la bomba no hay FM.
+            sinAcs: e.acs === 'supuesto' || e.acs === 'sin_scop',
             // Consumidor vulnerable (ficha -S, × 1,5) y lo que saldría SIN acreditarlo:
             // el mismo cálculo FM sin el × 1,5 (el ahorro es lineal en el factor).
             vulnerable: !!e.vulnerable,
@@ -117,8 +121,37 @@ export function fmPropuesta(result, inputs = {}) {
         zonaFria: zona === 'D' || zona === 'E',
         factor: tipologiaFM({ tipo: inputs?.tipo, bloque }).fm,
         vulnerable: opciones.some((o) => o.vulnerable),
+        sinAcs: opciones.some((o) => o.clave === 'aero' && o.sinAcs),
     };
 }
+
+/**
+ * Las DOS cifras de una propuesta SIN ACS (Fran, 24/11/2026: «si no se tiene en cuenta
+ * un aerotermo o un acumulador de ACS, tanto; y si se tiene en cuenta, cuánto»).
+ *
+ * REGLA — sin ACS en el presupuesto, la propuesta da DOS cifras rotuladas y recomienda
+ * la segunda: «Tal como viene el presupuesto, sin ACS» (la vía actual: sin ACS por la
+ * bomba no hay FM, lectura prudente del apartado 1 de la ficha) y «Añadiendo un
+ * aerotermo o acumulador de ACS» (la FM con el ACS supuesto, `acsSupuesto` del motor),
+ * con lo que sube. La misma cuenta en la hoja 2, la fila del bono de la portada, el
+ * mensaje aparte (`lineaFactorCorreccion`) y `datos_calculo.via_fm` (`acs_mas_eur`).
+ * Con ACS, una sola cifra como siempre: devuelve null.
+ */
+export function cifrasSinAcs(o) {
+    if (!o?.sinAcs || !(o.fm > o.actual)) return null;
+    const veces = o.actual > 0 ? o.fm / o.actual : 0;
+    return {
+        sinAcs: o.actual,
+        conAcs: o.fm,
+        mas: o.fm - o.actual,
+        veces,
+        // «más del doble» solo si lo es: Fran lo dice así, y la cifra tiene que respaldarlo.
+        vecesTxt: veces >= 2 ? 'más del doble' : null,
+    };
+}
+
+export const ROTULO_SIN_ACS = 'Tal como viene el presupuesto, sin ACS';
+export const ROTULO_CON_ACS = 'Añadiendo un aerotermo o acumulador de ACS';
 
 /**
  * Los textos de la hoja, ya resueltos para ESTA propuesta. Al cliente se le habla
@@ -157,7 +190,7 @@ export function textosHojaFm(fm) {
     if (fm.aero) {
         const acs = fm.opciones.find((o) => o.clave === 'aero')?.acs;
         const faltaAcs = acs === 'supuesto' || acs === 'sin_scop'
-            ? ` Su presupuesto no incluye el agua caliente: habría que añadir el depósito de ACS${acs === 'supuesto' ? ' (la cifra ya lo tiene en cuenta)' : ''}.`
+            ? ` Su presupuesto no la incluye: hay que añadir un aerotermo o un acumulador de ACS${acs === 'supuesto' ? ' (ya contado arriba)' : ''}.`
             : '';
         requisitos.push({
             t: fm.hibridacion ? 'Bomba de calor en paralelo con la caldera' : 'Aerotermia para calefacción y agua caliente',
@@ -225,10 +258,27 @@ export function textosHojaFm(fm) {
         riesgos.unshift('La cifra es una estimación: se afina con dos certificados energéticos simulados que hacemos nosotros.');
     }
 
-    const decision = `Usted decide. Puede aceptar esta propuesta igual: la obra y casi toda la documentación son las mismas, y antes de presentar el expediente le confirmaremos por qué vía va. Si prefiere cobrar antes, se presenta ya por la vía actual, por ${fmt(p.actual)} €.`;
+    // Sin ACS (24/11/2026): las dos cifras con su rótulo y la recomendación de añadirlo.
+    const dosAcs = cifrasSinAcs(p);
+    const decision = dosAcs
+        ? `Le recomendamos pedir el presupuesto con el ACS incluido: son unos ${fmt(dosAcs.mas)} € más de bono. Puede aceptar esta propuesta igual y antes de presentar el expediente le confirmaremos por qué vía va. Sin el ACS, se presenta por la vía actual, por ${fmt(p.actual)} €.`
+        : `Usted decide. Puede aceptar esta propuesta igual: la obra y casi toda la documentación son las mismas, y antes de presentar el expediente le confirmaremos por qué vía va. Si prefiere cobrar antes, se presenta ya por la vía actual, por ${fmt(p.actual)} €.`;
 
     return {
         titular: `${aprox}${fmt(p.fm)} €`,
+        // El titular de la hoja: con la cifra FM dice de qué depende si falta el ACS.
+        titularPre: dosAcs ? 'Con el ACS incluido, su bono puede llegar a' : 'Su bono puede llegar a',
+        // Las dos tarjetas de cifras (una opción): rótulo y nota de cada una.
+        acs: dosAcs,
+        // `b` va en negrita y `resto` detrás.
+        tarjetaActual: dosAcs
+            ? { rotulo: ROTULO_SIN_ACS, b: 'Vía actual: se puede pedir ya.', resto: 'Sin el agua caliente por la aerotermia no se puede pedir el factor multiplicador.' }
+            : { rotulo: 'Vía actual', b: 'Se puede pedir ya.', resto: 'Es el importe firme de esta propuesta.' },
+        // Alto fijo (medido en 26RES060_OP346, D3): el rótulo largo partía en dos líneas
+        // y la hoja pisaba el pie 19 px. En la tarjeta, el corto; el largo, en el resto.
+        tarjetaFm: dosAcs
+            ? { rotulo: 'Con aerotermo o acumulador de ACS', b: 'Recomendado.', resto: 'Se pide desde el 15/01/2027; estimado y sujeto a cupo.', sinChipFecha: true }
+            : { rotulo: 'Con el factor multiplicador', b: 'Estimado', resto: 'y sujeto a cupo: ver los riesgos más abajo.' },
         intro,
         noDoble,
         calendario,
@@ -236,6 +286,11 @@ export function textosHojaFm(fm) {
         riesgos,
         decision,
         // La línea de la fila del bono de la portada, por opción.
-        linea: (o) => `Con el factor multiplicador, pidiéndolo desde el 15/01/2027: ${o.estimada ? '≈ ' : ''}${fmt(o.fm)} € (ver página 2)`,
+        linea: (o) => {
+            const a = cifrasSinAcs(o);
+            return a
+                ? `Esta cifra es sin ACS. ${ROTULO_CON_ACS}, con el factor multiplicador (desde el 15/01/2027): ${fmt(o.fm)} €, ${fmt(a.mas)} € más (ver página 2)`
+                : `Con el factor multiplicador, pidiéndolo desde el 15/01/2027: ${o.estimada ? '≈ ' : ''}${fmt(o.fm)} € (ver página 2)`;
+        },
     };
 }

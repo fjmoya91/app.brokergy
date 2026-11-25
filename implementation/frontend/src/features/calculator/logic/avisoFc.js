@@ -193,7 +193,20 @@ export function lineaFactorCorreccion({ actual = 0, fc = 0, tuteo = true, dosOpc
         ? ` Esa cifra ya cuenta el ×1,5 de consumidor vulnerable, por ${t('tener', 'tener el cliente')} el bono social de la luz: habrá que acreditarlo con la factura.`
         : '';
 
-    const p1 = `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${vuln}${aprox}${faltaAcs}`;
+    // REGLA — SIN ACS, DOS cifras rotuladas y la recomendación de añadirlo (Fran,
+    // 24/11/2026: «si la propuesta va con ACS es el doble, se le indica cuánto más
+    // sería y se le recomienda que se le dé con ACS»). La de sin ACS es la de la
+    // propuesta (vía actual: sin ACS por la bomba no hay FM); la de con ACS, la FM con
+    // el ACS supuesto. Mismos rótulos que la hoja 2 (fmPropuesta.js).
+    const sinAcs = (acs === 'supuesto' || acs === 'sin_scop') && fc > actual && !reforma;
+    const mas = fc - actual;
+    const doble = actual > 0 && fc / actual >= 2 ? ', más del doble' : '';
+    const recomienda = t(
+        'Te recomendamos pedirle a tu instalador el presupuesto con el ACS incluido.',
+        'Os recomendamos darle al cliente el presupuesto con el ACS incluido.');
+    const p1 = sinAcs
+        ? `📅 *Nueva normativa — con el ACS incluido, el bono sería mucho mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»), y pide que la aerotermia dé también el agua caliente sanitaria (ACS). El presupuesto ${dosOpciones ? 'de la Opción 1 (aerotermia)' : `de ${t('tu', 'esta')} propuesta`} no la lleva, así que hay dos cifras:\n• Tal como viene el presupuesto, sin ACS: *${fmt(actual)} €*.\n• Añadiendo un aerotermo o un acumulador de ACS: unos *${fmt(fc)} €* (*${fmt(mas)} € más*${doble}).${acs === 'sin_scop' ? ' Esa cifra es solo la calefacción: con el ACS subiría algo más.' : ''}${vuln}\n${recomienda}`
+        : `📅 *Nueva normativa — el bono podría ser mayor.* El BOE del 7 de noviembre de 2026 ha publicado una resolución del Ministerio que ${que} (el «factor multiplicador»). Con ella, el bono ${cual} pasaría de *${fmt(actual)} €* a unos *${fmt(fc)} €*.${vuln}${aprox}${faltaAcs}`;
 
     const p2 = `Se acogen las actuaciones iniciadas desde el ${FC_ACTUACIONES_DESDE}, con las facturas antes del ${FM_FACTURAS_ANTES_DEL_TXT}, y se presentan a partir del ${FM_PRESENTACION_DESDE_TXT}. Esta obra entra en ese supuesto, así que ${t('no tienes que esperar a nada: puedes ejecutarla cuando te venga bien', 'el cliente no tiene que esperar a nada: la obra puede ejecutarse cuando os venga bien')} y, si ${t('te', 'le')} resulta más beneficioso, ${t('tramitaríamos tu bono', 'tramitaríamos el bono')} a partir del ${FM_PRESENTACION_DESDE_TXT} por esa vía.`;
 

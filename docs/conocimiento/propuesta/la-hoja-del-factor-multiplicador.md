@@ -39,6 +39,21 @@ página. Cifras y textos salen de UNA fuente, [logic/fmPropuesta.js](../../../im
 5. **¿Por qué vía vamos?** (verde): usted decide. Puede aceptar igual y se le confirma la vía antes de
    presentar; si prefiere cobrar antes, va ya por la actual.
 
+**REGLA — sin ACS en el presupuesto, DOS cifras rotuladas y se recomienda la de con ACS** (Fran,
+24/11/2026: «si no se tiene en cuenta un aerotermo o un acumulador de ACS, tanto; y si se tiene en cuenta,
+cuánto»). Con la opción de aerotermia sin ACS (`acs` `supuesto`/`sin_scop` de `estadoFc`) y el FM mayor
+(`cifrasSinAcs`): titular «Con el ACS incluido, su bono puede llegar a Y €»; tarjeta «Tal como viene el
+presupuesto, sin ACS» (la vigente, «Vía actual: se puede pedir ya. Sin el agua caliente por la aerotermia no
+se puede pedir el factor multiplicador») frente a «Con aerotermo o acumulador de ACS» («+ Z € · más del
+doble» si lo es; «Recomendado. Se pide desde el 15/01/2027; estimado y sujeto a cupo», sin el chip de la
+fecha); «¿Por qué vía vamos?» recomienda pedir el presupuesto con el ACS; la línea de la portada dice
+«Esta cifra es sin ACS. Añadiendo un aerotermo o acumulador de ACS, con el factor multiplicador (desde el
+15/01/2027): Y €, Z € más (ver página 2)». En la comparativa, la fila de la Opción 1 lo dice debajo del
+título. El mensaje aparte da las dos en viñetas y recomienda incluirlo. Con ACS, todo como antes. Medido
+en 26RES060_OP346 (D3): 25 px de margen; el rótulo largo en la tarjeta pisaba 19. El porqué y `via_fm` v5:
+«REGLA — sin ACS, la propuesta da DOS cifras…» en
+[el factor multiplicador](../calculo/factor-multiplicador-la-resolucion-publicada-res060-fm.md).
+
 **REGLA — cada opción con SU ficha y las MISMAS condiciones que el párrafo del mensaje.**
 - Con aerotermia, la RES060_FM o la RES09x_FM de su zona (`estadoFc`).
 - Solo reforma, la RES080_FM (`estadoFm080`), nunca la RES060_FM.

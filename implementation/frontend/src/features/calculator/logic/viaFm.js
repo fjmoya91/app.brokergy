@@ -45,8 +45,10 @@ import { vulnerableDeConfirmacion } from '../../expedientes/logic/confirmacionCl
  * 4 (11/11/2026): la cifra PRUDENTE al lado (`mwh_fm_prudente`, `eur_fm_prudente` y
  *   `prudente`: 'acs', 'potencia' o los dos), y la bomba que no llega a la carga de
  *   diseño (`potencia_pct`).
+ * 5 (24/11/2026): sin ACS en la simulación, las dos cifras de la propuesta ya hechas
+ *   (`sin_acs_eur`, `con_acs_eur`, `acs_mas_eur`, `acs_veces`) para el contestador.
  */
-export const VIA_FM_VERSION = 4;
+export const VIA_FM_VERSION = 5;
 
 const soloReforma = (inputs = {}) => cierto(inputs.isReforma) && inputs.comparativaReforma === false;
 
@@ -222,6 +224,17 @@ export function resumenViaFm(result, inputs = {}, { precioFm = null, hoy = null 
         ...(bloquea ? { motivo: String(bloquea.texto).slice(0, 220) } : {}),
         // Sin ACS en la simulación: la cifra FM lo supone añadido, o (sin SCOP_dhw) no lo lleva.
         ...(fm.acsSupuesto ? { acs: 'supuesto' } : fm.acsSinScop ? { acs: 'sin_scop' } : {}),
+        // Sin ACS (v5, 24/11/2026): las DOS cifras de la propuesta, ya hechas, para que
+        // el contestador de WhatsApp se las diga al instalador sin recalcular: «tal como
+        // viene, sin ACS» (la vigente) y «añadiendo un aerotermo o acumulador de ACS»
+        // (la FM con el ACS supuesto), cuánto más y cuántas veces. Solo si se puede pedir
+        // por la FM y sale más; con ACS, ninguna de las cuatro.
+        ...((fm.acsSupuesto || fm.acsSinScop) && fm.elegible !== false && !motivoNoAplica && eurFm > eurVig ? {
+            sin_acs_eur: r0(eurVig),
+            con_acs_eur: r0(eurFm),
+            acs_mas_eur: r0(eurFm) - r0(eurVig),
+            acs_veces: eurVig > 0 ? r2(eurFm / eurVig) : null,
+        } : {}),
         ...(pru ? {
             mwh_fm_prudente: r2(pru.cae / 1000),
             eur_fm_prudente: r0(eurPru),

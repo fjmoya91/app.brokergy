@@ -256,7 +256,7 @@ console.log('\n── La cifra PRUDENTE: sin el ACS supuesto y con el C_b si la 
     // El resumen de la oportunidad la lleva al lado.
     const fin = { caeBonus: 12300, finalPriceClient: 100, isParticular: true, legalizationCost: 0 };
     const via = resumenViaFm({ res060fc: r, savings: { savingsKwh: 57510 }, financials: { caeBonus: 5751, finalPriceClient: 100 }, financialsRes060FC: fin }, { caePriceClient: 100 }, { hoy: '2026-11-11' });
-    ok(via.v === VIA_FM_VERSION && VIA_FM_VERSION === 4, 'resumen v4');
+    ok(via.v === VIA_FM_VERSION && VIA_FM_VERSION === 5, 'resumen v5');
     ok(via.mwh_fm_prudente === Math.round(r.prudente.cae / 10) / 100 && via.eur_fm_prudente === Math.round(r.prudente.cae / 1000 * 100) && via.prudente === 'acs,potencia' && via.potencia_pct === 29,
         `resumen: ${via.mwh_fm_prudente} MWh · ${via.eur_fm_prudente} € prudentes, la bomba al ${via.potencia_pct} %`);
     const pv = prudenteViaFm({ res060fc: r, financialsRes060FC: fin });
