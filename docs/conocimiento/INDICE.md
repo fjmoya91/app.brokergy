@@ -30,7 +30,7 @@
 | `instalador-app` | App del instalador — la app nueva del rol INSTALADOR (beta): obras en 5 pasos, Inicio, Obras y Clientes | `.claude/rules/instalador-app.md` · 39,7 KB | 11 |
 | `instalador-rite` | Instalador y RITE — envío conjunto, re-firma del CIFO, lectura del certificado RITE, memoria y estancias | `.claude/rules/instalador-rite.md` · 19,6 KB | 7 |
 | `lotes` | Lotes y Sujeto Obligado — verificación, OCR de sus PDF, anexos MITECO, paquete ZIP, firmados, peticiones, factura | `.claude/rules/lotes.md` · 57,9 KB | 21 |
-| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 37,3 KB | 12 |
+| `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 39,3 KB | 13 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,7 KB | 11 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
@@ -333,6 +333,7 @@
 - **242** → `.claude/rules/transversal-backend.md` — Una entrada al historial del expediente se añade con `anadirAlHistorial` ([utils/historialExpediente.js](imp…
 - **243** → `.claude/rules/cee-generacion.md` — El VPS califica con CE3X 3.2 sin el PC: servicio `ce3x-engine`, y lo que pide CE3X por WhatsApp pasa por el …
 - **243** → `.claude/rules/instalador-app.md` — La PORTADA de la ficha de brokergy.es la elige el instalador entre sus fotos PUBLICADAS, sin otra revisión, …
+- **244** → `.claude/rules/oportunidades.md` — Varios INSTALADORES pueden pedir la MISMA obra: la oportunidad sigue siendo UNA y el bono CAE es el MISMO pa…
 
 ## Documentos por área
 
@@ -700,6 +701,7 @@
 - `docs/conocimiento/oportunidades/nueva-simulacion-con-cee-inicial-y-final.md` — Nueva simulación con CEE inicial y final (2026-08-10)
 - `docs/conocimiento/oportunidades/sin-acs-declarado-no-se-calcula-el-acs.md` — Si el instalador no dice nada del agua caliente, el ACS no se calcula (2026-10-23)
 - `docs/conocimiento/oportunidades/tienes-placas-solares-se-pregunta-una-vez-y-acompana-al-inmueble.md` — ¿Tienes placas solares? — se pregunta UNA vez y acompaña al inmueble (2026-09-07)
+- `docs/conocimiento/oportunidades/varios-instaladores-piden-la-misma-obra.md` — Varios INSTALADORES piden la MISMA obra (2026-11-25)
 
 ### placas-catalogos
 

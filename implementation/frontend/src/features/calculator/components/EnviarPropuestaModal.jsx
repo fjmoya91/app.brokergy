@@ -634,14 +634,26 @@ export function EnviarPropuestaModal({
         let filename = `Propuesta_Brokergy_${baseFileName}.pdf`;
         try {
             if (expedienteId) {
-                const reg = await axios.post(`/api/oportunidades/${expedienteId}/propuesta/version`, {
+                const cuerpo = {
                     html: getPdfHtml(),
                     destinatarios: selectedContacts.map(c => ({ modo: c.mode, label: c.label, email: c.email, telefono: c.phone })),
                     canales: [doEmail && 'email', doWa && 'whatsapp'].filter(Boolean),
                     versionImpresa: versionInfo?.siguiente || 1,
                     result: proposalResult || null,
                     inputs: proposalInputs || null,
-                }, { timeout: 120000 });
+                };
+                let reg;
+                try {
+                    reg = await axios.post(`/api/oportunidades/${expedienteId}/propuesta/version`, cuerpo, { timeout: 120000 });
+                } catch (e) {
+                    // Varios instaladores piden la obra y el bono no es el que ya
+                    // tiene otro de ellos: no sale nada salvo que se confirme
+                    // (un CEE nuevo cambia el ahorro para todos).
+                    if (e.response?.status !== 409 || e.response?.data?.code !== 'BONO_DISTINTO') throw e;
+                    const msg = e.response.data.error || 'El bono CAE no es el mismo que el de la propuesta de otro instalador.';
+                    if (!window.confirm(`${msg}\n\n¿Enviar igualmente?`)) throw new Error(msg);
+                    reg = await axios.post(`/api/oportunidades/${expedienteId}/propuesta/version`, { ...cuerpo, bonoDistintoConfirmado: true }, { timeout: 120000 });
+                }
                 versionOut = reg.data || null;
                 pdfBase64 = versionOut?.pdfBase64 || null;
                 if (versionOut?.fileName) filename = versionOut.fileName;

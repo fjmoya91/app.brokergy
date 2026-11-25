@@ -62,6 +62,8 @@ paths:
 
 218. **Una oportunidad puede llevar un COMISIONISTA: la PERSONA que trajo la obra, aparte del partner (empresa) del que cuelga** (Fran, 16/11/2026, 26RES060_OP308: Juanma, ingeniero de LOS SIETE HERMANOS, frente a Rufino, comercial de la misma empresa). Tabla `comisionistas` + `oportunidades.comisionista_id` / `comisionista_importe` ([comisionistas_schema.sql](implementation/backend/scripts/comisionistas_schema.sql); RLS sin policies, GRANT a `service_role` y REVOKE a `anon`/`authenticated`, regla 150). **Es una marca de ATRIBUCIÓN**: no cambia el partner, ni a quién se avisa, ni el bono, ni la comisión de la empresa (regla 81). **Del equipo interno, y lo pactado solo de ADMIN**: rutas `staffOnly` ([routes/comisionistas.js](implementation/backend/routes/comisionistas.js)); al partner se le quitan las dos columnas en el listado, en `GET /:id` y en las respuestas del guardado (`sinCiegaParaPartner`), y al TRABAJADOR el importe y `comision_*` — lo decide SOLO `capaComisionista` ([utils/comisionista.js](implementation/backend/utils/comisionista.js)). **Se guarda AL MOMENTO** por `PUT /api/comisionistas/oportunidad/:id`, nunca con el guardado de la calculadora (cuyo `update` no incluye esas columnas: no las pisa); cambiar de persona vacía el importe. Se elige con UNA pieza ([ComisionistaSelector.jsx](implementation/frontend/src/features/comisionistas/ComisionistaSelector.jsx)) en la fila del listado de oportunidades, la cabecera de la calculadora y la del expediente; se filtra en los dos listados (columna «Comisionista» en expedientes). **Sin JSONB** (regla 22): dos escalares en `listaSelect`; en expedientes, una consulta aparte de escalares como la de los rechazados, sin tocar la RPC v4. Por script, en seco: `scripts/comisionista.js listar | alta | marcar` («marcar» no pisa otro comisionista). Tras tocarlo: `node implementation/backend/scripts/test_comisionista.js`, `test_rutas_sin_sesion.js`, `test_rutas_partner.js`, `auditar_rutas_sin_guardian.js` y el build; banco sin sesión: `/comisionista-prueba.html`. Ver "El COMISIONISTA de una oportunidad".
 
+244. **Varios INSTALADORES pueden pedir la MISMA obra: la oportunidad sigue siendo UNA y el bono CAE es el MISMO para todos** (Fran, 25/11/2026, 26RES060_OP360: SANTOS y después ISM). Tabla `oportunidad_solicitudes` ([oportunidad_solicitudes_schema.sql](implementation/backend/scripts/oportunidad_solicitudes_schema.sql)) con el orden, la fecha, el presupuesto y el nº de cada uno; rutas `staffOnly` en [routes/solicitudesPartner.js](implementation/backend/routes/solicitudesPartner.js) y el chip de la cabecera de la calculadora ([SolicitudesPartner.jsx](implementation/frontend/src/features/solicitudes/SolicitudesPartner.jsx)), solo ADMIN y TRABAJADOR. La oportunidad sigue colgando de su `prescriptor_id` (el 1º, que no se quita). «Preparar la propuesta para este» pone `inputs.partner_propuesta_id` y SU presupuesto: la propuesta lleva SU marca y va a SUS personas, la comisión no se toca y a otro no se le dice la línea de comisión. `POST /:id/propuesta/version` sella `partner_id` en la versión y responde **409 `BONO_DISTINTO`** si el bono no casa (±1 €, opción con opción) con la última versión de CADA otro instalador; solo sale si se confirma (`bonoDistintoConfirmado`, queda sellado). Lo que tiene cada uno se calcula de `propuesta_versiones`, no se guarda aparte. Ver "Varios INSTALADORES piden la MISMA obra".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -78,6 +80,7 @@ paths:
 - `docs/conocimiento/oportunidades/nueva-simulacion-con-cee-inicial-y-final.md` — Nueva simulación con CEE inicial y final (2026-08-10) · 10,0 KB
 - `docs/conocimiento/oportunidades/sin-acs-declarado-no-se-calcula-el-acs.md` — Si el instalador no dice nada del agua caliente, el ACS no se calcula (2026-10-23) · 2,9 KB
 - `docs/conocimiento/oportunidades/tienes-placas-solares-se-pregunta-una-vez-y-acompana-al-inmueble.md` — ¿Tienes placas solares? — se pregunta UNA vez y acompaña al inmueble (2026-09-07) · 3,8 KB
+- `docs/conocimiento/oportunidades/varios-instaladores-piden-la-misma-obra.md` — Varios INSTALADORES piden la MISMA obra (2026-11-25) · 5,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -187,5 +190,12 @@ su PLACA (regla 162), y las placas de características de la aerotermia instalad
   - **REGLA — se dice "FOTOVOLTAICAS" y se explica que son las de la electricidad.**
   - **REGLA — con placas, la potencia se contesta o se dice que no se sabe.**
   - **REGLA — el chip de la calculadora sale con el panel PLEGADO.**
+- `docs/conocimiento/oportunidades/varios-instaladores-piden-la-misma-obra.md`
+  - **REGLA — la oportunidad sigue siendo UNA y sigue colgando de su `prescriptor_id` (el 1º).**
+  - **REGLA — elegir «Preparar la propuesta para este» pone SU presupuesto y SU marca, nada más.**
+  - **REGLA — el bono CAE es el MISMO para todos, y lo vigila el BACKEND al registrar la
+versión.**
+  - **REGLA — qué propuesta tiene cada uno se CALCULA de `propuesta_versiones`**
+  - **REGLA — es del EQUIPO INTERNO.**
 
 <!-- generado:fin -->

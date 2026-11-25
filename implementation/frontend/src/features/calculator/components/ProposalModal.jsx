@@ -972,7 +972,9 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
     // Cargar datos del partner cuando el modal se abre y hay prescriptor_id
     useEffect(() => {
         if (!isOpen) { setPartnerInfo(null); return; }
-        const partnerId = inputs?.prescriptor_id;
+        // Varios instaladores pueden pedir la misma obra: la propuesta lleva la
+        // marca (co-branding y fila PARTNER) del elegido en la calculadora.
+        const partnerId = inputs?.partner_propuesta_id || inputs?.prescriptor_id;
         if (!partnerId) { setPartnerInfo(null); return; }
 
         axios.get(`/api/prescriptores/${partnerId}`)
@@ -1029,7 +1031,7 @@ export function ProposalModal({ isOpen, onClose, result: resultCalculo, inputs, 
                     })
                     .catch(() => setPartnerInfo({ name: 'Partner', phone: null }));
             });
-    }, [isOpen, inputs?.prescriptor_id, contactosRefresh]);
+    }, [isOpen, inputs?.prescriptor_id, inputs?.partner_propuesta_id, contactosRefresh]);
 
     useEffect(() => {
         if (!isOpen) { setInstaladorInfo(null); return; }
@@ -2546,7 +2548,10 @@ info@brokergy.es · 623 926 179`;
         // otra empresa, ni al cliente: es el margen de un tercero. Va la primera de
         // las notas porque es lo que el partner busca en el mensaje; las otras son
         // matices de la cifra del cliente.
-        if (mode === 'PARTNER') {
+        // Con la propuesta preparada para OTRO instalador que pide la misma obra
+        // (`partner_propuesta_id`), la comisión de la simulación es la pactada
+        // con el 1º: a este no se le dice.
+        if (mode === 'PARTNER' && !inputs?.partner_propuesta_id) {
             const linea = lineaComisionPartner(opcionesComision(opts));
             if (linea) txt = `${txt}\n\n${linea}`;
         }
@@ -2645,7 +2650,7 @@ info@brokergy.es · 623 926 179`;
                 if (partnerInfo) {
                     name = partnerInfo.name; phone = partnerInfo.phone;
                 } else {
-                    const pid = inputs?.prescriptor_id;
+                    const pid = inputs?.partner_propuesta_id || inputs?.prescriptor_id;
                     if (pid) {
                         try {
                             const r = await axios.get(`/api/prescriptores/${pid}`);
@@ -2780,8 +2785,9 @@ info@brokergy.es · 623 926 179`;
     // MISMO id, así que la lista de destinatarios pintaba dos tarjetas de la
     // misma empresa —mismo nombre, mismo teléfono, mismo email— y marcar las dos
     // le mandaba la propuesta por duplicado a la misma persona.
-    const mismoPartnerEInstalador = !!inputs?.prescriptor_id
-        && String(inputs.prescriptor_id) === String(inputs?.instalador_asociado_id || '');
+    const partnerPropuestaId = inputs?.partner_propuesta_id || inputs?.prescriptor_id || null;
+    const mismoPartnerEInstalador = !!partnerPropuestaId
+        && String(partnerPropuestaId) === String(inputs?.instalador_asociado_id || '');
 
     // ── A QUIÉN de la empresa ────────────────────────────────────────────────
     // Un partner no es un buzón: tiene personas dadas de alta, y la propuesta es
@@ -2830,7 +2836,7 @@ info@brokergy.es · 623 926 179`;
         // INSTALADOR — el rótulo fijo estaba mal casi siempre.
         if (partnerInfo) list.push({ mode: 'PARTNER', label: partnerInfo.name || tipoEmpresaLabel(partnerInfo.tipo), sublabel: tipoEmpresaLabel(partnerInfo.tipo), org: partnerInfo.org || '', email: partnerInfo.email || '', phone: partnerInfo.phone || '',
             ...personasDe(partnerInfo),
-            entidad: inputs?.prescriptor_id ? { tipo: 'prescriptor', id: inputs.prescriptor_id } : null });
+            entidad: partnerPropuestaId ? { tipo: 'prescriptor', id: partnerPropuestaId } : null });
         // El instalador asociado solo es OTRA fila si es OTRA empresa. En 32
         // oportunidades el partner Y el instalador son el mismo id: salían dos
         // tarjetas con el mismo nombre, el mismo teléfono y el mismo email, y
@@ -3275,9 +3281,10 @@ info@brokergy.es · 623 926 179`;
             } else if (mode === 'PARTNER') {
                 email = partnerInfo?.email || null;
                 name = partnerInfo?.name || 'Partner';
-                if (!email && inputs?.prescriptor_id) {
+                const pidEmail = inputs?.partner_propuesta_id || inputs?.prescriptor_id;
+                if (!email && pidEmail) {
                     try {
-                        const r = await axios.get(`/api/prescriptores/${inputs.prescriptor_id}`);
+                        const r = await axios.get(`/api/prescriptores/${pidEmail}`);
                         const uc = r.data.contacto_notificaciones_activas === true;
                         name = uc ? (r.data.nombre_contacto || r.data.acronimo || r.data.razon_social) : (r.data.acronimo || r.data.razon_social || 'Partner');
                         email = uc ? (r.data.email_contacto || r.data.email) : (r.data.email || null);

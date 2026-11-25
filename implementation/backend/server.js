@@ -51,6 +51,8 @@ app.use('/api/oportunidades', oportunidadesRoutes);
 app.use('/api/prescriptores', prescriptoresRoutes);
 // La PERSONA que trae una obra, aparte del partner (solo equipo interno).
 app.use('/api/comisionistas', require('./routes/comisionistas'));
+// Varios INSTALADORES piden la misma obra: quién, en qué orden y con qué presupuesto (solo equipo interno).
+app.use('/api/solicitudes-partner', require('./routes/solicitudesPartner'));
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/pdf', pdfRoutes);
 app.use('/api/clientes', clientesRoutes);

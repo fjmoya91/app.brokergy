@@ -1011,6 +1011,7 @@ router.get('/sin-expediente', staffOnly, async (req, res) => {
 // al ENVIAR y no al guardar, y por qué en BD solo van metadatos y el enlace.
 
 const propuestaVersiones = require('../services/propuestaVersiones');
+const { partnerDePropuesta } = require('../utils/solicitudesPartner');
 // Envíos PROGRAMADOS: el mismo recorrido, a la hora elegida y con el ordenador
 // de quien lo programó apagado. Ver services/propuestaProgramada.js.
 const propuestaProgramada = require('../services/propuestaProgramada');
@@ -1040,7 +1041,7 @@ const nombreUsuario = (req) => req.user
 async function cargarParaVersion(idLegible) {
     const { data, error } = await supabase
         .from('oportunidades')
-        .select('id, id_oportunidad, datos_calculo')
+        .select('id, id_oportunidad, prescriptor_id, datos_calculo')
         .eq('id_oportunidad', idLegible)
         .maybeSingle();
     if (error || !data) return null;
@@ -1099,11 +1100,21 @@ router.get('/:id/propuesta/versiones', enforceAuth, suyaSiPartner, async (req, r
 // que se archiva tiene que ser byte a byte lo que recibe el cliente.
 router.post('/:id/propuesta/version', internalKeyOrAuth, suyaSiPartner, async (req, res) => {
     try {
-        const { html, htmlWeb, marcarEnviada, destinatarios, canales, versionImpresa, result, inputs } = req.body || {};
+        const { html, htmlWeb, marcarEnviada, destinatarios, canales, versionImpresa, result, inputs, bonoDistintoConfirmado } = req.body || {};
         if (!html) return res.status(400).json({ error: 'Falta el HTML de la propuesta.' });
 
         const op = await cargarParaVersion(req.params.id);
         if (!op) return res.status(404).json({ error: 'Oportunidad no encontrada.' });
+
+        // Para qué instalador se hace esta versión (varios pueden pedir la misma
+        // obra): el elegido en la calculadora o, si no, el de la oportunidad.
+        const partnerId = partnerDePropuesta(inputs, op.prescriptor_id);
+        let partner = null;
+        if (partnerId) {
+            const { data: p } = await supabase.from('prescriptores')
+                .select('acronimo, razon_social').eq('id_empresa', partnerId).maybeSingle();
+            partner = { id: partnerId, nombre: p?.acronimo || p?.razon_social || null };
+        }
 
         const out = await propuestaVersiones.registrarEnvio({
             oportunidad: op,
@@ -1113,6 +1124,8 @@ router.post('/:id/propuesta/version', internalKeyOrAuth, suyaSiPartner, async (r
             usuario: nombreUsuario(req),
             versionImpresa: Number(versionImpresa) || null,
             result, inputs,
+            partner,
+            bonoDistintoConfirmado: bonoDistintoConfirmado === true,
         });
 
         // ENTREGA POR ENLACE (copiar el enlace de aceptación). Sin mensaje que
@@ -1135,6 +1148,9 @@ router.post('/:id/propuesta/version', internalKeyOrAuth, suyaSiPartner, async (r
 
         res.json({ success: true, ...out });
     } catch (e) {
+        if (e.code === 'BONO_DISTINTO') {
+            return res.status(409).json({ error: e.message, message: e.message, code: e.code, diferencias: e.diferencias || [] });
+        }
         console.error('[POST /:id/propuesta/version]', e.message);
         res.status(500).json({ error: 'No se pudo registrar la versión de la propuesta.', message: e.message });
     }

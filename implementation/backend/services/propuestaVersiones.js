@@ -63,6 +63,7 @@ function vigente(datosCalculo) {
 // cambió de una a otra sin volver a rasterizar ni recalcular nada. Los de la
 // opción que IMPRIME el PDF: con reforma, la rama que toque (ver el módulo).
 const { importesDe, describirCambios } = require('../utils/importesPropuesta');
+const { comprobarBonoIgual } = require('../utils/solicitudesPartner');
 
 /** Rasteriza el HTML de la propuesta a PDF A4. Mismos ajustes que /api/pdf/*. */
 async function renderPdf(html) {
@@ -125,8 +126,29 @@ async function registrarEnvio({
     versionImpresa = null,// la marca que el frontend ya pintó en el documento
     result = null,
     inputs = null,
+    partner = null,       // { id, nombre }: el instalador para el que se hace (varios piden la obra)
+    bonoDistintoConfirmado = false,
 }) {
     if (!html) throw new Error('Falta el HTML de la propuesta.');
+
+    // Varios instaladores piden la misma obra: el bono CAE es el MISMO para
+    // todos (Fran, 25/11/2026, 26RES060_OP360). Se mira ANTES de rasterizar y de
+    // reservar número: si no cuadra, no sale nada.
+    const importes = importesDe(result, inputs);
+    if (partner?.id && !bonoDistintoConfirmado) {
+        const fallo = comprobarBonoIgual({
+            versiones: listar(oportunidad?.datos_calculo),
+            prescriptorIdOp: oportunidad?.prescriptor_id,
+            partnerId: partner.id,
+            importes,
+        });
+        if (fallo) {
+            const err = new Error(fallo.mensaje);
+            err.code = fallo.code;
+            err.diferencias = fallo.diferencias;
+            throw err;
+        }
+    }
 
     const pdfBuffer = await renderPdf(html);
     const previa = vigente(oportunidad?.datos_calculo);
@@ -141,8 +163,10 @@ async function registrarEnvio({
             telefono: d.telefono || d.phone || null,
         })),
         canales,
-        importes: importesDe(result, inputs),
+        importes,
         version_impresa: versionImpresa || null,
+        ...(partner?.id ? { partner_id: partner.id, partner_nombre: partner.nombre || null } : {}),
+        ...(partner?.id && bonoDistintoConfirmado ? { bono_distinto_confirmado: true } : {}),
     };
 
     const { data: creada, error } = await supabase.rpc('propuesta_version_add', {

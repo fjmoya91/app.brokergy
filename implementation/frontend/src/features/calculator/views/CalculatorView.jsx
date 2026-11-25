@@ -56,6 +56,7 @@ import { calculateRes080FM } from '../logic/res080fm';
 import axios from 'axios';
 import { LogoEmpresa } from '../../../components/LogoEmpresa';
 import { ComisionistaDeOportunidad } from '../../comisionistas/ComisionistaSelector';
+import { SolicitudesPartner } from '../../solicitudes/SolicitudesPartner';
 import { nombrePartner, tipoEmpresaLabel } from '../../../utils/tiposEmpresa';
 
 const INITIAL_INPUTS = {
@@ -1416,6 +1417,24 @@ export function CalculatorView({ initialData, onBack, onNavigate }) {
                             prescriptores={prescriptor ? [prescriptor] : []}
                             isAdmin={user?.rol?.toUpperCase() === 'ADMIN'}
                             size="md"
+                        />
+                    )}
+                    {/* Varios INSTALADORES piden la misma obra: en qué orden, el
+                        presupuesto de cada uno y para quién se prepara la propuesta.
+                        Elegir a uno pone SU presupuesto y SU marca; el bono no se toca. */}
+                    {inputs.id_oportunidad && inputs.prescriptor_id && ['ADMIN', 'TRABAJADOR'].includes(user?.rol?.toUpperCase()) && (
+                        <SolicitudesPartner
+                            idOportunidad={inputs.id_oportunidad}
+                            partnerActivo={inputs.partner_propuesta_id || null}
+                            presupuestoActual={inputs.presupuesto ?? null}
+                            onElegir={({ prescriptor_id, presupuesto, presupuesto_estimado, esElPrimero }) => {
+                                setInputs(prev => ({
+                                    ...prev,
+                                    // El 1º es el de la oportunidad: sin marca, como siempre.
+                                    partner_propuesta_id: esElPrimero ? null : prescriptor_id,
+                                    ...(presupuesto != null ? { presupuesto, presupuestoEstimado: !!presupuesto_estimado } : {}),
+                                }));
+                            }}
                         />
                     )}
                     {inputs.referenciaCliente && (
