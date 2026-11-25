@@ -23,6 +23,9 @@ const GUARDIANES = new Set([
     // `internoOExtSuyo`: el equipo interno, o un certificador externo con una obra SUYA (envolvente con origen ext).
     // `certappSesion`: una sesión válida aunque aún no tenga cuenta (solo el alta con Google).
     'certappOnly', 'certappOAdmin', 'internoOExtSuyo', 'certappSesion',
+    // App RITE (middleware/riteappAuth.js, regla 245): cortan sin sesión con 401.
+    // `riteappSesion`: una sesión válida aunque aún no tenga cuenta (solo el alta).
+    'riteappOnly', 'riteappSesion',
 ]);
 
 // Routers públicos POR DISEÑO: cada ruta valida su token, firma o enlace dentro.

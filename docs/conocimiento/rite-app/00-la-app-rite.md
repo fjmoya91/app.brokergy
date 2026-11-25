@@ -72,6 +72,46 @@ motivo (`PROVINCIAS_CLM`).
 
 Numeración de la app: `{AAAA}RIT_{n}`, correlativo propio por año (trigger con candado, como los informes).
 
+### «Hazme esta memoria»: BROKERGY la hace y aparece en los documentos del instalador (2026-11-25)
+
+Fran, ese mismo día: «la idea es que yo te diga "haz esta memoria" y automáticamente seas capaz de
+hacerla y que ya aparezca en los documentos». Una sola llamada,
+[services/riteapp/encargo.js](implementation/backend/services/riteapp/encargo.js) `hazMemoria`, por
+`POST /api/riteapp-admin/memorias` (`staffOClaveInterna`) y, desde Claude, la herramienta del MCP
+**`memoria_rite`** (y `completar_memoria_rite` para lo que faltaba o para cambiarla, y
+`listar_memorias_rite`):
+
+1. **El instalador**: su cuenta de la app por id, email o CIF; si no la tiene pero es PARTNER, se le crea
+   una **PENDIENTE** con los datos de quien firma de verdad (`resolveInstaladorFirmante`, con su
+   delegación), sin créditos, y la ve al entrar con ese email (el alta la ADOPTA: `auth_user_id`).
+2. **La vivienda**: el Catastro por la referencia (`viviendaDelCatastro`, una petición con caché): la
+   superficie de VIVIENDA (sin garajes ni almacenes si el Catastro los separa), las plantas, la dirección
+   y la zona climática por el municipio (`climateService`). Lo dicho a mano manda.
+3. **El equipo**: por id del catálogo, o por texto; con varias coincidencias **no elige**: devuelve
+   `opciones_equipo` y la memoria queda en BORRADOR.
+4. **Las estancias**: la propuesta por superficie (`proponerLocales` + `resolverLocales` de
+   `logic/localesRite.js`, la MISMA del popup del CRM, importada por el backend) o las que se digan por
+   tipo y planta, con sus elementos (modo extendido).
+5. Si no falta nada, **se genera** (`origen: 'BROKERGY'`, **no gasta créditos**) y queda en sus
+   Documentos; si falta, devuelve `faltan` para preguntarlo.
+
+**REGLA — lo de BROKERGY NO gasta créditos del instalador**; lo que genera él, sí: 1 la PRIMERA vez
+(`riteapp_consumir_credito_memoria`), regenerar la misma es gratis, y si el generador falla se le
+devuelve.
+
+### Los documentos de una memoria
+
+Tomado de la app de certificadores: los ficheros viven en Drive y la BD solo guarda ids. Cada
+generación deja los cuatro (memoria en PDF y Word, borrador del certificado y guía JE6) en la carpeta
+de la memoria y la versión anterior pasa a «OLD» (`_OLD`, `_OLD1`…). `documentos()` devuelve lo
+**actual** de cada clase y, aparte, las **anteriores**; la clase sale del NOMBRE que pone el generador
+(`claseDe`). **REGLA — un fichero solo se sirve si es de ESA memoria** (en su carpeta o en su OLD): si
+no, 404 sin tocar Drive (`fichero()`), como el token de una obra (regla 232). Sin enlaces de Drive al
+instalador (regla 1): se sirven los bytes por la API.
+
+Pruebas en seco de todo el circuito (Supabase, Drive y Catastro de mentira; el generador de verdad):
+`node implementation/backend/scripts/test_riteapp_encargo.js`.
+
 ### Para producción (lo de una vez, como cee.brokergy.es)
 
 SQL `riteapp_schema.sql` en Supabase (con el «sí» de Fran) · DNS `rite` → `187.77.93.213` · bloque de

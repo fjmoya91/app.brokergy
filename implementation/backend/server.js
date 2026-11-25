@@ -121,6 +121,10 @@ app.use('/api/asistente-app', require('./routes/asistenteApp'));
 app.use('/api/certapp/alta', require('./routes/certappAlta'));
 app.use('/api/certapp', require('./routes/certapp'));
 app.use('/api/certapp-admin', require('./routes/certappAdmin'));
+// App RITE (rite.brokergy.es, regla 245): el instalador (riteappOnly; /alta con riteappSesion) y
+// BROKERGY «hazme esta memoria» (staffOClaveInterna; las cuentas, adminOnly).
+app.use('/api/riteapp', require('./routes/riteapp'));
+app.use('/api/riteapp-admin', require('./routes/riteappAdmin'));
 // App del INSTALADOR (fase 1, solo lectura): sus obras ya resueltas, solo para quien
 // está en la beta (APP_INSTALADOR_BETA). Ver docs/conocimiento/instalador-app/.
 app.use('/api/instalador-app', require('./routes/instaladorApp'));

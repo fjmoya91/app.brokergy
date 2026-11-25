@@ -2401,6 +2401,105 @@ function createMcpServer() {
         }
     );
 
+    // ── App RITE (rite.brokergy.es, regla 245): «hazme esta memoria» ─────────
+    // Crea la memoria RITE SUELTA en la cuenta del instalador, con el Catastro, el
+    // catálogo y las estancias; si no falta nada, la GENERA y queda en sus
+    // Documentos de la app. No gasta créditos del instalador. No envía nada a nadie.
+    const vistaMemoriaRite = (d) => ({
+        ok: true,
+        numero: d.memoria?.numero, id: d.memoria?.id, estado: d.memoria?.estado, modo: d.memoria?.modo,
+        instalador: d.cuenta?.empresa, cuenta_activa: d.cuenta?.estado === 'ACTIVA',
+        generada: !!d.generada,
+        faltan: d.faltan?.length ? d.faltan : undefined,
+        avisos: d.avisos?.length ? d.avisos : undefined,
+        opciones_equipo: d.opciones_equipo?.length ? d.opciones_equipo : undefined,
+        estancias: d.tabla?.filas?.map(f => `P${f.planta} ${f.nombre}: ${f.m2} m², ${f.elementos ?? '-'} elem., ${f.potencia_w} W`),
+        total_w: d.tabla?.total?.potencia_w,
+        documentos: d.documentos?.map(x => x.etiqueta),
+        aviso: d.generada
+            ? `Memoria ${d.memoria?.numero} generada: ya está en los Documentos de la app RITE del instalador${d.cuenta?.estado === 'ACTIVA' ? '' : ' (su cuenta aún no está activada: la verá al entrar con su email)'}. Revisa las estancias con el usuario.`
+            : 'NO se ha generado: dile al usuario qué falta (o qué equipo elegir) y, con lo que conteste, completar_memoria_rite.',
+    });
+
+    mcp.tool(
+        'memoria_rite',
+        'Hace una MEMORIA TÉCNICA RITE SUELTA (sin expediente CAE) en la app RITE (rite.brokergy.es) para un instalador, y la deja en los Documentos de su app. Úsala cuando el usuario diga «hazme la memoria RITE de …», «memoria RITE suelta para el instalador X». Con la referencia catastral, el Catastro pone la dirección, la superficie, las plantas y la zona. El equipo se busca en el catálogo (si hay varios, devuelve opciones_equipo: PREGUNTA cuál). Estancias: modo "rapido" (se estiman por la superficie) o "extendido" (las que diga el usuario por planta, con los elementos de radiador de cada una: la potencia sale de elementos × W por elemento). Si falta algo, queda en borrador y devuelve faltan. No gasta créditos del instalador y no envía nada. Solo Castilla-La Mancha (plantilla JCCM).',
+        {
+            instalador: z.object({
+                cif: z.string().optional(), email: z.string().optional(),
+                prescriptor_id: z.string().optional(), cuenta_id: z.string().optional(),
+            }).describe('Quién firma la memoria: el CIF o el email de la empresa instaladora (partner o cuenta de la app).'),
+            ref_catastral: z.string().describe('Referencia catastral de la VIVIENDA (20 caracteres).'),
+            titular: z.object({
+                nombre: z.string(), apellidos: z.string().optional(), nif: z.string().optional(),
+                sexo: z.enum(['H', 'M']).optional(), es_empresa: z.boolean().optional(), telefono: z.string().optional(),
+            }).describe('El titular de la instalación (el cliente del instalador).'),
+            equipo: z.object({
+                texto: z.string().optional().describe('Marca y modelo como lo diga el usuario, para buscar en el catálogo.'),
+                aerotermia_id: z.number().optional().describe('Id del catálogo, si ya se sabe (de opciones_equipo).'),
+                numero_serie: z.string().optional(), potencia: z.number().optional().describe('kW, solo si no está en el catálogo.'),
+                marca: z.string().optional(), modelo: z.string().optional(),
+            }).optional(),
+            tipo_emisor: z.enum(['radiadores_convencionales', 'suelo_radiante', 'splits', 'conductos']).optional(),
+            acs: z.boolean().optional().describe('¿La bomba de calor da también ACS?'),
+            fecha_pruebas: z.string().optional().describe('AAAA-MM-DD'),
+            estancias: z.object({
+                modo: z.enum(['rapido', 'extendido']).optional(),
+                w_elemento: z.number().optional().describe('W por elemento de radiador (por defecto 100).'),
+                plantas: z.array(z.object({
+                    planta: z.string().describe('"0" baja, "1" primera…'),
+                    locales: z.array(z.object({
+                        tipo: z.enum(['salon', 'cocina', 'dormitorio', 'bano', 'aseo', 'recibidor', 'distribuidor', 'despacho', 'vestidor', 'lavadero']),
+                        elementos: z.number().optional(), m2: z.number().optional(),
+                    })),
+                })).optional().describe('Solo si el usuario dice las estancias; si no, se proponen por superficie.'),
+            }).optional(),
+            generar: z.boolean().optional().describe('false = prepararla sin generar.'),
+        },
+        async (args) => {
+            const r = await backendFetch('POST', '/api/riteapp-admin/memorias', args);
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}`, code: r.data?.code, opciones: r.data?.opciones });
+            return ok(vistaMemoriaRite(r.data));
+        }
+    );
+
+    mcp.tool(
+        'completar_memoria_rite',
+        'Completa una memoria RITE suelta de la app RITE que quedó a medias (lo que devolvió faltan u opciones_equipo) y la vuelve a generar. También sirve para CAMBIARLA (otras estancias, otro equipo, otro nº de serie) y regenerarla: la versión anterior queda guardada.',
+        {
+            id: z.string().describe('El id de la memoria (lo devolvió memoria_rite).'),
+            titular: z.object({ nombre: z.string().optional(), apellidos: z.string().optional(), nif: z.string().optional(), sexo: z.enum(['H', 'M']).optional() }).optional(),
+            ref_catastral: z.string().optional(),
+            equipo: z.object({ texto: z.string().optional(), aerotermia_id: z.number().optional(), numero_serie: z.string().optional(), potencia: z.number().optional(), marca: z.string().optional(), modelo: z.string().optional() }).optional(),
+            numero_serie: z.string().optional(),
+            tipo_emisor: z.enum(['radiadores_convencionales', 'suelo_radiante', 'splits', 'conductos']).optional(),
+            fecha_pruebas: z.string().optional(),
+            estancias: z.object({
+                modo: z.enum(['rapido', 'extendido']).optional(), w_elemento: z.number().optional(),
+                plantas: z.array(z.object({ planta: z.string(), locales: z.array(z.object({ tipo: z.string(), elementos: z.number().optional(), m2: z.number().optional() })) })).optional(),
+            }).optional(),
+        },
+        async ({ id, ...cambios }) => {
+            const r = await backendFetch('PUT', `/api/riteapp-admin/memorias/${encodeURIComponent(id)}`, cambios);
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}`, code: r.data?.code });
+            return ok(vistaMemoriaRite(r.data));
+        }
+    );
+
+    mcp.tool(
+        'listar_memorias_rite',
+        'Lista las memorias RITE sueltas de la app RITE (rite.brokergy.es), lo más nuevo primero, con su instalador y estado. Filtra por número o titular con q.',
+        { q: z.string().optional() },
+        async ({ q }) => {
+            const r = await backendFetch('GET', `/api/riteapp-admin/memorias${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}` });
+            return ok({ ok: true, memorias: (r.data?.memorias || []).map(m => ({ id: m.id, numero: m.numero, titular: m.nombre, estado: m.estado, instalador: m.riteapp_cuentas?.empresa, municipio: m.municipio, generada_at: m.generada_at })) });
+        }
+    );
+
     return mcp;
 }
 

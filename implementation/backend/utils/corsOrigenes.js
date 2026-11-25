@@ -24,6 +24,11 @@ function origenesDeLaApp(env = process.env) {
     const origenCertapp = new URL(String(env.CERTAPP_URL || 'https://cee.brokergy.es').trim()).origin;
     if (!lista.includes(origenCertapp)) lista.push(origenCertapp);
   } catch { /* CERTAPP_URL mal escrita: la app de certificadores no podrá llamar a la API */ }
+  // La app RITE (rite.brokergy.es, regla 245): mismo criterio, su origen sale de RITEAPP_URL.
+  try {
+    const origenRiteapp = new URL(String(env.RITEAPP_URL || 'https://rite.brokergy.es').trim()).origin;
+    if (!lista.includes(origenRiteapp)) lista.push(origenRiteapp);
+  } catch { /* RITEAPP_URL mal escrita: la app RITE no podrá llamar a la API */ }
   return lista;
 }
 
