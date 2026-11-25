@@ -79,5 +79,27 @@ el banco `fx-demo` deja `preparar` y `alta?seco=1` y bloquea el alta de verdad (
   sombra fuera; proveedor, fecha, nº, total, base e IVA bien. Un PDF de texto: lo mismo. Un gasoil de
   septiembre del autónomo en seco: a «FML … / 2026 / 11. NOVIEMBRE» (el T3 ya cerrado), combustible, IVA
   deducible al 50 %.
-- Lo que NO se ha probado aún: la subida de verdad a Drive (`subirGasto`), que escribe en producción. El
-  primer gasto real lo da de alta Fran.
+- La subida de verdad a Drive, probada por Fran el 22/11/2026 desde el iPhone: el escritorio de BricoCentro
+  (54,95 €) quedó en «CAE … / 2026 / 11. NOVIEMBRE», LEÍDO, y contado en el T4 (IVA deducible 9,54 €).
+
+### Comidas y resguardos de tarjeta (2026-11-25)
+
+Fran subió un parking de IFEMA (12,40 €) y una comida en VIPS (20,95 €) y pidió revisarlos. Estaban bien
+contados, con dos cosas que mejorar en el lector
+([gastosDrive.js](implementation/backend/services/gastosDrive.js) y `fiscalGasto` de
+[contabilidadService.js](implementation/backend/services/contabilidadService.js)):
+
+**REGLA — una comida se nombra «desayuno», «comida» o «cena», nunca con sus platos.** El VIPS salió como
+«… - coca-cola, cachopollo, chips de patatas, cafe hielo.pdf». El prompt pide la comida por la hora del
+ticket (antes de las 12 desayuno, hasta las 18 comida, después cena) y `conceptoDe` lo asegura: si en
+RESTAURACION el concepto no es una de esas palabras, queda «comida».
+
+**REGLA — el resguardo del datáfono no es una factura.** Documento `RESGUARDO_TARJETA` («VENTA MASTERCARD»,
+autorización, importe; sin lo comprado ni el IVA): el total entero va como gasto, su IVA no se deduce
+(aunque trajera cuota), va a «03 TICKETS, TASAS Y OTROS» del paquete y avisa: «Es el resguardo de la
+tarjeta, no una factura: … Pide la factura a nombre de la sociedad y súbela en su lugar para deducir el
+IVA». Antes salía como ticket (SIMPLIFICADA) con «Sin desglose de IVA».
+
+Medido en seco con los dos PDF reales: el parking sale `RESGUARDO_TARJETA` con su aviso y el VIPS,
+«comida». Pruebas en `test_contabilidad.mjs`. Los dos ficheros ya subidos no se han tocado (el VIPS conserva
+su nombre largo; se cambia a mano en Drive si se quiere).

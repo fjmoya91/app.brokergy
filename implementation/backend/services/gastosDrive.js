@@ -379,7 +379,10 @@ const PAGINAS = 3;                      // una factura de gasto cabe en 1-2 hoja
 const DEADLINE_MS = Number(process.env.GASTOS_OCR_TIMEOUT_MS) || 45000;
 const RETRYABLE = new Set([429, 500, 503]);
 
-const DOCUMENTOS = ['FACTURA', 'SIMPLIFICADA', 'RECIBO', 'NO_ES_GASTO'];
+// RESGUARDO_TARJETA (25/11/2026): el papel del datáfono («VENTA MASTERCARD»,
+// autorización, importe) no es una factura: no lleva lo comprado ni el IVA, así
+// que su IVA no se deduce y el gasto avisa de pedir la factura (fiscalGasto).
+const DOCUMENTOS = ['FACTURA', 'SIMPLIFICADA', 'RESGUARDO_TARJETA', 'RECIBO', 'NO_ES_GASTO'];
 const NATURALEZAS = ['GENERAL', 'COMBUSTIBLE', 'VEHICULO', 'RESTAURACION', 'ALOJAMIENTO_VIAJE', 'SOFTWARE', 'TELEFONIA',
     'PROFESIONAL', 'TASA', 'SEGURO', 'CUOTA_ASOCIACION', 'EQUIPO', 'SUMINISTRO', 'CESION_AHORRO', 'OTRO'];
 
@@ -389,9 +392,9 @@ const PROMPT = `Documento de GASTO de una empresa española (factura recibida, t
 - destinatario_nombre / destinatario_nif: a quién va la factura («Cliente», «Facturar a»). Un ticket sin datos del cliente: null.
 - numero_factura: tal cual.
 - fecha_texto: la fecha de la factura COPIADA tal como está impresa. fecha: la misma en AAAA-MM-DD (en España el día va primero: 06/09/26 es 2026-09-06).
-- documento: FACTURA (completa, con NIF del destinatario) · SIMPLIFICADA (ticket o factura simplificada) · RECIBO (recibo de banco, de seguro, de cuota, sin ser factura) · NO_ES_GASTO (presupuesto, contrato, anexo, albarán sin importe).
+- documento: FACTURA (completa, con NIF del destinatario) · SIMPLIFICADA (ticket o factura simplificada: con el comercio, lo comprado o «factura simplificada») · RESGUARDO_TARJETA (solo el comprobante del datáfono o TPV: «VENTA», VISA/MASTERCARD, nº de autorización o de comercio, el importe, sin lo comprado ni el IVA) · RECIBO (recibo de banco, de seguro, de cuota, sin ser factura) · NO_ES_GASTO (presupuesto, contrato, anexo, albarán sin importe).
 - naturaleza: COMBUSTIBLE (gasóleo, gasolina) · VEHICULO (taller, ITV, neumáticos, impuesto de circulación) · RESTAURACION (comidas, cenas, bar) · ALOJAMIENTO_VIAJE (hotel, transporte) · SOFTWARE (suscripciones, nube, API) · TELEFONIA (móvil, internet) · PROFESIONAL (servicios de un profesional: certificador, asesoría, abogado) · TASA (tasa o impuesto público) · SEGURO · CUOTA_ASOCIACION (colegio, asociación) · EQUIPO (ordenadores, móviles, maquinaria, instalaciones) · SUMINISTRO (material de oficina, pequeño material) · CESION_AHORRO (anexo de cesión de ahorro energético o bono CAE) · GENERAL (otro gasto) · OTRO.
-- concepto: qué se compra, en 6-10 palabras.
+- concepto: qué se compra, en 6-10 palabras. En RESTAURACION, NUNCA la lista de platos ni de bebidas: solo «desayuno», «comida» o «cena» según la hora impresa (antes de las 12:00 desayuno, de 12:00 a 17:59 comida, desde las 18:00 cena; sin hora, «comida»).
 - moneda: código ISO (EUR, USD…).
 - Importes COPIADOS como texto tal como están impresos, en la moneda del documento: base_imponible (antes de IVA), iva_pct (el tipo; si hay varios, el principal), iva_importe (la cuota TOTAL de IVA), retencion_irpf (la retención, en positivo), suplidos (importes que la factura marca como suplidos, tasas adelantadas o no sujetos), total (lo que se paga). total_eur_indicado: si un documento en otra moneda indica su importe en euros, ese importe; si no, null.`;
 
@@ -451,6 +454,15 @@ const txt = (v, max = 200) => { const s = v == null ? '' : String(v).replace(/\s
 const nif = (v) => { const s = String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); return s || null; };
 const positivo = (v) => { const n = numeroEs(v); return n == null ? null : Math.abs(n); };
 
+// Una comida se nombra como a mano («… - VIPS - Nº - comida.pdf»), no con sus
+// platos: si el modelo copió la lista, se queda en «comida».
+const COMIDA = /\b(desayuno|almuerzo|comida|merienda|cena)\b/i;
+function conceptoDe(r) {
+    const c = txt(r.concepto, 90);
+    if (r.naturaleza !== 'RESTAURACION') return c;
+    return (c && c.match(COMIDA)?.[1].toLowerCase()) || 'comida';
+}
+
 /** Lo que devuelve el modelo → los datos que se guardan. Determinista y probado. */
 function normalizarLectura(r = {}) {
     const fecha = fechaDesdeLiteral(r.fecha_texto) || (/^\d{4}-\d{2}-\d{2}$/.test(String(r.fecha || '')) ? r.fecha : null);
@@ -465,7 +477,7 @@ function normalizarLectura(r = {}) {
         pais,
         documento: DOCUMENTOS.includes(r.documento) ? r.documento : null,
         naturaleza: NATURALEZAS.includes(r.naturaleza) ? r.naturaleza : 'OTRO',
-        concepto: txt(r.concepto, 90),
+        concepto: conceptoDe(r),
         base: numeroEs(r.base_imponible),
         iva_pct: positivo(r.iva_pct),
         cuota: numeroEs(r.iva_importe),

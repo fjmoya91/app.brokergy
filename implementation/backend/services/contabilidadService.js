@@ -281,7 +281,10 @@ function fiscalGasto(g, { nifSl = null, nifAutonomo = null, cambio = null } = {}
     let total = eur(d.total);
     if (base == null && total != null) {
         if (cuota != null) base = r2(total - cuota - suplidos + irpf);
-        else { base = r2(total - suplidos + irpf); cuota = 0; avisos.push('Sin desglose de IVA: el total se toma como base'); }
+        else {
+            base = r2(total - suplidos + irpf); cuota = 0;
+            if (d.documento !== 'RESGUARDO_TARJETA') avisos.push('Sin desglose de IVA: el total se toma como base');
+        }
     }
     if (cuota == null) cuota = 0;
     if (total == null && base != null) total = r2(base + cuota + suplidos - irpf);
@@ -320,6 +323,11 @@ function fiscalGasto(g, { nifSl = null, nifAutonomo = null, cambio = null } = {}
         case 'ISP': pct = 0; break;                                     // se autorrepercute y se deduce aparte
         default: pct = 100;
     }
+    // El resguardo del datáfono no es factura: su IVA no se deduce, cuente lo que cuente.
+    if (d.documento === 'RESGUARDO_TARJETA' && tipo !== 'NO_GASTO') {
+        pct = 0;
+        avisos.push(`Es el resguardo de la tarjeta, no una factura: va entero como gasto y sin IVA. Pide la factura a nombre ${autonomo ? 'del autónomo' : 'de la sociedad'} y súbela en su lugar para deducir el IVA`);
+    }
     if (tipo === 'RESTAURACION') avisos.push('Restauración: IVA no deducible (atenciones). Si fue un viaje de trabajo con factura a nombre propio, corrígelo');
     if (pct > 0 && extranjero && num(cuota) > 0) { pct = 0; avisos.push('IVA de otro país: no se deduce en el 303'); }
     const propio = autonomo ? nifAutonomo : nifSl;
@@ -351,7 +359,7 @@ function fiscalGasto(g, { nifSl = null, nifAutonomo = null, cambio = null } = {}
 
     const documento = d.documento || null;
     const destino = tipo === 'NO_GASTO' ? null
-        : (documento === 'SIMPLIFICADA' || documento === 'RECIBO' || ['TICKET_SIN_NIF', 'TASA', 'RECIBO', 'BONO_CAE', 'CUOTA_AUTONOMO', 'COLEGIO'].includes(tipo)) ? 'OTROS' : 'RECIBIDAS';
+        : (documento === 'SIMPLIFICADA' || documento === 'RESGUARDO_TARJETA' || documento === 'RECIBO' || ['TICKET_SIN_NIF', 'TASA', 'RECIBO', 'BONO_CAE', 'CUOTA_AUTONOMO', 'COLEGIO'].includes(tipo)) ? 'OTROS' : 'RECIBIDAS';
 
     return {
         tipo, tipo_texto: TIPO_TEXTO[tipo] || tipo, moneda,

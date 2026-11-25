@@ -124,6 +124,15 @@ t('ticket sin NIF y restauración: IVA no deducible', () => {
     assert.equal(r.iva_deducible, 0); assert.ok(r.avisos.some(a => /Restauraci/.test(a)));
 });
 
+t('el resguardo de la tarjeta (Parking IFEMA, 25/11/2026): entero como gasto, sin IVA, y avisa de pedir la factura', () => {
+    const f = fg('SL', { documento: 'RESGUARDO_TARJETA', naturaleza: 'VEHICULO', total: 12.4 });
+    assert.deepEqual([f.base, f.cuota, f.iva_deducible, f.deducible_pct, f.destino], [12.4, 0, 0, 0, 'OTROS']);
+    assert.ok(f.avisos.some(a => /resguardo de la tarjeta.*Pide la factura a nombre de la sociedad/.test(a)));
+    assert.ok(!f.avisos.some(a => /Sin desglose/.test(a)));
+    // Aunque traiga una cuota, un resguardo no deduce IVA.
+    assert.equal(fg('SL', { documento: 'RESGUARDO_TARJETA', naturaleza: 'GENERAL', base: 10, cuota: 2.1, total: 12.1, nif_destinatario: SL }).iva_deducible, 0);
+});
+
 t('software extranjero sin IVA: ISP; con NIF-IVA de la UE, además, al 349 (EU… no)', () => {
     const ms = fg('SL', { documento: 'FACTURA', naturaleza: 'SOFTWARE', nif: 'IE8256796U', base: 15.27, cuota: 0, total: 15.27 });
     assert.deepEqual([ms.tipo, ms.isp_base, ms.isp_cuota, ms.es_349, ms.nif_ue], ['ISP', 15.27, 3.21, true, 'IE']);
@@ -313,6 +322,16 @@ t('lo que devuelve el modelo se normaliza aquí (fecha española, números en te
     assert.deepEqual([d.fecha, d.proveedor, d.nif, d.pais, d.base, d.iva_pct, d.cuota, d.irpf, d.total, d.moneda, d.total_eur],
         ['2026-09-06', 'Supabase Pte. Ltd.', 'SG201234', null, 1234.56, 21, 259.26, 15, 1478.82, 'USD', 1270.1]);
     assert.equal(G.normalizarLectura({ naturaleza: 'INVENTADA' }).naturaleza, 'OTRO');
+});
+
+t('una comida se nombra «comida», «desayuno» o «cena», no con sus platos (VIPS, 25/11/2026)', () => {
+    const c = (concepto, naturaleza = 'RESTAURACION') => G.normalizarLectura({ naturaleza, concepto }).concepto;
+    assert.equal(c('Coca-Cola, CachoPollo, Chips de Patatas, Café Hielo'), 'comida');
+    assert.equal(c('Cena'), 'cena');
+    assert.equal(c('desayuno de trabajo'), 'desayuno');
+    assert.equal(c(null), 'comida');
+    assert.equal(c('Escritorio Kenia', 'EQUIPO'), 'Escritorio Kenia');
+    assert.equal(G.normalizarLectura({ documento: 'RESGUARDO_TARJETA', naturaleza: 'VEHICULO' }).documento, 'RESGUARDO_TARJETA');
 });
 
 // ── La cuota de autónomos y el colegio (del extracto del banco) ─────────────
