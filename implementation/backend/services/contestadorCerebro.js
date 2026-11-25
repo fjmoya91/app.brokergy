@@ -205,6 +205,7 @@ function construirPrompt(ch, obra, dossier, llegado, extra = {}) {
             : ch.rol === 'ambos' ? 'un instalador que además es titular de una obra' : 'un CLIENTE particular';
     const esInstalador = ch.rol === 'instalador' || ch.rol === 'ambos';
     const inst = bloqueInstalador(extra.instalador, { conEnlace: esInstalador && !!enlaces['{ENLACE_INSTALADOR}'] });
+    const fmAcs = esInstalador ? bloqueFmSinAcs(extra.fmSinAcs) : '';
     const pedidos = (extra.pedidos || []).filter(p => p?.texto);
     const hayGuardado = (llegado?.lineas || []).some(l => /YA GUARDADO/.test(l));
     // Se le contesta TARDE (lleva más de un día esperando): se reconoce en una frase y se
@@ -237,6 +238,10 @@ ${bloqueSinObra(sinObra)}` : ''}${inst ? `
 # LO DEL INSTALADOR EN ESTA OBRA (CIFO y RITE), mirado ahora en la app
 
 ${inst}
+` : ''}${fmAcs ? `
+# EL PRESUPUESTO SIN ACS (vía del factor multiplicador)
+
+${fmAcs}
 ` : ''}
 # LO QUE ACABA DE MANDAR POR WHATSAPP
 
@@ -246,7 +251,7 @@ Lo marcado «YA GUARDADO» estará en el expediente cuando le llegue tu respuest
 hemos recibido aunque no esté colocado (lo mira Fran). Nada de esto se le vuelve a pedir, aunque el dossier lo
 diera por pendiente.${extra.noLleva?.length ? `
 Ha dicho que su instalación NO LLEVA ${[...new Set(extra.noLleva.map(q => q.cosa))].join(' ni ')}: esa foto ya no está en el dossier y NO se
-le pide; acúsalo en una frase («Lo del depósito, apuntado.»).` : ''}
+le pide. No hace falta acusarlo: basta con no pedírsela (si encaja, natural: «Vale, entonces sin depósito»; nunca «Lo del depósito, apuntado»).` : ''}
 Lo marcado «NO es de ninguna obra» (publicidad, un cartel, un curso, un meme, un reenvío, una felicitación) NO se
 trata como de una obra: nunca le preguntes de qué obra es. Si no pide nada con ello → CALLAR (como mucho, si lo
 pide el tono, RESPONDER con una línea natural: «Gracias, lo he visto»). Si a Fran le interesa saberlo (un curso o
@@ -319,8 +324,8 @@ CÓMO ESCRIBE FRAN (manda sobre «CÓMO HABLAS» de arriba):
 - Lo que te CUENTA se contesta, no se pasa por encima: si dice que algo YA está colocado (la máquina, el
   depósito), pídele YA las fotos de eso, nunca «cuando esté colocado»; lo que aún no esté, «según vaya
   avanzando». Si dice que su instalación NO LLEVA algo (un depósito, una unidad), esa foto NO se le pide en
-  esta respuesta aunque el dossier la tenga pendiente: «Lo del depósito, apuntado.» y en "aviso" que Fran
-  confirme si hace falta. Pide solo lo demás que falte.
+  esta respuesta aunque el dossier la tenga pendiente (sin acusarlo con «Lo de X, apuntado», que suena a robot;
+  como mucho «Vale, entonces sin depósito») y en "aviso" que Fran confirme si hace falta. Pide solo lo demás que falte.
 - «Por tu parte no falta nada» SOLO si es verdad: el dossier no tiene nada pendiente suyo en la fase, todo lo
   que ha mandado está «YA GUARDADO» (nada «sin guardar» ni «NO se ha podido ver») y no dejas nada en "aviso"
   para que Fran lo mire o lo decida. Si algo de eso falla, acusa lo recibido y di lo que sí sabes, sin
@@ -358,6 +363,10 @@ LO QUE FRAN YA HA CORREGIDO (no lo repitas):
 - Si en una hibridación (caldera + aerotermia) habla de QUITAR la caldera, eso lo decide Fran: no le digas ni
   que sí ni que no; "aviso" para Fran.
 - Lo que antes se le dejó con «lo confirmo y te digo» y ahora lo sabes por el dossier, contéstalo ya.
+- Nada de frases que no dicen nada: «Lo de X, apuntado», «lo miro y te digo», «lo compruebo para que no haya
+  problemas», «si hiciera falta algo más, te lo digo». Lo que aún no sabes no se anuncia: va en "aviso".
+- Lo que le pedimos en la conversación hace un rato (la misma lista de fotos, el mismo enlace) no se le vuelve a
+  mandar salvo que pregunte por ello. Contesta solo lo nuevo; si no hay nada nuevo que decir, CALLAR.
 ${peticionNueva ? `
 ES UNA PETICIÓN NUEVA (manda sobre los casos de abajo): lo que ha mandado${queNuevas.length ? ` (${queNuevas.join(', ')})` : ''} es de una vivienda
 que aún no está en la app. Cuando nos pasan el Catastro, la foto de la caldera o de su placa, o un presupuesto, es
@@ -553,7 +562,8 @@ function sinSaludoInicial(texto) {
 // FRASE cuando lo recibido no se ha podido leer o guardar, o cuando el propio aviso a Fran dice que
 // hay algo por mirar o decidir (C803: el PDF del CIFO era demasiado grande para leerlo; C792: «decidir
 // si hace falta algo más»; 22/11/2026). Pura.
-const NO_FALTA_NADA = /\b(ya\s+)?no\s+(te\s+|os\s+|nos\s+)?(hace\s+)?falta\s+nada\b|\b(ya\s+)?(est[aá]|lo\s+tenemos|lo\s+tengo)\s+todo\b|\bcon\s+esto\s+(ya\s+)?est[aá]\s+(todo|completo)\b/i;
+// «no queda nada pendiente» / «no hay nada pendiente», también (seco del 24/11/2026, 26RES080_50).
+const NO_FALTA_NADA = /\b(ya\s+)?no\s+(te\s+|os\s+|nos\s+)?(hace\s+)?falta\s+nada\b|\bno\s+(te\s+|os\s+)?(queda|hay)\s+nada\s+(pendiente|m[aá]s|que\s+hacer)\b|\b(ya\s+)?(est[aá]|lo\s+tenemos|lo\s+tengo)\s+todo\b|\bcon\s+esto\s+(ya\s+)?est[aá]\s+(todo|completo)\b/i;
 function sinNoFaltaNada(texto) {
     const out = String(texto || '').split('\n').map((linea) => {
         const frases = linea.split(/(?<=[.!?])\s+/);
@@ -615,6 +625,102 @@ function sinLoQueNoLleva(pendientes, textoChat) {
     return { pendientes: quedan, quitados };
 }
 
+/**
+ * Las FRASES QUE NO DICEN NADA, fuera (24/11/2026, Fran: «que no parezca un robot»; repaso de los 92
+ * turnos del día): «Lo de la máquina de dentro, apuntado.» (C1025), «Lo compruebo para que no cause
+ * problemas al tramitar.» (C979), «Lo de los patios lo miro con el vídeo y, si hiciera falta alguna foto
+ * más, te lo digo» (C995), «Lo miramos junto con el anterior y, si faltara algo más, te lo digo» (C1002).
+ * Una persona contesta lo que sabe y calla lo que todavía no; lo que queda por mirar ya va en el aviso a
+ * Fran. Se quita la FRASE entera; si no queda nada, se deja como estaba. Pura.
+ */
+const FRASE_APUNTADO = /^(?:y\s+)?lo\s+de\b[^.!?]{0,80},\s*(?:apuntad[oa]|anotad[oa]|tomo\s+nota)\s*[.!]?$/i;
+const FRASE_PROMESA = /\b(?:lo|la|los|las)\s+(?:miro|miramos|compruebo|comprobamos|reviso|revisamos|vemos|veo|consulto|consultamos)\b(?![^.!?]*\b(?:pasamos|paso|enviamos|mando|mandamos)\s+(?:la|las)\s+propuestas?\b)[^.!?]*?(?:\bte\s+(?:lo\s+|la\s+)?(?:digo|confirmo|aviso|comento|decimos|confirmamos|avisamos)\b|\bpara\s+que\s+no\b|\bsi\s+(?:hiciera|hace|faltara|falta|hubiera|hay)\s+(?:falta\s+)?(?:algo|alguna|algún|otra|más)\b)[^.!?]*[.!]?/i;
+function sinFrasesVacias(texto) {
+    const t = String(texto || '');
+    const out = t.split('\n').map((linea) => {
+        const frases = linea.split(/(?<=[.!?])\s+/);
+        const quedan = frases.filter(f => !FRASE_APUNTADO.test(f.trim()) && !FRASE_PROMESA.test(f));
+        return quedan.length === frases.length ? linea : quedan.join(' ');
+    }).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    // «Gracias.» solo es una respuesta humana; vacío del todo, se deja como estaba.
+    return out.replace(/\s+/g, ' ').trim().length >= 4 ? out : t;
+}
+
+/**
+ * Lo que YA le hemos dicho en las últimas horas no se repite (24/11/2026: Lucía, 26RES060_308, cinco
+ * mensajes en tres horas pidiendo las mismas fotos; Aurelio, 26RES060_136, tres con la misma lista).
+ * Un párrafo con la lista de lo pendiente (*negritas*) o un enlace se QUITA si todas sus negritas y
+ * sus enlaces ya salieron en un mensaje NUESTRO reciente (`dichos`), salvo que en lo que acaba de
+ * escribir pregunte qué falta, dónde o cómo mandarlo (`pregunta`). Si no queda nada, `vacio`. Pura.
+ * @returns {{ mensaje: string, quitados: number, vacio: boolean }}
+ */
+const normDicho = (s) => sinTildes(s).replace(/[^a-z0-9ñ ]+/g, ' ').replace(/\s+/g, ' ').trim();
+function sinLoYaDicho(mensaje, dichos = [], { pregunta = false } = {}) {
+    const t = String(mensaje || '');
+    if (pregunta || !(dichos || []).length) return { mensaje: t, quitados: 0, vacio: false };
+    const antes = normDicho(dichos.join('\n'));
+    const urlsAntes = new Set(dichos.join('\n').match(/https?:\/\/\S+/g) || []);
+    let quitados = 0;
+    const parrafos = t.split(/\n{2,}/);
+    const quedan = parrafos.filter((p) => {
+        const negritas = [...p.matchAll(/\*([^*\n]{3,80})\*/g)].map(m => normDicho(m[1])).filter(Boolean);
+        const urls = p.match(/https?:\/\/\S+/g) || [];
+        if (!negritas.length && !urls.length) return true;
+        const repetido = negritas.every(n => antes.includes(n)) && urls.every(u => urlsAntes.has(u));
+        if (repetido) quitados += 1;
+        return !repetido;
+    });
+    const out = quedan.join('\n\n').replace(/:\s*$/, '.').trim();
+    return { mensaje: quitados ? out : t, quitados, vacio: quitados > 0 && out.replace(/\s+/g, ' ').length < 12 };
+}
+
+/** ¿En lo que acaba de escribir pregunta qué falta, dónde o cómo mandarlo? Entonces la lista se repite. Pura. */
+function preguntaPorLoPendiente(textos) {
+    return /\b(que\s+(me\s+|nos\s+|os\s+)?(falta|faltan|queda|quedan|necesit\w*|hace\s+falta)|donde\s+(las?\s+|los?\s+|lo\s+)?(mando|subo|envio|pongo|meto)|por\s+donde|el\s+enlace|el\s+link|como\s+(las?|los?|lo)\s+(mando|subo|envio)|falta\s+algo|falta\s+alguna)\b/i
+        .test(sinTildes((textos || []).join('\n')));
+}
+
+/**
+ * FM SIN ACS (24/11/2026, Fran): si el presupuesto del instalador va sin ACS, con la vía del factor
+ * multiplicador el bono sale bastante más poniendo un aerotermo o un acumulador, y se le dice. Las
+ * cifras salen de `datos_calculo.via_fm` (solo ADMIN: aquí solo se usan los TRES importes, nunca los MWh
+ * ni el €/MWh). v5 trae `sin_acs_eur` · `con_acs_eur` · `acs_mas_eur` · `acs_veces`; lo guardado en v4
+ * se cuenta igual (`acs === 'supuesto'`, elegible, aplica, FM > vigente). Pura.
+ * @returns {{ sin: number, con: number, mas: number, veces: number } | null}
+ */
+function fmSinAcs(fm) {
+    if (!fm || typeof fm !== 'object') return null;
+    const n = (v) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : null);
+    let sin = n(fm.sin_acs_eur), con = n(fm.con_acs_eur);
+    if (sin == null || con == null) {
+        if (!['supuesto', 'sin_scop'].includes(fm.acs) || !fm.elegible || fm.aplica === false) return null;
+        sin = n(fm.eur_vigente); con = n(fm.eur_fm);
+    }
+    if (sin == null || con == null || !(sin > 0) || !(con > sin)) return null;
+    const mas = n(fm.acs_mas_eur) ?? con - sin;
+    const veces = n(fm.acs_veces) ?? Math.round((con / sin) * 100) / 100;
+    return { sin, con, mas, veces };
+}
+
+/** 4592.4 → «4.592» (es-ES no agrupa las cifras de cuatro dígitos). Pura. */
+const euros = (v) => String(Math.round(Number(v) || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+
+/** El bloque del prompt con la frase de la propuesta (avisoFc.lineaFactorCorreccion). Pura. */
+function bloqueFmSinAcs(f) {
+    if (!f) return '';
+    const doble = f.veces >= 2 ? ', más del doble' : '';
+    return `ESTA OBRA, SEGÚN SU SIMULACIÓN, VA SIN ACS (el agua caliente no la da la aerotermia). Si el presupuesto que
+acaba de mandar SIGUE sin un aerotermo o un acumulador de ACS, díselo en un párrafo, con estas cifras y sin otras:
+«Ojo: el presupuesto de esta obra va sin ACS. Con la nueva normativa del factor multiplicador, la aerotermia tiene
+que dar también el agua caliente. Tal como viene, sin ACS: ${euros(f.sin)} €. Añadiendo un aerotermo o un acumulador
+de ACS: unos ${euros(f.con)} € (${euros(f.mas)} € más${doble}). Os recomendamos darle al cliente el presupuesto con el
+ACS incluido.»
+- Si el presupuesto nuevo YA lleva el ACS, no lo digas: en "aviso", que Fran rehaga la simulación con el ACS.
+- La cifra con ACS es orientativa (hay cupo y se pide desde el 15/01/2027): nunca la des por segura ni digas cómo
+  llegar al máximo. Si pregunta si vale un aerotermo aparte u otra cosa del ACS, eso es de Fran ("aviso").
+- Ni MWh, ni €/MWh, ni la palabra «vigente»: solo esos importes.`;
+}
+
 function ajustarRespuesta(r, llegado, extra = {}) {
     if (!r || r.accion !== 'RESPONDER' || !r.mensaje) return r;
     let mensaje = r.mensaje;
@@ -627,6 +733,15 @@ function ajustarRespuesta(r, llegado, extra = {}) {
     }
     if (extra.sinSaludo) { const s = sinSaludoInicial(mensaje); if (s !== mensaje) { mensaje = s; ajustes.push('saludo'); } }
     if (quedaAlgoPorMirar(llegado, r.aviso)) { const s = sinNoFaltaNada(mensaje); if (s !== mensaje) { mensaje = s; ajustes.push('no_falta_nada'); } }
+    { const s = sinFrasesVacias(mensaje); if (s !== mensaje) { mensaje = s; ajustes.push('frase_vacia'); } }
+    if ((extra.dichos || []).length) {
+        const d = sinLoYaDicho(mensaje, extra.dichos, { pregunta: preguntaPorLoPendiente(extra.suyos) });
+        if (d.vacio) {
+            // Todo lo que iba a decir ya se lo dijimos hace un rato: no se le vuelve a mandar.
+            return { ...r, accion: 'CALLAR', mensaje: '', motivo: `lo que iba a decirle ya se lo dijimos hace un rato${r.motivo ? ` (${r.motivo})` : ''}`, ajustes: [...ajustes, 'ya_dicho'] };
+        }
+        if (d.quitados) { mensaje = d.mensaje; ajustes.push('ya_dicho'); }
+    }
     return ajustes.length ? { ...r, mensaje, ajustes } : r;
 }
 
@@ -779,7 +894,7 @@ const POR_FRAN = new Set(['PRECIO', 'QUEJA', 'PERSONA', 'FIRMA', 'AJENO', 'SIN_D
  * SIN acuse: pregunta si es una persona o un programa, o pide una llamada y nada más. Pura.
  */
 function soloDeFran(primera) {
-    return primera?.para_fran === true && !String(primera?.acuse || '').trim();
+    return primera?.para_fran === true && !String(primera?.acuse || primera?.acuse_modelo || '').trim();
 }
 
 /**
@@ -818,13 +933,18 @@ function rematar(r, enlaces) {
     // inventados del 10/11/2026: «te paso con un compañero», «lo miro ahora mismo»); si los
     // trae, el de siempre.
     let acuse = accion === 'ESCALAR' ? limpiar(String(r?.acuse || '')) : '';
+    // El que escribió el modelo, aunque no se mande: `soloDeFran` lo usa para saber si lo dio por
+    // «solo de Fran» (persona o programa, llamada: sin acuse) o solo por no saber la respuesta.
+    const acuseModelo = acuse;
     if (/https?:\/\/|\{ENLACE_/i.test(acuse) || acuse.length > 160) acuse = '';
-    if (acuse && ACUSE_NO.test(acuse)) acuse = 'Lo miro y te digo.';
     const tema = limpiar(String(r?.tema || '')).replace(/[.\n]+$/g, '').replace(/\n/g, ' ').slice(0, 80);
-    // Un acuse vacío de contenido («Recibido, lo miro y te digo») no contesta nada (Fran, 16/11/2026):
-    // si hay tema, se dice de qué («Lo de <tema> lo miro y te digo.»). Sin acuse (persona o
-    // programa, llamada) se queda sin acuse.
-    if (acuse && !acuseConcreto(acuse) && tema) acuse = `Lo de ${tema} lo miro y te digo.`.replace(/^Lo de el /, 'Lo del ');
+    // Un acuse que no dice nada NO se manda (24/11/2026, Fran: «que no parezca un robot»; repaso de
+    // C937, C946, C984, C993 y C1010). Ni el «Lo miro y te digo» de siempre ni el «Lo de <tema> lo
+    // miro y te digo» que lo sustituyó el 16/11: una persona que todavía no sabe la respuesta no
+    // escribe para decir que no la sabe; contesta cuando la tiene (Fran, con «C123»). Se queda
+    // el acuse que dice ALGO de lo suyo («Lo de la memoria no hace falta que la pagues: la preparo
+    // yo»). El que lleva un compañero, un asistente, un plazo o «a mano» tampoco sale.
+    if (acuse && (ACUSE_NO.test(acuse) || !acuseConcreto(acuse) || FRASE_PROMESA.test(acuse))) acuse = '';
     // Lo que le diría si Fran dice que sí (el investigador, cuando lo pasa a Fran). Sin marcas:
     // «C12» lo manda tal cual, así que va con los enlaces ya puestos y el mismo remate.
     const borrador = accion === 'ESCALAR' && r?.borrador
@@ -833,6 +953,7 @@ function rematar(r, enlaces) {
         accion: accion === 'RESPONDER' && !mensaje ? 'ESCALAR' : accion,
         mensaje,
         acuse,
+        ...(acuseModelo && acuseModelo !== acuse ? { acuse_modelo: acuseModelo } : {}),
         tema,
         // Por qué se queda en Fran (lo dice el investigador, de una lista cerrada); si no, ''.
         por: accion === 'ESCALAR' && POR_FRAN.has(String(r?.por || '').trim().toUpperCase()) ? String(r.por).trim().toUpperCase() : '',
@@ -995,4 +1116,5 @@ module.exports = {
     bloqueInstalador, bloqueSinObra, bloqueSeguimiento, rematar, limpiar, SCHEMA, VIDEO_INSTALADORES,
     saludoDeLaHora, sinColetillaOtraObra, decisionTrasInvestigar, soloDeFran, POR_FRAN,
     sinSaludoInicial, sinNoFaltaNada, quedaAlgoPorMirar, ajustarRespuesta, sinYo, sinLoReviso, loQueNoLleva, sinLoQueNoLleva,
+    sinFrasesVacias, sinLoYaDicho, preguntaPorLoPendiente, fmSinAcs, bloqueFmSinAcs,
 };

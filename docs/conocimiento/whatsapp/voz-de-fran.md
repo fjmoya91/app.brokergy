@@ -148,3 +148,43 @@ eso».
    pregunta para qué ni de qué obra es; se contesta lo de Fran y se da de alta.
 2. **«Buenos días» o «Buenas tardes» según la hora, con el nombre con que le llama Fran.**
 3. **Lo recibido no se recita.** «Lo vamos a revisar» ya dice que ha llegado.
+
+---
+
+## 5. El repaso de un día entero: lo que «no me está gustando» (24/11/2026)
+
+Fran, tras un día con el contestador en real: «muchas de las contestaciones que se están dando no me están
+gustando». Se repasaron los 92 turnos (C937–C1028). Unos once estaban bien: contestan lo que se preguntó
+en una o dos líneas, piden lo que falta de una vez y no recitan nada (C941, C945, C957, C962, C1019). Lo
+que no le gustó, con el caso:
+
+1. **Contestar a cada mensaje como si fuera el primero.** Lucía (26RES060_308) mandaba fotos por partes y
+   recibió cinco respuestas en tres horas (C975, C978, C983, C991, C998), cada una con la lista de lo que
+   faltaba otra vez y alguna que contradecía a la anterior. Aurelio (26RES060_136), tres con la misma lista.
+   Una persona espera a que termine, contesta una vez y no repite lo que dijo hace una hora.
+2. **«Lo de la máquina de dentro, apuntado.»** (C1025). Es un acuse de formulario. Salía del ejemplo que el
+   propio prompt ponía («Lo del depósito, apuntado.»), así que el error era nuestro.
+3. **Prometer que mirará.** «Lo compruebo para que no cause problemas al tramitar» (C979), «lo de los patios
+   lo miro con el vídeo y, si hiciera falta alguna foto más, te lo digo» (C995), «lo miro y te digo»
+   (C1010). Si todavía no lo sabes, no lo anuncies; cuando lo sepas, lo dices.
+4. **El acuse cuando lo tiene que contestar Fran.** Familia numerosa (C937), pagar la factura en plazos
+   (C946), el MOVES III (C984), una pregunta comercial (C993): el cliente recibía «Lo de X lo miro y te
+   digo» y luego nada más. Mejor que llegue la respuesta, con el «C12» de Fran, que el aviso de que habrá
+   respuesta.
+5. **Acusar un papel sin guardarlo.** Un RITE (C956), dos CEE (C983, C991), un presupuesto (C986) y un
+   justificante de la cuenta (C1025) se acusaban «recibido» y se quedaban en el chat. Si dices que lo
+   tienes, tiene que estar en el expediente.
+6. **«Lo vamos a revisar y te pasamos la propuesta» y luego nada.** La respuesta es la buena (caso 4), pero
+   las altas de ese día siguen sin propuesta, y un instalador que pidió tres solo tiene una registrada. Lo
+   que se promete tiene que pasar.
+
+**Lecciones para el agente** (en el código desde el 24/11/2026: ver
+[el-contestador-contesta-como-fran.md](el-contestador-contesta-como-fran.md), «Que no parezca un robot»):
+1. **Con la conversación viva, se espera más** (30 min si le escribimos hace menos de una hora) y se contesta
+   una vez a todo.
+2. **Lo que ya se le dijo hace poco no se repite**, salvo que pregunte qué falta o dónde mandarlo. Si no hay
+   nada nuevo que decir, no se escribe.
+3. **Fuera las frases que no dicen nada** («apuntado», «lo miro y te digo», «si hiciera falta algo, te lo
+   digo»), también como acuse cuando se queda en Fran.
+4. **Lo que llega se guarda antes de decir que se tiene**: CEE, presupuesto y justificante de titularidad
+   ya entran solos en su apartado; un RITE, solo si es un PDF que dice de qué obra es.

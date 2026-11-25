@@ -17,8 +17,17 @@
 //   · FOTO_OBRA / PLACA → el apartado que propone el REPARTIDOR de siempre, solo con confianza
 //                        ALTA en la obra y en el apartado; en un apartado de UNA foto, solo si
 //                        está vacío (nunca se pisa lo que hay).
-// Lo demás (DNI, CIFO o anexos firmados, Memoria RITE, CEE, presupuesto, justificante de pago,
-// otros) NO se guarda solo: se le dice a Fran qué es y que lo mire.
+//   · CEE (el que ya tenía la casa) → «El certificado energético de tu casa» (DOC_CEE_EXISTENTE)
+//   · PRESUPUESTO                   → «El presupuesto del instalador» (DOC_PRESUPUESTO)
+//                        los dos son apartados de VARIOS ficheros: guardar no pisa nada. Que ese CEE
+//                        valga o que el presupuesto cambie la propuesta lo sigue decidiendo Fran
+//                        (va en el aviso), pero el papel ya está donde lo buscará (24/11/2026: C983,
+//                        C991 y C986 se acusaban «recibido» y se quedaban en el chat).
+//   · JUSTIFICANTE_TITULARIDAD → `justificanteCliente.subirDesdeCliente`, el MISMO camino que la
+//                        ficha del cliente (Drive + lectura + comparación con la ficha), y solo si
+//                        el cliente aún no tiene ninguno (C1025, 24/11/2026).
+// Lo demás (DNI, CIFO o anexos firmados, Memoria RITE, justificante de pago, otros) NO se guarda
+// solo: se le dice a Fran qué es y que lo mire.
 //
 // REGLA — en dos tiempos: `planear` NO escribe nada (lo usa `decidir`, también en seco) y
 // `ejecutar` guarda. En MODO COPIA no se guarda hasta el «manda C12» de Fran; en real, justo
@@ -35,6 +44,9 @@ const MAX_POR_CHAT = 12;
 const FRONTEND = () => String(process.env.FRONTEND_URL || 'https://app.brokergy.es').replace(/\/+$/, '');
 const CARPETA_RITE = '7. LEGALIZACION RITE';
 const FOTOS = new Set(['FOTO_OBRA', 'FOTO_PLACA']);
+// Documentos que van a un apartado de VARIOS ficheros del gestor (nunca pisan nada).
+const A_APARTADO = { CEE: 'DOC_CEE_EXISTENTE', PRESUPUESTO: 'DOC_PRESUPUESTO' };
+const SLOT_JUSTIFICANTE = 'JUSTIFICANTE_TITULARIDAD';
 const QUE_ES = {
     DNI: 'el DNI', JUSTIFICANTE_TITULARIDAD: 'el justificante de titularidad', JUSTIFICANTE_PAGO: 'un justificante de pago',
     PRESUPUESTO: 'un presupuesto', MEMORIA_RITE: 'la Memoria RITE', CIFO_O_ANEXO_FIRMADO: 'un documento firmado (CIFO o anexo)',
@@ -195,16 +207,18 @@ async function planear({ c, adjuntos }) {
             if (!d.exp) { no('el RITE solo se guarda en un expediente'); continue; }
             const { estadoInstalador } = await instaladorPendientes();
             if (estadoInstalador(d.exp.documentacion || {}).rite.certificadoRecibido) { no('el expediente ya tiene un certificado RITE: no lo piso'); continue; }
-            if (!esPdf(it.mimetype) && !esImagen(it.mimetype)) { no(`un RITE en ${it.mimetype || 'formato desconocido'}`); continue; }
+            // Solo en PDF: una foto del RITE no se puede comprobar (24/11/2026).
+            if (!esPdf(it.mimetype)) { no(`un RITE en ${it.mimetype || 'formato desconocido'}: solo guardo solo el PDF`); continue; }
             const comprobar = comprobadorPdf();
             if (!comprobar) { no(SIN_COMPROBADOR); continue; }
-            if (esPdf(it.mimetype)) {
-                let r;
-                try { r = await comprobar({ buffer: buf, mimetype: it.mimetype, exp: d.exp, documento: 'certificado RITE' }); }
-                catch (e) { no(`no he podido comprobar que el PDF sea de esta obra (${e.message})`); continue; }
-                if (!r.ok) { no(r.error); continue; }
-                if (r.aviso) it.aviso = r.aviso;
-            }
+            let r;
+            try { r = await comprobar({ buffer: buf, mimetype: it.mimetype, exp: d.exp, documento: 'certificado RITE' }); }
+            catch (e) { no(`no he podido comprobar que el PDF sea de esta obra (${e.message})`); continue; }
+            if (!r.ok) { no(r.error); continue; }
+            // Solo, únicamente si TRAE el nº o la referencia catastral de la obra (la subida por el
+            // enlace deja pasar lo ilegible con aviso; aquí no hay nadie mirando).
+            if (!r.coincide) { no(`no he podido comprobar que el RITE sea de esta obra${r.aviso ? ` (${r.aviso})` : ''}`); continue; }
+            if (r.aviso) it.aviso = r.aviso;
             Object.assign(it, { guardar: true, slot: 'DOC_RITE', destino: 'Certificado RITE' });
         } else if (FOTOS.has(f.tipo)) {
             if (!f.slot) { no('el repartidor no sabe en qué apartado va'); continue; }
@@ -218,6 +232,20 @@ async function planear({ c, adjuntos }) {
                 unicoOcupado.add(`${obra.codigo}:${f.slot}`);
             }
             Object.assign(it, { guardar: true, slot: f.slot, destino: label });
+        } else if (A_APARTADO[f.tipo]) {
+            const slotDef = d.checklist.find(s => s.key === A_APARTADO[f.tipo]);
+            if (!slotDef) { no(`${QUE_ES[f.tipo]}: esa obra no tiene su apartado`); continue; }
+            if (!esPdf(it.mimetype) && !esImagen(it.mimetype)) { no(`${QUE_ES[f.tipo]} en ${it.mimetype || 'formato desconocido'}`); continue; }
+            Object.assign(it, { guardar: true, slot: slotDef.key, destino: slotDef.labelCliente || slotDef.label });
+        } else if (f.tipo === 'JUSTIFICANTE_TITULARIDAD') {
+            if (!obra.cliente_id) { no('el justificante de titularidad: no sé de qué cliente es'); continue; }
+            if (!esPdf(it.mimetype) && !esImagen(it.mimetype)) { no(`un justificante en ${it.mimetype || 'formato desconocido'}`); continue; }
+            let est;
+            try { est = await require('./justificanteCliente').estadoJustificante(obra.cliente_id, { expedienteId: obra.expediente_id || null }); }
+            catch (e) { no(`no he podido mirar si ya hay justificante (${e.message})`); continue; }
+            if (est?.link) { no('ya tiene un justificante de titularidad: no lo piso (puede ser otra cuenta)'); continue; }
+            if (!est?.destino) { no('el cliente aún no tiene carpeta donde guardar el justificante'); continue; }
+            Object.assign(it, { guardar: true, slot: SLOT_JUSTIFICANTE, destino: 'Justificante de titularidad de la cuenta', cliente_id: obra.cliente_id });
         } else {
             no(`${QUE_ES[f.tipo] || 'un documento'}: no lo guardo solo`);
             continue;
@@ -275,6 +303,7 @@ async function guardarRite(it, fichero, { subidoPor = 'instalador', avisar = fal
     if (!comprobar) throw new Error(SIN_COMPROBADOR);
     const r = await comprobar({ buffer: pdf, mimetype: 'application/pdf', exp, documento: 'certificado RITE' });
     if (!r.ok) throw new Error(r.error);
+    if (!r.coincide) throw new Error('no he podido comprobar que el RITE sea de esta obra');
     const drive = require('./driveService');
     const { carpetaDeExpediente } = require('./expedienteFolderSync');
     const raiz = await carpetaDeExpediente(exp);
@@ -305,6 +334,15 @@ async function guardarRite(it, fichero, { subidoPor = 'instalador', avisar = fal
     return { link: saved.link, driveId: saved.id, nombre, pruebas: lectura?.fechas?.pruebas || null, aviso: r.aviso || null };
 }
 
+async function guardarJustificante(it, fichero) {
+    const r = await require('./justificanteCliente').subirDesdeCliente(it.cliente_id, {
+        base64: fichero.buffer.toString('base64'), mimeType: fichero.mimetype || 'application/pdf',
+        expedienteId: it.expediente_id || null, usuario: 'contestador',
+    });
+    const avisos = r?.comprobacion?.avisos || [];
+    return { link: r.link, driveId: null, nombre: 'justificante de titularidad bancaria.pdf', aviso: avisos.length ? avisos.join('; ').slice(0, 300) : null };
+}
+
 /**
  * Guarda lo planeado. Nunca lanza: cada item vuelve con `hecho` o `error`.
  * @param {object[]} items       los de `planear` (o los guardados en la fila, para el «manda C12»)
@@ -329,7 +367,9 @@ async function ejecutar(items, ficheros = new Map(), { fuente = null, rol = 'cli
                 if (!fuente) throw new Error('no tengo el fichero para guardarlo');
                 fichero = await fuente.descargarAdjunto(it.msg);
             }
-            const r = it.slot === 'DOC_RITE' ? await guardarRite(it, fichero, { subidoPor, avisar }) : await guardarEnApartado(it, fichero, { subidoPor, avisar });
+            const r = it.slot === 'DOC_RITE' ? await guardarRite(it, fichero, { subidoPor, avisar })
+                : it.slot === SLOT_JUSTIFICANTE ? await guardarJustificante(it, fichero)
+                    : await guardarEnApartado(it, fichero, { subidoPor, avisar });
             delete it.error;   // un reintento («manda C12» otra vez) que ahora sí entra
             Object.assign(it, { hecho: true, link: r.link, driveId: r.driveId, archivo: r.nombre, ...(r.pruebas ? { rite_pruebas: r.pruebas } : {}), ...(r.aviso ? { aviso: r.aviso } : {}) });
             if (!colocadas.has(it.oportunidad_id)) colocadas.set(it.oportunidad_id, []);
@@ -350,8 +390,8 @@ async function ejecutar(items, ficheros = new Map(), { fuente = null, rol = 'cli
 }
 
 /** Lo planeado, sin buffers, para guardarlo en la fila (`detalle.guardar`). */
-const paraFila = (items) => (items || []).map(({ msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, hecho, error, ya_estaba, aviso, rite_pruebas }) => ({
-    msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id,
+const paraFila = (items) => (items || []).map(({ msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, cliente_id, hecho, error, ya_estaba, aviso, rite_pruebas }) => ({
+    msg, t, obra, tipo, que, slot, destino, mimetype, nombre, guardar, motivo, oportunidad_id, expediente_id, ...(cliente_id ? { cliente_id } : {}),
     ...(hecho ? { hecho } : {}), ...(error ? { error } : {}), ...(ya_estaba ? { ya_estaba } : {}), ...(aviso ? { aviso } : {}), ...(rite_pruebas ? { rite_pruebas } : {}),
 }));
 

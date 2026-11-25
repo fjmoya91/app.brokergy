@@ -54,6 +54,13 @@ const Docs = require('./contestadorDocumentos');
 const num = (v, d) => { const n = Number(v); return Number.isFinite(n) && n >= 0 && v !== '' && v != null ? n : d; };
 const CFG = {
     silencioMin: num(process.env.CONTESTADOR_SILENCIO_MIN, 15),
+    // Con la conversación VIVA (le escribimos hace menos de `vivoMin`), se espera más: quien está
+    // contestando a lo nuestro suele mandar varias cosas seguidas, y una persona no responde a cada
+    // una (24/11/2026: Lucía, 26RES060_308, cinco mensajes nuestros en tres horas).
+    silencioVivoMin: num(process.env.CONTESTADOR_SILENCIO_VIVO_MIN, 30),
+    vivoMin: num(process.env.CONTESTADOR_VIVO_MIN, 60),
+    // Lo que le dijimos en estas horas no se le repite (contestadorCerebro.sinLoYaDicho).
+    dichoHoras: num(process.env.CONTESTADOR_DICHO_HORAS, 6),
     // Con una persona de la casa en el chat: lo que se le deja para contestar ella antes de relevarla.
     relevoMin: num(process.env.CONTESTADOR_RELEVO_MIN, 30),
     // Eran 40 al día y 3 por chat: del 18 al 20/11/2026 el tope del día se comió 20 respuestas ya
@@ -281,7 +288,8 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
     if (dejarleAElla(pausa, pendientes[0].t, ahoraSeg)) {
         return { ...base, estado: 'ESPERAR', motivo: `lo lleva una persona de la casa: le dejo ${CFG.relevoMin} min para contestar` };
     }
-    if (enVivo && ahoraSeg - ultimo.t < CFG.silencioMin * 60 - 30) return { ...base, estado: 'ESPERAR', motivo: 'sigue escribiendo' };
+    const silencio = silencioPara(ms, ahoraSeg);
+    if (enVivo && ahoraSeg - ultimo.t < silencio * 60 - 30) return { ...base, estado: 'ESPERAR', motivo: silencio > CFG.silencioMin ? 'sigue escribiendo (le contestamos hace poco: espero más)' : 'sigue escribiendo' };
 
     let personas = u.porTel.get(tel9) || [];
     let sinObra = null;
@@ -343,12 +351,26 @@ async function decidir({ chatId = null, telefono = null, enVivo = false, fuente 
             try { extra.pedidos = await Docs.pedidosAnteriores(tel9, obra, { unica: (c.obras || []).length === 1, hasta: ultimoT ? new Date(ultimoT * 1000) : null }); }
             catch (e) { /* sin lo de antes también se contesta */ }
         }
+        // Un PRESUPUESTO del instalador de una obra cuya simulación va SIN ACS: se le dice cuánto más
+        // saldría con él (24/11/2026, Fran). Solo el subcampo `via_fm` (regla 22), solo si ha llegado un
+        // presupuesto de ESA obra y solo a un instalador; sin él también se contesta.
+        if (obra?.oportunidad_id && (rol === 'instalador' || rol === 'ambos')
+            && (plan?.items || []).some(x => x.tipo === 'PRESUPUESTO' && x.obra === obra.codigo)) {
+            try {
+                const { data, error } = await supabase.from('oportunidades').select('via_fm:datos_calculo->via_fm').eq('id', obra.oportunidad_id).maybeSingle();
+                if (error) throw error;
+                extra.fmSinAcs = cerebro.fmSinAcs(data?.via_fm);
+            } catch (e) { log(`FM sin ACS de ${obra.codigo}: ${e.message}`); }
+        }
         extra.tardeHoras = (Date.now() / 1000 - pendientes[0].t) / 3600;
         if (sinObra) extra.sinObra = sinObra.tipo;
         // «Buenos días, Fran.»: el nombre con el que le saludamos nosotros, y si no, la agenda.
         extra.nombrePila = nombrePilaDe(ms) || nombreDeAgenda(conv.nombre, personas);
         extra.agenda = conv.nombre || null;
         extra.sinSaludo = yaLeEscribimos(ms);
+        // Lo que ya le dijimos hace poco no se repite; salvo que pregunte por ello (lo suyo).
+        extra.dichos = loQueLeDijimos(ms);
+        extra.suyos = pendientes.filter(m => m.tipo === 'chat' && m.texto).map(m => m.texto);
         // La MEMORIA del chat (wa_memoria, 22/11/2026): una fila, por su clave. Sin ella también se contesta.
         const mem = await Memoria.leer(tel9);
         if (mem.error) log(`memoria de ${tel9}: ${mem.error}`);
@@ -460,6 +482,19 @@ const NO_ES_NOMBRE = new Set(['buenos', 'buenas', 'muy', 'te', 'ya', 'perfecto',
  * El nombre de pila con el que le saludamos NOSOTROS en este chat («Hola Fran! Necesito…» → 'Fran'),
  * lo más reciente primero. Así le llama Fran; el de la ficha suele ser el de la empresa. Puro.
  */
+/** Los textos que le hemos escrito NOSOTROS en las últimas `horas` (contestadorCerebro.sinLoYaDicho). Pura. */
+function loQueLeDijimos(ms, { ahoraSeg = Date.now() / 1000, horas = CFG.dichoHoras } = {}) {
+    const desde = ahoraSeg - horas * 3600;
+    return (ms || []).filter(m => m.de_mi && m.texto && Number(m.t) >= desde && Number(m.t) <= ahoraSeg).map(m => String(m.texto));
+}
+
+/** Minutos de silencio que se le dejan: más si le escribimos hace poco (conversación viva). Pura. */
+function silencioPara(ms, ahoraSeg = Date.now() / 1000) {
+    const desde = ahoraSeg - CFG.vivoMin * 60;
+    const vivo = (ms || []).some(m => m.de_mi && Number(m.t) >= desde && Number(m.t) <= ahoraSeg);
+    return vivo ? Math.max(CFG.silencioMin, CFG.silencioVivoMin) : CFG.silencioMin;
+}
+
 /** ¿Le hemos escrito NOSOTROS en las últimas `horas`? Entonces la respuesta va sin saludo. Pura. */
 function yaLeEscribimos(ms, { ahoraSeg = Date.now() / 1000, horas = CFG.saludoHoras } = {}) {
     const desde = ahoraSeg - horas * 3600;
@@ -1133,5 +1168,5 @@ module.exports = {
     mapaSinObra, clasificarSinObra,
     // para las pruebas
     textoParaFran, lineasGuardar, escaladoAbierto, plazoDesde, esDeLaCasa, resumenPendientes, dejarleAElla, modoDeFila, chatHaCambiado, trasRedactar,
-    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid, yaLeEscribimos,
+    nombrePilaDe, nombreDeAgenda, peticionNueva, textoAlta, desdeMadrid, yaLeEscribimos, loQueLeDijimos, silencioPara,
 };

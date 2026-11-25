@@ -46,7 +46,9 @@ const ENLACES = { '{ENLACE_SUBIR}': URL_SUBIR };
 {
     const r = cerebro.rematar({ accion: 'ESCALAR', parrafos: ['Te cuento: cobras 3.000 €'], acuse: 'Lo miro y te digo', motivo: 'pregunta cuánto cobra' }, ENLACES);
     ok(r.mensaje === '', 'al escalar no sale el texto del modelo');
-    ok(r.acuse === 'Lo miro y te digo', 'al escalar sí sale el acuse corto');
+    ok(r.acuse === '' && r.acuse_modelo === 'Lo miro y te digo', 'al escalar, «lo miro y te digo» NO sale (24/11/2026), pero se recuerda que lo escribió');
+    const c2 = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Lo de la memoria no hace falta que la pagues: la preparo yo.', motivo: 'm' }, ENLACES);
+    ok(c2.acuse === 'Lo de la memoria no hace falta que la pagues: la preparo yo.' && !c2.acuse_modelo, 'un acuse que dice algo de lo suyo sí sale');
 }
 {
     const largo = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'x'.repeat(200), motivo: 'm' }, ENLACES);
@@ -56,9 +58,9 @@ const ENLACES = { '{ENLACE_SUBIR}': URL_SUBIR };
     const comp = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Eso lo tengo que mirar con un compañero, te digo en cuanto lo sepa.', motivo: 'm' }, ENLACES);
     const bot = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Soy el asistente automático de BROKERGY, te paso con un compañero.', motivo: 'm' }, ENLACES);
     const ya = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Entiendo la espera, Ana. Lo miro ahora mismo y te cuento.', motivo: 'm' }, ENLACES);
-    ok([comp, bot, ya].every(x => x.acuse === 'Lo miro y te digo.'), 'un acuse con «compañero», «asistente» o un plazo pasa al de siempre');
-    const bien = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Déjame que lo mire y te cuento, Ana.', motivo: 'm' }, ENLACES);
-    ok(bien.acuse === 'Déjame que lo mire y te cuento, Ana.', 'un acuse bueno se respeta');
+    ok([comp, bot, ya].every(x => x.acuse === ''), 'un acuse con «compañero», «asistente» o un plazo no sale');
+    const vacio = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Déjame que lo mire y te cuento, Ana.', motivo: 'm' }, ENLACES);
+    ok(vacio.acuse === '', '«déjame que lo mire y te cuento» no dice nada: no sale');
 }
 {
     const r = cerebro.rematar({ accion: 'CALLAR', parrafos: ['De nada'], motivo: 'cortesía' }, ENLACES);
@@ -269,15 +271,18 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
     ok(cerebro.acuseConcreto('Lo de la factura a nombre de los dos lo miro y te digo.')
         && cerebro.acuseConcreto('Recibidas las fotos de la caldera; lo del bono te lo confirmo con la simulación.'), 'acuse concreto: nombra lo suyo');
     const v = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Recibido, lo miro y te digo', tema: 'el bono de la calle San Miguel.', motivo: 'm' }, ENLACES);
-    ok(v.acuse === 'Lo del bono de la calle San Miguel lo miro y te digo.', 'acuse vacío + tema → «Lo de <tema> lo miro y te digo.»');
+    ok(v.acuse === '', 'acuse vacío, aunque haya tema: no sale (ya no se fabrica «Lo de <tema> lo miro y te digo»)');
+    const prom = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Lo de la factura a nombre de los dos lo miro y te digo.', motivo: 'm' }, ENLACES);
+    ok(prom.acuse === '', '«Lo de X lo miro y te digo» es una promesa vacía: no sale');
     const c = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: 'Lo de la memoria no hace falta que la pagues: la preparo yo.', tema: 'la memoria RITE', motivo: 'm' }, ENLACES);
     ok(c.acuse === 'Lo de la memoria no hace falta que la pagues: la preparo yo.', 'un acuse concreto se respeta');
     // 26RES093_14, 18/11/2026: recitaba lo recibido y decía «a mano».
     const manoAcuse = 'Las dos facturas en Word y tus audios sobre el concepto y la calle Niños los reviso yo a mano y te digo si están bien.';
     const mano = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: manoAcuse, tema: 'las facturas de Alberto', motivo: 'm' }, ENLACES);
     const manoSinTema = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: manoAcuse, motivo: 'm' }, ENLACES);
-    ok(mano.acuse === 'Lo de las facturas de Alberto lo miro y te digo.' && manoSinTema.acuse === 'Lo miro y te digo.',
-        'un acuse con «a mano» pasa a «Lo de <tema> lo miro y te digo.» (o al de siempre sin tema)');
+    ok(mano.acuse === '' && manoSinTema.acuse === '', 'un acuse con «a mano» no sale');
+    // Lo dio por suyo sin ser «solo de Fran»: que el acuse no salga no lo convierte en «solo de Fran».
+    ok(!cerebro.soloDeFran({ ...mano, para_fran: true }) && cerebro.soloDeFran({ para_fran: true, acuse: '' }), 'soloDeFran mira el acuse que ESCRIBIÓ el modelo, no el que sale');
     // El borrador para Fran lleva los enlaces puestos; el aviso solo con RESPONDER.
     const b = cerebro.rematar({ accion: 'ESCALAR', parrafos: [], acuse: '', borrador: 'Hola Ana, súbela aquí:\n{ENLACE_SUBIR}\n\nUn saludo', aviso: 'x', fuentes: ['oportunidad OP1', ''], motivo: 'm' }, ENLACES);
     ok(b.borrador.includes(URL_SUBIR) && !/saludo/i.test(b.borrador) && b.aviso === '' && b.fuentes.length === 1, 'ESCALAR: borrador con su enlace y rematado; sin aviso');
@@ -607,6 +612,8 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         { key: 'DOC_FACTURAS', label: 'Facturas', labelCliente: 'Facturas de la instalación', multiple: true },
         { key: 'FOTO_UNIDAD_EXTERIOR', label: 'Unidad exterior', multiple: false },
         { key: 'FOTO_CALDERA_ANTES', label: 'Caldera', multiple: false },
+        { key: 'DOC_CEE_EXISTENTE', label: 'CEE existente', labelCliente: 'El certificado energético de tu casa (opcional)', multiple: true },
+        { key: 'DOC_PRESUPUESTO', label: 'Presupuesto', labelCliente: 'El presupuesto del instalador', multiple: true },
     ];
     try {
         const obra = { tipo: 'expediente', codigo: '26RES060_901', oportunidad_id: 'op-1', expediente_id: 'ex-1', instalador_ids: [] };
@@ -614,7 +621,8 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         const adj = [
             ['m1', fich('fact-1')], ['m2', fich('fact-1')], ['m3', fich('fact-2')], ['m4', fich('dni', 'image/jpeg')],
             ['m5', fich('ue', 'image/jpeg')], ['m6', fich('ue-2', 'image/jpeg')], ['m7', fich('raro', 'image/jpeg')],
-            ['m8', fich('rite', 'image/jpeg')], ['m9', fich('nueva')], ['m10', fich('caldera', 'image/jpeg')], ['m11', null],
+            ['m8', fich('rite')], ['m9', fich('nueva')], ['m10', fich('caldera', 'image/jpeg')], ['m11', null],
+            ['m13', fich('cee')], ['m14', fich('presu', 'image/jpeg')], ['m15', fich('justif')], ['m16', fich('rite-foto', 'image/jpeg')],
         ].map(([id, f]) => ({ id, t: 1762765200, _fichero: f }));
         const fila = (msg, tipo, extra = {}) => ({ msg, obra: '26RES060_901', tipo, que: `${tipo} ${msg}`, confianza: 'alta', t: 1762765200, ...extra });
         const plan = () => ({
@@ -626,9 +634,10 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
                 fila('m8', 'CERTIFICADO_RITE', { slot: 'DOC_RITE' }), fila('m9', 'FACTURA', { obra: 'NUEVA' }),
                 fila('m10', 'FOTO_PLACA', { slot: 'FOTO_CALDERA_ANTES', confianza_slot: 'alta' }), fila('m11', 'FACTURA'),
                 { msg: 'm12', obra: '—', tipo: 'NO_RELACIONADO', que: 'un meme', confianza: 'alta' },
+                fila('m13', 'CEE'), fila('m14', 'PRESUPUESTO'), fila('m15', 'JUSTIFICANTE_TITULARIDAD'),
             ],
         });
-        Docs._pruebas.comprobarPdf = async () => ({ ok: true });   // «el PDF es de esta obra»
+        Docs._pruebas.comprobarPdf = async () => ({ ok: true, coincide: 'rc' });   // «el PDF trae la RC de esta obra»
         const c = plan();
         const { items, ficheros } = await Docs.planear({ c, adjuntos: adj });
         const de = (id) => items.find(x => x.msg === id) || {};
@@ -644,7 +653,10 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         ok(!de('m10').guardar && /ya tiene su foto: no la piso/.test(de('m10').motivo), 'un apartado de UNA que ya tiene foto: no se pisa');
         ok(!de('m11').guardar && /no se ha podido bajar/.test(de('m11').motivo), 'sin fichero: no se guarda');
         ok(!items.some(x => x.msg === 'm12'), 'lo que no es de una obra ni se lista');
-        ok(ficheros.size === 3 && ['m1', 'm5', 'm8'].every(k => ficheros.has(k)), 'se quedan los ficheros de lo que se guarda');
+        ok(de('m13').guardar && de('m13').slot === 'DOC_CEE_EXISTENTE', 'el CEE que ya tenía la casa: a su apartado (de varios, no pisa nada)');
+        ok(de('m14').guardar && de('m14').slot === 'DOC_PRESUPUESTO' && de('m14').destino === 'El presupuesto del instalador', 'un presupuesto: a su apartado');
+        ok(!de('m15').guardar && /no sé de qué cliente es/.test(de('m15').motivo), 'el justificante sin cliente conocido: no se guarda');
+        ok(ficheros.size === 5 && ['m1', 'm5', 'm8', 'm13', 'm14'].every(k => ficheros.has(k)), 'se quedan los ficheros de lo que se guarda');
         ok(c.filas.find(f => f.msg === 'm1').guardado === true && /DNI/.test(c.filas.find(f => f.msg === 'm4').guardado), 'cada fila queda marcada: guardado o el porqué');
         ok(!JSON.stringify(Docs.paraFila(items)).includes('"buffer"'), 'a la fila va sin ficheros (regla 21)');
 
@@ -664,6 +676,15 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         const adjPdf = adj.map(a => (a.id === 'm8' ? { ...a, _fichero: fich('rite-pdf') } : a));
         const r2c = (await Docs.planear({ c: plan(), adjuntos: adjPdf })).items.find(x => x.msg === 'm8');
         ok(!r2c.guardar && /otra obra/.test(r2c.motivo), 'un RITE en PDF de otra obra: no se guarda');
+        // Un PDF que no trae ni el nº ni la RC de la obra (la subida por enlace lo dejaría pasar): solo, no.
+        Docs._pruebas.comprobarPdf = async () => ({ ok: true, coincide: null, aviso: 'el PDF no tiene texto (¿escaneado?)' });
+        const r2d = (await Docs.planear({ c: plan(), adjuntos: adj })).items.find(x => x.msg === 'm8');
+        ok(!r2d.guardar && /no he podido comprobar que el RITE sea de esta obra/.test(r2d.motivo), 'un RITE sin el nº ni la RC de la obra: no se guarda solo');
+        // Y una FOTO del RITE tampoco (no se puede comprobar).
+        Docs._pruebas.comprobarPdf = async () => ({ ok: true, coincide: 'rc' });
+        const planFoto = plan(); planFoto.filas.push(fila('m16', 'CERTIFICADO_RITE'));
+        const r2e = (await Docs.planear({ c: planFoto, adjuntos: adj })).items.find(x => x.msg === 'm16');
+        ok(!r2e.guardar && /solo guardo solo el PDF/.test(r2e.motivo), 'una foto del RITE: no se guarda sola');
         Docs._pruebas.comprobarPdf = undefined;
 
         // Ejecutar: lo que ya se colocó (a mano o en otra vuelta) no se repite, y sin fichero no se inventa.
@@ -850,6 +871,54 @@ ok(C.modo() === (process.env.CONTESTADOR_MODO === 'real' ? 'real' : 'copia'), 'm
         await wb.xlsx.load(buf);
         const hoja = wb.getWorksheet('Respuestas');
         ok(hoja.rowCount === 8 && hoja.getRow(1).values.includes('QUÉ HABRÍA DICHO YO') && !!wb.getWorksheet('Resumen'), 'el Excel: una fila por turno, las columnas para valorar y la hoja de resumen');
+    }
+    // ── Que no parezca un robot (24/11/2026): frases vacías, lo ya dicho y el silencio ──
+    {
+        console.log('\nQue no parezca un robot (24/11/2026)');
+        const fv = cerebro.sinFrasesVacias;
+        ok(fv('Perfecto, Lucía. Lo de la máquina de dentro, apuntado. Mándame la foto de la placa.') === 'Perfecto, Lucía. Mándame la foto de la placa.', '«Lo de X, apuntado.» fuera (C1025)');
+        ok(fv('Gracias. Lo de los patios lo miro con el vídeo y, si hiciera falta alguna foto más, te lo digo.') === 'Gracias.', '«lo miro… y si hiciera falta algo, te lo digo» fuera (C995)');
+        ok(fv('Lo compruebo para que no cause problemas al tramitar. Gracias.') === 'Gracias.', '«lo compruebo para que no…» fuera (C979)');
+        ok(fv('Recibido, gracias. Lo vamos a revisar y te pasamos la propuesta.') === 'Recibido, gracias. Lo vamos a revisar y te pasamos la propuesta.', '«lo vamos a revisar y te pasamos la propuesta» se queda: dice qué viene');
+        ok(fv('Lo reviso y te digo.') === 'Lo reviso y te digo.', 'si no queda nada, se deja como estaba');
+        ok(fv('La caldera se quita y la miramos el lunes.') === 'La caldera se quita y la miramos el lunes.', 'una frase de la obra con «la miramos» no se toca');
+
+        const dichos = ['Buenos días, Lucía. Te faltan *la foto de la placa de la caldera* y *la foto del depósito*. Súbelas aquí: https://app.brokergy.es/subir/abc'];
+        const msg = 'Gracias, Lucía.\n\nTe faltan:\n*La foto de la placa de la caldera*\n*La foto del depósito*\n\nSúbelas aquí: https://app.brokergy.es/subir/abc';
+        const d1 = cerebro.sinLoYaDicho(msg, dichos);
+        ok(d1.quitados === 2 && d1.mensaje === 'Gracias, Lucía.' && !d1.vacio, 'la lista y el enlace que ya le dimos hace un rato no se repiten');
+        const d2 = cerebro.sinLoYaDicho(msg, dichos, { pregunta: true });
+        ok(d2.quitados === 0 && d2.mensaje === msg, 'si pregunta qué falta o dónde mandarlo, la lista se repite');
+        const d3 = cerebro.sinLoYaDicho('Te falta *la foto del contador*.', dichos);
+        ok(d3.quitados === 0, 'lo NUEVO que falta sí se dice');
+        ok(cerebro.preguntaPorLoPendiente(['¿Qué me falta?']) && cerebro.preguntaPorLoPendiente(['Dónde las mando']) && !cerebro.preguntaPorLoPendiente(['Ya está puesta la máquina']), 'pregunta por lo pendiente: qué falta / dónde mando');
+
+        const r = { accion: 'RESPONDER', mensaje: 'Buenas.\n\nTe faltan *la foto de la placa de la caldera* y *la foto del depósito*.', motivo: 'pide fotos' };
+        const callar = cerebro.ajustarRespuesta(r, null, { dichos, suyos: ['Vale, luego las hago'] });
+        ok(callar.accion === 'CALLAR' && callar.mensaje === '' && callar.ajustes.includes('ya_dicho'), 'si TODO lo que iba a decir ya se lo dijimos: CALLAR');
+        const repite = cerebro.ajustarRespuesta(r, null, { dichos, suyos: ['¿Qué me falta?'] });
+        ok(repite.accion === 'RESPONDER' && repite.mensaje.includes('depósito'), 'si lo pregunta, se le contesta con la lista');
+
+        const ahora = 1_800_000_000;
+        const ms = [{ de_mi: true, t: ahora - 20 * 60, texto: 'Te falta la placa' }, { de_mi: false, t: ahora - 60, texto: 'ok' }, { de_mi: true, t: ahora - 8 * 3600, texto: 'viejo' }];
+        ok(C.loQueLeDijimos(ms, { ahoraSeg: ahora }).join() === 'Te falta la placa', 'lo que le dijimos: lo nuestro de las últimas horas');
+        ok(cerebro.sinNoFaltaNada('Recibido lo del RITE, gracias.\n\nPor tu parte no queda nada pendiente ahora mismo: los anexos ya están.') === 'Recibido lo del RITE, gracias.', '«no queda nada pendiente» también es un «no falta nada»');
+        // FM sin ACS (24/11/2026): cuánto más con un aerotermo o un acumulador.
+        const v5 = cerebro.fmSinAcs({ sin_acs_eur: 4592, con_acs_eur: 9232, acs_mas_eur: 4640, acs_veces: 2.01 });
+        const v4 = cerebro.fmSinAcs({ acs: 'supuesto', elegible: true, eur_vigente: 4592.4, eur_fm: 9232 });
+        ok(v5.mas === 4640 && v5.veces === 2.01 && v4.sin === 4592.4 && Math.round(v4.mas) === 4640 && v4.veces === 2.01, 'FM sin ACS: v5 por sus campos, v4 con la misma cuenta');
+        ok(cerebro.fmSinAcs({ acs: 'incluido', elegible: true, eur_vigente: 4000, eur_fm: 9000 }) === null
+            && cerebro.fmSinAcs({ acs: 'supuesto', elegible: false, eur_vigente: 4000, eur_fm: 9000 }) === null
+            && cerebro.fmSinAcs({ acs: 'supuesto', elegible: true, aplica: false, eur_vigente: 4000, eur_fm: 9000 }) === null
+            && cerebro.fmSinAcs({ acs: 'supuesto', elegible: true, eur_vigente: 9000, eur_fm: 4000 }) === null && cerebro.fmSinAcs(null) === null,
+            'FM sin ACS: nada si ya lleva ACS, no es elegible, no aplica o la FM no sale más');
+        const bl = cerebro.bloqueFmSinAcs(v5);
+        ok(bl.includes('Tal como viene, sin ACS: 4.592 €') && bl.includes('unos 9.232 € (4.640 € más, más del doble)') && !/MWh/.test(bl.split('\n- ')[0]), 'FM sin ACS: la frase de la propuesta, con miles y «más del doble»');
+        ok(!cerebro.bloqueFmSinAcs({ sin: 4000, con: 6000, mas: 2000, veces: 1.5 }).includes('más del doble'), 'por debajo del doble no dice «más del doble»');
+        const pInst = cerebro.construirPrompt({ rol: 'instalador', titulo: 'X' }, null, null, null, { fmSinAcs: v5 }).prompt;
+        const pCli = cerebro.construirPrompt({ rol: 'cliente', titulo: 'X' }, null, null, null, { fmSinAcs: v5 }).prompt;
+        ok(pInst.includes('EL PRESUPUESTO SIN ACS') && !pCli.includes('EL PRESUPUESTO SIN ACS'), 'el bloque solo va en el chat de un instalador');
+        ok(C.silencioPara(ms, ahora) === 30 && C.silencioPara([{ de_mi: true, t: ahora - 3 * 3600 }], ahora) === 15, 'conversación viva (le escribimos hace < 60 min): 30 min de silencio; si no, 15');
     }
     console.log(fallos ? `\n✗ ${fallos} fallo(s)` : '\n✓ todo bien');
     process.exit(fallos ? 1 : 0);

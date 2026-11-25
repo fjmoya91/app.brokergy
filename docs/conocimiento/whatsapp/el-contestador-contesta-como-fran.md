@@ -119,8 +119,8 @@ lo subido), `cee` (un CEE directo), `buscar`, `consultas` (las fichas ya contest
 
 **REGLA — el acuse dice algo CONCRETO de lo suyo, nunca un «lo miro» vacío** («Lo de la factura a nombre de
 los dos lo confirmo y te digo»). Los dos cerebros dan un `tema` (3 a 8 palabras) y el código
-(`acuseConcreto`) cambia un «Recibido, lo miro y te digo» a secas —con su nombre o sin él— por «Lo de
-<tema> lo miro y te digo.».
+(`acuseConcreto`) cambiaba un «Recibido, lo miro y te digo» a secas —con su nombre o sin él— por «Lo de
+<tema> lo miro y te digo.». **Desde el 24/11/2026 ese acuse no sale**: ver «Que no parezca un robot».
 
 **REGLA — UN acuse por asunto: con algo ya ESCALADO y sin contestar en ese chat, lo nuevo no lleva otro
 acuse** (17/11/2026, 26RES060_OP376). María José pidió un correo para mandar los papeles, lo repitió, mandó
@@ -284,6 +284,71 @@ Aplicado a los textos reales: el de C803 queda en «Perfecto, ya me ha llegado e
 y los de 26RES060_187 pierden el saludo a partir del segundo. Tras tocarlo: `test_contestador_whatsapp.js` (bloque
 «Sin saludo repetido, sin «no falta nada» por comprobar, sin «los reviso yo»») y el seco
 `contestador.js seco --antes --horas 720 --sin-relevo --tel …` sobre esos chats.
+
+## Que no parezca un robot: lo vacío, lo repetido y lo que se acusa (2026-11-24)
+
+Fran (24/11/2026): «quiero que el VPS tenga las reglas suficientes para guardar documentación, contestar
+acorde y que no parezca un robot el que está contestando. Es decir, como si fuese yo, pero sin que tenga que
+interactuar yo». Repasados los 92 turnos del día (C937–C1028), lo que sonaba a máquina:
+
+- **Repetir lo mismo**: Lucía (26RES060_308) recibió C975, C978, C983, C991 y C998 en tres horas, con la misma
+  lista de fotos y alguna contradicción; Aurelio (26RES060_136), C994, C999 y C1007; Paqui, C944 y C949.
+- **Frases que no dicen nada**: «Lo de la máquina de dentro, apuntado.» (C1025, del ejemplo que el propio
+  prompt ponía desde el 22/11), «Lo compruebo para que no cause problemas al tramitar.» (C979), «lo miro con el
+  vídeo y, si hiciera falta alguna foto más, te lo digo» (C995), «si faltara algo más, te lo digo» (C1002),
+  «lo miro y te digo» (C1010).
+- **Acuses vacíos al dejarlo en Fran**: C937 (familia numerosa), C946 (pagar la factura en plazos), C984
+  (MOVES III) y C993 (comercial). El cliente recibía «Lo de X lo miro y te digo» y nada más.
+- **Documentos que se quedaban en el chat**: el RITE de C956, los CEE de C983 y C991, el presupuesto de C986 y
+  el justificante de C1025 (ver «Lo que manda se GUARDA»).
+
+**REGLA — una frase que no dice nada se QUITA** (`sinFrasesVacias`, en `ajustarRespuesta`): «Lo de X,
+apuntado / anotado / tomo nota» y la promesa «lo miro / compruebo / reviso / vemos…» seguida de «te digo /
+confirmo / aviso», «para que no…» o «si hiciera falta algo…». Una persona contesta lo que sabe y calla lo
+que todavía no: lo que queda por mirar ya va en el aviso a Fran. «Lo vamos a revisar y te pasamos la
+propuesta» se queda (dice qué viene), y una frase de la obra («la miramos el lunes») no se toca. Se quita la
+frase entera; si no queda NADA, se deja como estaba (un «Gracias.» sí vale como respuesta).
+
+**REGLA — lo que ya le dijimos hace poco no se repite** (`sinLoYaDicho`): un párrafo con la lista de lo
+pendiente (sus *negritas*) o un enlace se quita si TODAS sus negritas y enlaces ya salieron en un mensaje
+nuestro de las últimas 6 h (`loQueLeDijimos`, `CONTESTADOR_DICHO_HORAS`). Si en lo que acaba de escribir
+pregunta qué falta, dónde o cómo mandarlo (`preguntaPorLoPendiente`), se repite. Si no queda nada que decir,
+la respuesta pasa a **CALLAR** («lo que iba a decirle ya se lo dijimos hace un rato»). Lo nuevo que falte sí
+se dice.
+
+**REGLA — con la conversación VIVA se espera más**: si le escribimos hace menos de 60 min
+(`CONTESTADOR_VIVO_MIN`), el silencio es de 30 min (`CONTESTADOR_SILENCIO_VIVO_MIN`) en vez de 15
+(`silencioPara`). Quien contesta a lo nuestro suele mandar varias cosas seguidas, y una persona no responde a
+cada una.
+
+**REGLA — al dejarlo en Fran, un acuse que no dice nada NO sale** (`rematar`): ni el «Lo miro y te digo» de
+siempre ni el «Lo de <tema> lo miro y te digo» que lo sustituyó el 16/11 (el 18/11 Fran ya dijo que «lo miro y te
+digo» no lo quiere: [voz-de-fran.md](voz-de-fran.md), caso 1). Sale solo el que dice algo
+de lo suyo («Lo de la memoria no hace falta que la pagues: la preparo yo»). El que lleva un compañero, un
+asistente, un plazo o «a mano» tampoco sale (antes pasaba al de siempre). El que escribió el modelo se guarda
+en `acuse_modelo`, porque `soloDeFran` (persona o programa: sin acuse) lo necesita para no confundir «no sé
+la respuesta» con «esto lo contesta Fran en persona». Lo que se queda en Fran le llega con su borrador, y
+«C12» lo manda: el cliente recibe la respuesta, no un aviso de que habrá respuesta.
+
+**Y el prompt ya no pone de ejemplo «Lo del depósito, apuntado.»**: lo que dice que su instalación no lleva,
+basta con no pedírselo (como mucho, «Vale, entonces sin depósito»).
+
+**REGLA — un PRESUPUESTO del instalador sin ACS se contesta con cuánto más saldría con él** (24/11/2026,
+Fran: «si un presupuesto de instalador viene sin ACS, decir "ojo, con ACS sale el doble: X € más" y
+recomendarlo»). Si al chat de un INSTALADOR llega un presupuesto de una obra cuya simulación va sin ACS
+por la vía del factor multiplicador, el prompt lleva la frase de la propuesta (`avisoFc.lineaFactorCorreccion`):
+«Ojo: el presupuesto de esta obra va sin ACS… Tal como viene, sin ACS: X €. Añadiendo un aerotermo o un
+acumulador de ACS: unos Y € (Z € más[, más del doble]). Os recomendamos darle al cliente el presupuesto con
+el ACS incluido.» Si el presupuesto nuevo ya lleva el ACS, no se dice, y va en el aviso que Fran rehaga la
+simulación. Las cifras salen SOLO de `datos_calculo->via_fm` (subcampo, regla 22; `fmSinAcs`): en v5,
+`sin_acs_eur` · `con_acs_eur` · `acs_mas_eur` · `acs_veces`; en v4, la misma cuenta (`acs` supuesto o
+sin_scop, elegible, aplica, `eur_fm` > `eur_vigente`). Solo los tres importes: ni MWh ni €/MWh (`via_fm`
+es de ADMIN). La cifra con ACS no se da por segura (cupo; se pide desde el 15/01/2027) ni se dice cómo
+llegar al máximo, y si pregunta si vale un aerotermo aparte, eso va a Fran. A un cliente no se le dice.
+
+Tras tocarlo: `test_contestador_whatsapp.js` (bloque «Que no parezca un robot (24/11/2026)») y el seco
+`contestador.js seco --antes --tel …` sobre los chats de Lucía, Aurelio, Justo, Sebastián, Juanra, Milagros y
+Gema.
 
 ## El LISTADO para repasar las respuestas (2026-11-21)
 
@@ -456,8 +521,21 @@ en dos tiempos: `planear` (no escribe; corre dentro de `decidir`, también en se
   ALTA en la obra Y en el apartado; en un apartado de UNA foto, solo si está vacío (nunca se pisa).
 - Todo con confianza ALTA en la obra, de una obra que está en la app (no una NUEVA, no un CEE directo), sin
   repetir el mismo fichero, como mucho 12 por chat.
-- **Lo demás NO se guarda solo** (DNI, CIFO o anexos firmados, Memoria RITE, CEE, presupuesto, justificante
-  de pago…): se le dice a Fran qué es y por qué no («No lo guardo yo (míralo tú)»).
+  **Desde el 24/11/2026, solo en PDF y solo si TRAE el nº o la referencia catastral de la obra**
+  (`coincide` de `comprobarPdfDelExpediente`): una foto o un escaneado sin texto no se puede comprobar, y
+  aquí no hay nadie mirando (la subida por el enlace los deja pasar con aviso). C956: un RITE quedó en el
+  chat porque la comprobación no estaba en el servidor; ya está (`utils/pdfDelExpediente.js`, regla 202).
+- **CEE que ya tenía la casa** → «El certificado energético de tu casa» (`DOC_CEE_EXISTENTE`) y
+  **PRESUPUESTO** → «El presupuesto del instalador» (`DOC_PRESUPUESTO`), con `subirFicherosASlot`
+  (24/11/2026). Son apartados de VARIOS ficheros: guardar no pisa nada. Que ese CEE valga o que el
+  presupuesto cambie la propuesta lo sigue decidiendo Fran (va en el aviso), pero el papel ya está donde lo
+  buscará. C983, C991 (dos CEE) y C986 (un presupuesto) se acusaban «recibido» y se quedaban en el chat.
+- **JUSTIFICANTE DE TITULARIDAD** de la cuenta → `justificanteCliente.subirDesdeCliente`, el MISMO camino
+  que la ficha del cliente (Drive, lectura y comparación con la ficha; sus avisos van a Fran), y solo si el
+  cliente aún no tiene ninguno (nunca se pisa: puede ser otra cuenta). C1025, 24/11/2026.
+- **Lo demás NO se guarda solo** (DNI, CIFO o anexos firmados, Memoria RITE, justificante de pago…): se
+  le dice a Fran qué es y por qué no («No lo guardo yo (míralo tú)»). El justificante de PAGO no tiene
+  apartado en el gestor.
 
 Lo guardado se apunta en `whatsapp_media_importada` (sale «ya colocada» en «Traer del WhatsApp», regla
 68.b, y no se guarda dos veces). En la fila del contestador va `detalle.guardar`: lo planeado y lo hecho,
@@ -511,8 +589,8 @@ caracteres sin enlace. **Concreto no es recitar lo recibido** (19/11/2026, 26RES
 facturas en Word y dos audios, le salió «Las dos facturas en Word y tus audios sobre el concepto y la calle Niños
 los reviso yo a mano y te digo si están bien»; Fran habría dicho «Perfecto, Manu, las facturas de Alberto las
 miro y te digo». El prompt (los dos, el rápido y el investigador) pide el asunto en pocas palabras y no la
-lista, y un acuse con «a mano», «yo mismo» o «personalmente» lo cambia el código, como los de «un compañero»,
-por «Lo de <tema> lo miro y te digo.» (o «Lo miro y te digo.» sin tema).
+lista, y un acuse con «a mano», «yo mismo» o «personalmente» lo quita el código, como los de «un compañero»
+(hasta el 24/11/2026 pasaba a «Lo de <tema> lo miro y te digo.»).
 
 **Cerebro**: CLAUDE (Sonnet) con la SUSCRIPCIÓN, en el contenedor `asistente`, por `POST /contestar` del
 vigía: **un carril aparte** de los trabajos de Fran (su propia cola, 4 en espera como mucho → 429), así que
