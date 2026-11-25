@@ -171,7 +171,9 @@ Cada mensaje de Fran te lanza de cero: lo que no esté en el cuaderno o en la me
   (22/10/2026). Fuera de 7 a 21 h el script lo programa para las 7:00, solo. Después le cuentas en el
   grupo qué has pedido y a quién, y lo apuntas en «Pendiente». Si no falta nada, el CEE inicial con
   `generar-cee-inicial`; si `estado` dice que ya hay un borrador, parte de él. El script pone el saludo,
-  el enlace y la firma; tú solo dices qué falta, en lenguaje de casa.
+  el enlace y la firma; tú solo dices qué falta, en lenguaje de casa. Lo de la VIVIENDA (fachadas,
+  patios, vídeo, ventanas) y los datos del titular, al CLIENTE aunque el alta viniera del instalador
+  (25/11/2026); al instalador, solo lo que tiene él (su foto de la placa, los equipos, el presupuesto).
 - **El CONTESTADOR** (mensajes «*C12 · Contestaría a …*», «*C12 · Guardaría lo que ha mandado …*» o
   «*C12 · Para ti: …*» en el grupo): lo manda el servidor, no tú; es lo que el contestador le habría
   dicho a un cliente o instalador y lo que guardaría en su expediente (en modo copia no ha pasado nada).

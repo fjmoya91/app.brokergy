@@ -36,10 +36,15 @@ const NUM = args[1];
 const opt = (k) => { const i = args.indexOf(k); return i > 0 && args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : null; };
 const flag = (k) => args.includes(k);
 
+const { pareceDireccion, faltaDelTitular } = require('../utils/titularProvisional');
+
+// Con la dirección por nombre (alta sin titular) se saluda sin nombre: «¡Hola *Cl*!» no.
 const nombreSaludo = (s) => {
+    if (pareceDireccion(s)) return '';
     const n = String(s || '').trim().split(/\s+/)[0] || '';
-    return n ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : 'hola';
+    return n ? n.charAt(0).toUpperCase() + n.slice(1).toLowerCase() : '';
 };
+const hola = (s) => { const n = nombreSaludo(s); return `¡Hola${n ? ` *${n}*` : ''}!`; };
 
 async function cargar(numero) {
     if (!numero) throw new Error('Falta el número de expediente.');
@@ -97,7 +102,14 @@ async function estado() {
         : 'nada'}`);
     console.log(`\nCarpeta de Drive: ${dc.drive_folder_link || dc.inputs?.drive_folder_link || '—'}`);
     console.log(`\nNotas del alta:\n${notas.join('\n') || '- ninguna'}`);
-    console.log(`\nSe le escribe al cliente: ${dest.saludo || '?'}${dest.titular ? ` (contacto de ${dest.titular})` : ''} · ${dest.tlf || 'SIN TELÉFONO'}`);
+    // Los datos del titular: con la dirección por nombre (alta sin titular) los anexos
+    // no se pueden generar. Se piden al CLIENTE en el mismo mensaje que las fotos.
+    const { data: cli } = exp.cliente_id
+        ? await supabase.from('clientes').select('nombre_razon_social, apellidos, dni, es_empresa').eq('id_cliente', exp.cliente_id).maybeSingle()
+        : { data: null };
+    const titular = faltaDelTitular(cli, opp.referencia_cliente);
+    console.log(`\nDatos del titular: ${titular.length ? `FALTAN — ${titular.join(' · ')}. Pídeselo al CLIENTE en el mismo mensaje, la primera línea.` : 'completos'}`);
+    console.log(`\nSe le escribe al cliente: ${dest.saludo || '?'}${pareceDireccion(dest.saludo) ? ' (es la dirección: se le saluda sin nombre)' : ''}${dest.titular ? ` (contacto de ${dest.titular})` : ''} · ${dest.tlf || 'SIN TELÉFONO'}`);
     console.log(`Al instalador (--a instalador): ${inst ? `${inst.saludo || 'canal general'} · ${inst.empresa} · ${inst.tlf}` : 'sin instalador con teléfono'}`);
     const aa = exp.aa || {};
     console.log(`Revisión del agente: ronda ${aa.ronda || 0} de ${agente.MAX_RONDAS}${aa.pedido_at ? ` · último pedido ${aa.pedido_at} (${aa.pedido_quien || 'cliente'}): ${(aa.pedido || []).join(' · ')}` : ' · nada pedido aún'}`);
@@ -108,7 +120,7 @@ async function estado() {
 function componer({ dest, numero, lineas, link, a = 'cliente', cliente = '', direccion = '' }) {
     if (a === 'instalador') {
         // A una empresa sin persona de contacto se la saluda en genérico (regla 44).
-        return `¡Hola${dest.saludo ? ` *${nombreSaludo(dest.saludo)}*` : ''}!
+        return `${hola(dest.saludo)}
 
 Del expediente *${numero}*${cliente ? ` de *${cliente}*` : ''}${direccion ? ` (${direccion})` : ''}, para poder hacer el *Certificado de Eficiencia Energética (CEE) inicial* nos falta:
 
@@ -121,7 +133,7 @@ ${link}
 *BROKERGY — Ingeniería Energética*`;
     }
     const tu = !dest.titular;
-    return `¡Hola *${nombreSaludo(dest.saludo)}*!
+    return `${hola(dest.saludo)}
 
 ${tu
         ? `Ya hemos revisado la documentación de tu expediente *${numero}*.`

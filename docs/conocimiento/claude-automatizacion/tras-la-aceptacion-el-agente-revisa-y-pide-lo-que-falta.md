@@ -74,6 +74,21 @@ fotos o la placa que hizo él, o un alta que vino de su chat). Al instalador, a 
 comercial), saludando en genérico al canal general de una empresa, y diciendo de qué cliente y de qué
 obra es. En el 245, Paco de GONZAGARRI.
 
+**REGLA — lo de la VIVIENDA y los datos del TITULAR, al cliente, aunque el alta viniera del instalador**
+(25/11/2026, Fran: «pídele las fotos que necesitamos al cliente… y que rellene sus datos correctamente»).
+En 26RES060_313 el alta llegó del chat de INSTALJARA sin titular y el agente le pidió dos veces al
+instalador las paredes del patio; el cliente, que ya había aceptado y vive allí, solo recibió el acuse.
+Ahora fachadas, patios, el vídeo o las fotos de dentro y las ventanas se le piden al CLIENTE; al
+instalador, solo lo que tiene él (su foto de la placa que no se lee, los equipos, el presupuesto).
+
+**REGLA — un alta sin titular deja la DIRECCIÓN por nombre, y eso se pide y no se saluda**
+([utils/titularProvisional.js](implementation/backend/utils/titularProvisional.js)). `estado` dice
+«Datos del titular: FALTAN — el NOMBRE…» (o el DNI) con `faltaDelTitular`, y el agente lo pone como
+primera línea del mismo mensaje al cliente; `componer` saluda «¡Hola!» sin nombre cuando
+`pareceDireccion` (antes, «¡Hola *Cl*!»). **Queda fuera** (lo lleva la sesión que tiene abierto
+`routes/public.js`): el acuse de la aceptación saluda con el mismo nombre («¡Hola *Cl Goya 15 - Motilla
+del Palancar*!») y el formulario de aceptar deja pasar el nombre provisional.
+
 **REGLA — el agente dice QUÉ falta; el saludo, el destinatario, el enlace y la firma los pone el
 script.** El destinatario es el de la ficha (`destinatarioCliente`, el mismo que el acuse: con los
 avisos desviados, la persona de contacto con el nombre del titular; o `destinatarioInstalador`), el

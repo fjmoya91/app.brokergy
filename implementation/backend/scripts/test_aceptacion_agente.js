@@ -55,6 +55,18 @@ const ok = (c, m) => { console.log(`${c ? '✓' : '✗'} ${m}`); if (!c) fallos+
     const m4 = componer({ dest: { saludo: 'CARLOS' }, numero: 'N', lineas: ['a'], link: 'l', a: 'instalador' });
     ok(m4.startsWith('¡Hola *Carlos*!'), 'al contacto comercial, por su nombre');
 
+    // Alta sin titular: la ficha tiene la DIRECCIÓN por nombre (26RES060_313, 25/11/2026).
+    const { pareceDireccion, faltaDelTitular } = require('../utils/titularProvisional');
+    const m5 = componer({ dest: { saludo: 'CL GOYA 15 - MOTILLA DEL PALANCAR', titular: null }, numero: 'N', lineas: ['a'], link: 'l' });
+    ok(m5.startsWith('¡Hola!\n'), 'con la dirección por nombre se saluda sin nombre (no «¡Hola *Cl*!»)');
+    ok(['CL GOYA 15 - MOTILLA DEL PALANCAR', 'C/ Mayor 3', 'AVDA DE ESPAÑA 12', 'GOYA 15 - MOTILLA'].every(pareceDireccion), 'reconoce direcciones');
+    ok(!['MARIA JOSE', 'Paz', 'Camila Ruiz', 'INSTALACIONES GARCIA SL', 'Calixto', ''].some(pareceDireccion), 'no confunde nombres de personas ni empresas');
+    const ft = faltaDelTitular({ nombre_razon_social: 'CL GOYA 15 - MOTILLA DEL PALANCAR', apellidos: 'navarro gallego', dni: '00000000T' }, 'CL GOYA 15 - MOTILLA DEL PALANCAR');
+    ok(ft.length === 1 && /NOMBRE/.test(ft[0]), 'pide el nombre y no el DNI que ya tiene');
+    ok(faltaDelTitular({ nombre_razon_social: 'Ana', apellidos: 'Ruiz', dni: '' }).join() .includes('DNI'), 'sin DNI lo pide');
+    ok(faltaDelTitular({ nombre_razon_social: 'Ana', apellidos: 'Ruiz', dni: '1' }).length === 0, 'completo: nada');
+    ok(/DATOS DEL TITULAR se le piden al CLIENTE/.test(agente.instruccion('N')) && /7:00/.test(agente.instruccion('N')), 'el encargo dice que lo de la vivienda y el titular van al cliente');
+
     // El parte dice qué está haciendo el agente en «Aceptados y sin encargar».
     const { detalleAgente } = require('../services/seguimientoRadar');
     ok(detalleAgente(null) === null, 'parte: sin agente, el detalle de siempre');
