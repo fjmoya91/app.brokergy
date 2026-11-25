@@ -54,7 +54,7 @@ paths:
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes · 0,7 KB
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25) · 0,8 KB
 - `docs/conocimiento/whatsapp/el-agente-de-whatsapp-y-el-director-comercial.md` — El AGENTE de WhatsApp y el DIRECTOR comercial — diseño (PROPUESTA, 17/11/2026, sin construir) · 13,8 KB
-- `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10) · 61,1 KB
+- `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10) · 62,3 KB
 - `docs/conocimiento/whatsapp/el-seguimiento-que-no-se-quede-nada-pendiente.md` — El SEGUIMIENTO: que no se quede nada pendiente — propuestas y material del CEE inicial (2026-11-15) · 9,3 KB
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado · 1,0 KB
 - `docs/conocimiento/whatsapp/etiquetas-de-whatsapp-desde-la-app-whatsapplabels-js-implementat.md` — Etiquetas de WhatsApp desde la app — [whatsappLabels.js](implementation/backend/services/whatsappLabels.js) · 1,7 KB
@@ -117,6 +117,7 @@ acuse**
   - **REGLA — lo que ya le dijimos hace poco no se repite**
   - **REGLA — con la conversación VIVA se espera más**
   - **REGLA — al dejarlo en Fran, un acuse que no dice nada NO sale**
+  - **REGLA — un PRESUPUESTO del instalador sin ACS se contesta con cuánto más saldría con él**
   - **REGLA — al cerebro le llega TODO lo que ha mandado, también lo que no es de obra, dicho como tal**
   - **REGLA — un análisis con un número de adjunto que no se le
 dio (o repetido) no vale para NINGÚN adjunto**

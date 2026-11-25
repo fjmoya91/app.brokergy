@@ -138,28 +138,36 @@ llega a leer. Horario 08:00–21:00 Madrid, tope de 6 avisos por hora, `ASISTENT
 apaga. **REGLA — el filtro VE las fotos**: solo con el texto decía que faltaba la RC (venía en una
 captura) y juntaba dos obras en una (medido con las OP269/OP270 de Federico).
 
-**REGLA — Claude arranca FUERA del repo** (`--add-dir /repo`, cwd en un temporal): desde dentro carga
-entero `CLAUDE.md` (1,1 MB) en cada trabajo — medido: 514.000 tokens un «contesta ok», 31.000 desde
-fuera. Las instrucciones le dicen que busque en `CLAUDE.md` con grep, nunca leerlo entero.
+**REGLA — Claude arranca DENTRO del repo y con OPUS, como la sesión de Claude Code del PC** (Fran,
+25/11/2026: «quiero que el VPS sea lo mismo que esto: que si te pido algo a través del chat contestes
+exactamente igual que desde la interfaz de Claude»). `TRABAJO` = `/repo` (`ASISTENTE_CWD` lo cambia):
+carga el `CLAUDE.md`, las reglas de `.claude/rules` del área que toque, los hooks de
+`.claude/settings.json` (son de Node, valen en Linux) y la memoria del proyecto
+`/root/.claude/projects/-repo/memory`. Modelo por defecto **Opus** (`ASISTENTE_MODELO`), tope por
+trabajo 15 $ (`ASISTENTE_TOPE_USD`; con 8 $ un trabajo normal de Opus se cortaba). ⚠️ La limpieza
+horaria del vigía borraba lo de más de 7 días de la carpeta de trabajo: con el repo como carpeta de
+trabajo eso habría vaciado `/repo`, así que ya no se limpia si es el repo.
+~~Claude arranca FUERA del repo (`--add-dir /repo`, cwd en un temporal)~~: era porque `CLAUDE.md`
+pesaba 1,1 MB (medido el 05/10/2026: 514.000 tokens un «contesta ok» desde dentro, 31.000 desde fuera);
+desde el 07/10/2026 pesa ~20 KB y esa razón ya no existe.
 
-**Modelo y consumo:** Sonnet por defecto (`ASISTENTE_MODELO`); **un CEE va con Opus**
-(`ASISTENTE_MODELO_CEE`: el mensaje habla de CEE, `.cex`, CE3X o envolvente); «con opus» / «con
-sonnet» / «con haiku» en el mensaje manda sobre todo.
+**Modelo y consumo:** «con opus» / «con sonnet» / «con haiku» en el mensaje manda sobre todo; un CEE
+va con `ASISTENTE_MODELO_CEE` (Opus).
 
 **MEMORIA, en tres capas y sin reabrir sesiones** (2026-10-05). No se usa `--resume`: tras un CEE
 recargaría cientos de miles de tokens para contestar a un «vale».
 - **Cuaderno** (`scratch/asistente/cuaderno.md`, máx. 8 KB): Pendiente · Recordatorios · Hecho reciente.
   Entra en cada trabajo y Claude lo reescribe al terminar. Los **recordatorios** (`- [AAAA-MM-DD HH:MM]
   texto`) y el **repaso de las 9:00** (lo «Pendiente») los manda el vigilante **sin Claude**.
-- **Memoria de largo plazo**: la NATIVA de Claude Code en `/root/.claude/projects/-tmp-asistente-trabajo/
-  memory` (la carga sola por arrancar en esa carpeta), copia de la del PC de Fran.
+- **Memoria de largo plazo**: la NATIVA de Claude Code en `/root/.claude/projects/-repo/memory` (hasta el 25/11/2026,
+  `-tmp-asistente-trabajo/memory`; la carga sola por arrancar en esa carpeta), copia de la del PC de Fran.
   [scripts/asistente_memoria.js](implementation/backend/scripts/asistente_memoria.js) `sincronizar` la
   lleva y la trae por ssh —**nunca por git: tiene datos de clientes**— cada 3 h (tarea programada
   «Brokergy Memoria Asistente» → `tools/windows/asistente_memoria.vbs`). Lo que aprende por WhatsApp va
   como `asistente_<tema>.md` y vuelve al PC; todo lo demás manda el PC.
 - **El chat**: los últimos 20 mensajes, como antes.
 
-**Topes**: 40 trabajos/día (`ASISTENTE_MAX_TRABAJOS_DIA`), `--max-budget-usd` por trabajo (8, o 40 en
+**Topes**: 40 trabajos/día (`ASISTENTE_MAX_TRABAJOS_DIA`), `--max-budget-usd` por trabajo (15 desde el 25/11/2026, antes 8; 40 en
 un CEE), `--fallback-model sonnet` si Opus está saturado, `--no-session-persistence` (los historiales de
 sesión ocupaban megas) y limpieza de registros de más de 30 días. Medido: arrancar un trabajo con la
 memoria cargada, ~44.000 tokens. Nada de esto toca Supabase.

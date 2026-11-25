@@ -82,13 +82,19 @@ function entornoClaude(base = process.env) {
     for (const k of CLAVES_API) delete env[k];
     return env;
 }
-// Claude trabaja desde una carpeta FUERA del repo y con acceso a él (--add-dir). Desde dentro carga
-// entero el CLAUDE.md de la raíz (1,1 MB ≈ 490.000 tokens) en CADA trabajo: medido el 05/10/2026, un
-// «contesta ok» costaba 514.000 tokens desde el repo y 31.000 desde fuera.
-const TRABAJO = process.env.ASISTENTE_CWD || path.join(os.tmpdir(), 'asistente-trabajo');
-// El modelo: por defecto Sonnet; los CEE, con Opus (ASISTENTE_MODELO_CEE). Fran puede forzar otro
-// escribiendo «con opus» / «con sonnet» / «con haiku», y eso manda sobre todo lo demás.
-const MODELO = process.env.ASISTENTE_MODELO || 'sonnet';
+// REGLA — Claude trabaja DENTRO del repo, como la sesión de Claude Code del PC (Fran, 25/11/2026:
+// «quiero que el VPS sea lo mismo que esto: que si te pido algo por el chat contestes exactamente
+// igual que desde la interfaz de Claude»). Así carga lo mismo que allí: el CLAUDE.md (corto desde el
+// 07/10/2026, ~20 KB), las reglas de `.claude/rules` del área que toque, los hooks de
+// `.claude/settings.json` (qué documentos hablan del fichero que abre) y la memoria del proyecto
+// `/repo` (`/root/.claude/projects/-repo/memory`, la que sube `asistente_memoria.js`). Hasta entonces
+// arrancaba FUERA (`/tmp/asistente-trabajo` + `--add-dir`) porque el CLAUDE.md pesaba 1,1 MB: medido el
+// 05/10/2026, un «contesta ok» costaba 514.000 tokens desde el repo y 31.000 desde fuera.
+const TRABAJO = process.env.ASISTENTE_CWD || RAIZ;
+// El modelo: OPUS por defecto, el mismo de la sesión del PC (25/11/2026, misma petición); hasta
+// entonces Sonnet y Opus solo para los CEE. Fran puede forzar otro escribiendo «con opus» /
+// «con sonnet» / «con haiku», y eso manda sobre todo lo demás.
+const MODELO = process.env.ASISTENTE_MODELO || 'opus';
 const MODELO_CEE = process.env.ASISTENTE_MODELO_CEE || 'opus';
 const ES_CEE = /\bCEE\b|\.cex\b|\bce3x\b|envolvente|certificado (de )?eficiencia|certificaci[oó]n energ/i;
 
@@ -97,7 +103,8 @@ const ES_CEE = /\bCEE\b|\.cex\b|\bce3x\b|envolvente|certificado (de )?eficiencia
 const MAX_DIA = Number(process.env.ASISTENTE_MAX_TRABAJOS_DIA) || 40;
 // Gasto por trabajo, en $ equivalentes de API (`--max-budget-usd`): corta un trabajo desbocado. Con la
 // suscripción no se cobra, pero es lo que mide lo que se come de los límites de uso.
-const TOPE_USD = Number(process.env.ASISTENTE_TOPE_USD) || 8;
+// 15 $ desde que el modelo por defecto es Opus (25/11/2026): con 8 $ un trabajo normal de Opus se cortaba.
+const TOPE_USD = Number(process.env.ASISTENTE_TOPE_USD) || 15;
 const TOPE_USD_CEE = Number(process.env.ASISTENTE_TOPE_USD_CEE) || 40;
 
 // ─── El CUADERNO: la memoria de trabajo entre mensajes ───
@@ -385,7 +392,11 @@ async function mantenimiento() {
             } catch { /* la carpeta aún no existe */ }
             return n;
         };
-        const n = borrarViejos(LOGS, 30) + borrarViejos(path.join(DIR, 'entrada'), 30) + borrarViejos(TRABAJO, 7);
+        // ⚠️ La carpeta de trabajo de Claude es ahora EL REPO (25/11/2026): NUNCA se limpia, o esto
+        // borraría /repo entero. Solo se vacía la carpeta temporal de antes, si se usa (ASISTENTE_CWD).
+        const tmpTrabajo = path.resolve(TRABAJO) === path.resolve(RAIZ) ? null : TRABAJO;
+        const n = borrarViejos(LOGS, 30) + borrarViejos(path.join(DIR, 'entrada'), 30)
+            + (tmpTrabajo ? borrarViejos(tmpTrabajo, 7) : 0);
         if (n) log(`Limpieza: ${n} ficheros/carpetas viejos borrados.`);
     }
 }

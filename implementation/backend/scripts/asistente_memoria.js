@@ -7,7 +7,8 @@
 // viaja por ssh, nunca por git.
 //
 // - En el VPS está donde Claude Code la carga sola para el asistente:
-//   /root/.claude/projects/-tmp-asistente-trabajo/memory (volumen `asistente_claude`).
+//   /root/.claude/projects/-repo/memory (volumen `asistente_claude`; hasta el 25/11/2026,
+//   -tmp-asistente-trabajo, cuando arrancaba fuera del repo).
 // - Lo que aprende el asistente por WhatsApp lo guarda como `asistente_<tema>.md` (+ su línea en su
 //   MEMORY.md). Al sincronizar: (1) esos ficheros BAJAN al PC y sus líneas se añaden al MEMORY.md del
 //   PC si faltan; (2) la memoria del PC SUBE entera al VPS, sustituyendo lo que no sea `asistente_*`
@@ -20,7 +21,11 @@ const { execFileSync } = require('child_process');
 
 const VPS = process.env.ASISTENTE_VPS || 'root@187.77.93.213';
 const CONTENEDOR = 'brokergy-asistente';
-const DIR_VPS = '/root/.claude/projects/-tmp-asistente-trabajo/memory';
+// Desde el 25/11/2026 el asistente arranca DENTRO del repo (`/repo`), así que su memoria nativa es la
+// del proyecto `-repo`. La de antes (`-tmp-asistente-trabajo`) solo se lee para BAJAR lo que aprendió
+// allí y no se ha bajado aún.
+const DIR_VPS = process.env.ASISTENTE_MEMORIA_VPS || '/root/.claude/projects/-repo/memory';
+const DIR_VPS_ANTES = '/root/.claude/projects/-tmp-asistente-trabajo/memory';
 const DIR_PC = process.env.ASISTENTE_MEMORIA_PC
     || path.join(os.homedir(), '.claude', 'projects', 'C--Proyectos-app-brokergy', 'memory');
 const TITULO = '## Aprendido por WhatsApp (asistente)';
@@ -45,7 +50,10 @@ function sincronizar() {
     try {
         // 1. Bajar lo que ha aprendido el asistente.
         // Sin nada que bajar (la primera vez) no hay tar: un archivo vacío daría error.
-        const tarVps = ssh(enContenedor(`mkdir -p ${DIR_VPS} && cd ${DIR_VPS} && F=$(ls asistente_*.md MEMORY.md 2>/dev/null); [ -z "$F" ] || tar cf - $F`));
+        // Lo aprendido en la carpeta de antes pasa a la nueva sin pisar nada (cp -n); sus líneas del
+        // índice ya están en el MEMORY.md del PC, que sube entero en el paso 2.
+        const migrar = `{ [ -d ${DIR_VPS_ANTES} ] && cp -n ${DIR_VPS_ANTES}/asistente_*.md ${DIR_VPS}/ 2>/dev/null; true; }`;
+        const tarVps = ssh(enContenedor(`mkdir -p ${DIR_VPS} && ${migrar} && cd ${DIR_VPS} && F=$(ls asistente_*.md MEMORY.md 2>/dev/null); [ -z "$F" ] || tar cf - $F`));
         let bajadas = 0;
         let lineasNuevas = [];
         if (tarVps.length) {
