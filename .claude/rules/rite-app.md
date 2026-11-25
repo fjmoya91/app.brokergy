@@ -25,7 +25,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/rite-app/00-la-app-rite.md` — La app RITE — rite.brokergy.es (2026-11-25) · 8,8 KB
+- `docs/conocimiento/rite-app/00-la-app-rite.md` — La app RITE — rite.brokergy.es (2026-11-25) · 10,5 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -38,5 +38,6 @@ CARGA de cálculo sigue siendo m² × W/m² de la zona.**
   - **REGLA — de momento solo Castilla-La Mancha.**
   - **REGLA — lo de BROKERGY NO gasta créditos del instalador**
   - **REGLA — un fichero solo se sirve si es de ESA memoria**
+  - **REGLA — la pantalla de estancias no calcula potencias.**
 
 <!-- generado:fin -->

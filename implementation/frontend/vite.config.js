@@ -65,14 +65,15 @@ function appCertificadoresDev() {
           res.setHeader('Set-Cookie', `${nombreCookie}=; Path=/; Max-Age=0; SameSite=Lax`)
           return next()
         }
-        let esCee = host.startsWith('cee.')
-          || new RegExp(`(?:^|;\\s*)${nombreCookie}=cee(?:;|$)`).test(String(req.headers.cookie || ''))
-        if (pide === 'cee') {
-          esCee = true
-          res.setHeader('Set-Cookie', `${nombreCookie}=cee; Path=/; SameSite=Lax`)
+        // La app RITE (rite.brokergy.es, regla 245): igual, con `rite.localhost` o `/?app=rite`.
+        const cookie = (String(req.headers.cookie || '').match(new RegExp(`(?:^|;\\s*)${nombreCookie}=(cee|rite)(?:;|$)`)) || [])[1]
+        let app = host.startsWith('cee.') ? 'cee' : host.startsWith('rite.') ? 'rite' : cookie || null
+        if (pide === 'cee' || pide === 'rite') {
+          app = pide
+          res.setHeader('Set-Cookie', `${nombreCookie}=${pide}; Path=/; SameSite=Lax`)
         }
-        if (!esCee) return next()
-        req.url = '/certificadores.html'
+        if (!app) return next()
+        req.url = app === 'rite' ? '/rite.html' : '/certificadores.html'
         next()
       })
     },
@@ -113,6 +114,8 @@ export default defineConfig(({ mode }) => {
         input: {
           main: fileURLToPath(new URL('./index.html', import.meta.url)),
           certificadores: fileURLToPath(new URL('./certificadores.html', import.meta.url)),
+          // La app RITE (rite.brokergy.es, regla 245).
+          rite: fileURLToPath(new URL('./rite.html', import.meta.url)),
         },
       },
     },

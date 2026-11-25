@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="es" class="theme-light" data-app="rite">
+
+<head>
+  <meta charset="UTF-8" />
+  <!-- App RITE (rite.brokergy.es, regla 245). Tercera entrada del build de Vite
+       (ver vite.config.js). Mismo estilo «carta de pago» que cee.brokergy.es
+       (regla 164) y las mismas piezas de src/certificadores/ui.
+       `data-app="rite"`: el arranque del CRM (src/main.jsx) no monta aquí. -->
+  <script>
+    (function () {
+      try { document.documentElement.classList.add('theme-light'); } catch (e) { /* noop */ }
+    })();
+  </script>
+  <meta name="color-scheme" content="light" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#faf9f7" />
+  <link rel="icon" type="image/png" href="/logo-brokergy-circular.png" />
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="RITE by BROKERGY" />
+  <title>RITE by BROKERGY · La memoria técnica RITE de tu instalación, en minutos</title>
+  <meta name="description"
+    content="Para empresas instaladoras: la memoria técnica RITE de una aerotermia con la referencia catastral y el equipo. Word y PDF, borrador del certificado y guía para darla de alta." />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="RITE by BROKERGY · La memoria técnica RITE, en minutos" />
+  <meta property="og:description"
+    content="Referencia catastral, equipo y estancias: la memoria RITE lista para firmar. Castilla-La Mancha." />
+  <meta property="og:url" content="https://rite.brokergy.es" />
+  <link rel="preload" href="/fonts/Inter-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="/fonts/Antonio-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <style>
+    html, body { background: #faf9f7; margin: 0; color-scheme: light; }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/rite/main.jsx"></script>
+</body>
+
+</html>

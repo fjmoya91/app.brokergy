@@ -30,8 +30,8 @@ emplazamiento de la regla 149 y el ACS valen solas.
 | Memoria suelta → formas del CRM, tabla de estancias, avisos | `services/riteapp/payload.js` | hecho, 11 pruebas |
 | Modo extendido (elementos reales) | `cargas_desde_locales` en `rite-generator/lib/cargas_termicas.py` | hecho |
 | Tablas | [scripts/riteapp_schema.sql](implementation/backend/scripts/riteapp_schema.sql) | escrito, **sin aplicar** |
-| Cuentas, alta con Google o email, créditos | patrón de la app de certificadores (`certappAuth`, `certapp_movimientos`) | por hacer |
-| Pantallas | 3.ª entrada del build, `rite.html` + `src/rite/`, con las piezas de `src/certificadores/ui` | por hacer |
+| Cuentas, alta con Google o email, créditos | `middleware/riteappAuth.js`, `routes/riteapp.js` (`/alta`, `/me`), `riteapp_movimientos` | hecho |
+| Pantallas | 3.ª entrada del build, `rite.html` + `src/rite/`, con las piezas de `src/certificadores/ui` | hecho (25/11) |
 | Catastro | `traerDireccionCatastral` / `catastroService.getByRC` (dirección, superficie, plantas y zona) | ya existe |
 | Equipos | catálogo `aerotermia` (potencias, SCOP, frío) con `resolvePotenciasCatalogo` | ya existe |
 
@@ -111,6 +111,29 @@ instalador (regla 1): se sirven los bytes por la API.
 
 Pruebas en seco de todo el circuito (Supabase, Drive y Catastro de mentira; el generador de verdad):
 `node implementation/backend/scripts/test_riteapp_encargo.js`.
+
+### Las pantallas (`rite.html` + `src/rite/`, 2026-11-25)
+
+Tercera entrada del build de Vite. Reutiliza de la app de certificadores el CSS `.ca-` (estilo «carta de
+pago»), `piezas.jsx`, `Iconos.jsx`, el router y el visor de PDF (`obra/VisorPdf.jsx`); lo propio va con
+prefijo `.rt-` en `src/rite/ui/estilo.js`. Rutas: `/` (portada y entrar), `/alta`, `/panel`,
+`/memoria/:id` (`?paso=` abre uno concreto) y `/perfil`.
+
+- **Entrar**: Google (`signInWithOAuth`) o el enlace mágico de Supabase (`signInWithOtp`, sin
+  contraseña). La sesión sin cuenta (`403 RITEAPP_SIN_CUENTA`) va a `/alta`; con el servidor caído se
+  dice y se reintenta, nunca se trata como «sin cuenta» (regla 38). El correo del enlace es la
+  plantilla de Supabase Auth: se cambia en su panel.
+- **La memoria, por pasos**: Vivienda (Catastro) → Titular → Instalación (catálogo o a mano, emisor,
+  ACS, frío, fechas) → Estancias → Revisar → Documentos. Se guarda sola a los 900 ms y SIEMPRE antes de
+  revisar o generar. Lo que falta y la tabla de cargas los da el SERVIDOR (`/comprobar`): la pantalla no
+  repite ninguna regla.
+- **REGLA — la pantalla de estancias no calcula potencias.** Reparte con `logic/localesRite.js` (la del
+  CRM) y la potencia por estancia la enseña «Revisar» con `tablaEstancias`; una tercera copia del cálculo
+  acabaría enseñando una tabla y firmando otra.
+- **El arranque del CRM no monta en `rite.html`**: `src/main.jsx` mira `data-app` (como con
+  certificadores).
+- En desarrollo: `http://rite.localhost:5173/` o `/?app=rite` una vez (cookie por puerto,
+  `vite.config.js`). Producción: `nginx/rite.brokergy.es.conf` (con 300 s para `/generar`).
 
 ### Para producción (lo de una vez, como cee.brokergy.es)
 

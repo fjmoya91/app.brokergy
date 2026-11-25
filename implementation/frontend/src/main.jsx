@@ -14,7 +14,8 @@ import { initNativeBridge } from './native/nativeBridge'
 // este fichero se ejecuta también allí. Sin la guarda montaba el CRM encima del
 // #root de la app y la envolvente reventaba con «removeChild» (25/10/2026).
 // docs/conocimiento/certificadores-app/00-la-app-de-certificadores.md
-const esSuPagina = document.documentElement.dataset.app !== 'certificadores'
+// Lo mismo para la app RITE (rite.html, `data-app="rite"`, regla 245).
+const esSuPagina = !['certificadores', 'rite'].includes(document.documentElement.dataset.app)
 
 // Repara descargas/enlaces dentro de la app nativa (Capacitor). Inerte en web/PWA.
 if (esSuPagina) initNativeBridge()
