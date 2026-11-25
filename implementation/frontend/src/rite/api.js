@@ -5,7 +5,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import axios from 'axios';
 
-export { errorDe, mensajeError, noDisponible, useCarga, comoLista, alPortapapeles, fecha, haceCuanto } from '../certificadores/api';
+export { errorDe, mensajeError, noDisponible, useCarga, comoLista, alPortapapeles, fecha, haceCuanto, enlaceWhatsApp } from '../certificadores/api';
 export const API = '/api/riteapp';
 export { axios };
 

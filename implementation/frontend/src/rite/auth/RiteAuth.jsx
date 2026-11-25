@@ -9,6 +9,10 @@
 // email, el alta la ADOPTA (routes/riteapp.js).
 //
 // REGLA — `signOut` limpia la sesión local PASE LO QUE PASE.
+// Una sesión del EQUIPO de BROKERGY (fila en `usuarios`, ADMIN o TRABAJADOR) no
+// tiene cuenta de instalador: con el SIN_CUENTA se pregunta `/api/riteapp-admin/yo`
+// y, si es del equipo, `equipo` = { rol, nombre, esAdmin } y entra a /admin.
+//
 // REGLA — con el servidor caído (503 / sin red) NO se trata como «sin cuenta»:
 // se dice que no se ha podido cargar y se ofrece reintentar (regla 38).
 // ─────────────────────────────────────────────────────────────────────────────
@@ -32,6 +36,7 @@ export function RiteAuthProvider({ children }) {
     const [cuenta, setCuenta] = useState(null);
     const [loading, setLoading] = useState(true);
     const [errorMe, setErrorMe] = useState(null);   // { status, code, mensaje }
+    const [equipo, setEquipo] = useState(null);     // { rol, nombre, esAdmin } si es del equipo de BROKERGY
     const tokenRef = useRef(null);
     const userIdRef = useRef(null);
 
@@ -48,15 +53,24 @@ export function RiteAuthProvider({ children }) {
         userIdRef.current = null;
         setSession(null);
         setCuenta(null);
+        setEquipo(null);
         setErrorMe(null);
     }, [ponerToken]);
 
     const cargarMe = useCallback(async () => {
-        if (!tokenRef.current) { setCuenta(null); setErrorMe(null); return null; }
+        if (!tokenRef.current) { setCuenta(null); setEquipo(null); setErrorMe(null); return null; }
+        /** ¿Es del equipo de BROKERGY? Solo se pregunta cuando no hay cuenta de instalador. */
+        const mirarEquipo = async () => {
+            try {
+                const { data } = await axios.get('/api/riteapp-admin/yo');
+                setEquipo(data?.ok ? { rol: data.rol, nombre: data.nombre, esAdmin: !!data.esAdmin } : null);
+            } catch { setEquipo(null); }
+        };
         const pedir = async (reintento) => {
             try {
                 const { data } = await axios.get(`${API}/me`);
                 setCuenta(data?.cuenta || null);
+                setEquipo(null);
                 setErrorMe(null);
                 return data;
             } catch (err) {
@@ -76,6 +90,7 @@ export function RiteAuthProvider({ children }) {
                     return null;
                 }
                 setCuenta(null);
+                if (st === 403 && errorDe(err).code === 'RITEAPP_SIN_CUENTA') await mirarEquipo(); else setEquipo(null);
                 setErrorMe({
                     status: st || 0,
                     code: errorDe(err).code || null,
@@ -103,7 +118,7 @@ export function RiteAuthProvider({ children }) {
             if (!vivo) return;
             if (evento === 'SIGNED_OUT') {
                 ponerToken(null); userIdRef.current = null;
-                setSession(null); setCuenta(null); setErrorMe(null);
+                setSession(null); setCuenta(null); setEquipo(null); setErrorMe(null);
                 return;
             }
             if (s?.access_token) {
@@ -160,13 +175,14 @@ export function RiteAuthProvider({ children }) {
         cuenta,
         loading,
         errorMe,
-        sinCuenta: !!session && !cuenta && errorMe?.code === 'RITEAPP_SIN_CUENTA',
+        equipo,
+        sinCuenta: !!session && !cuenta && !equipo && errorMe?.code === 'RITEAPP_SIN_CUENTA',
         entrarConGoogle,
         entrarConEmail,
         signOut,
         refrescar,
         ponerCuenta: setCuenta,
-    }), [session, cuenta, loading, errorMe, entrarConGoogle, entrarConEmail, signOut, refrescar]);
+    }), [session, cuenta, equipo, loading, errorMe, entrarConGoogle, entrarConEmail, signOut, refrescar]);
 
     return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

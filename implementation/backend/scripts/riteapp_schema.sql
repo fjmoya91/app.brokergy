@@ -7,8 +7,8 @@
 -- memoria, {AAAA}RIT_{n}) y riteapp_movimientos (créditos).
 -- Regla 150: RLS sin policies + GRANT a service_role + REVOKE a anon/authenticated.
 --
--- Aplicar en Supabase (editor SQL) SOLO con el «sí» de Fran. Idempotente.
--- Fecha: 2026-11-25. NO APLICADO TODAVÍA.
+-- Aplicado en producción el 25/11/2026 con el «ponla en producción» de Fran. Idempotente.
+-- Fecha: 2026-11-25.
 -- =====================================================================
 
 -- ── Cuentas: la EMPRESA INSTALADORA que firma la memoria ──────────────
@@ -108,6 +108,21 @@ $$;
 drop trigger if exists trg_riteapp_memoria_numerar on public.riteapp_memorias;
 create trigger trg_riteapp_memoria_numerar before insert on public.riteapp_memorias
     for each row execute function public.riteapp_memoria_numerar();
+
+-- ── Unificación con el CRM y enlace al instalador (2026-11-25, la misma tarde) ──
+-- origen: quién la creó. Lo de BROKERGY NO gasta créditos, la regenere quien la regenere.
+alter table public.riteapp_memorias add column if not exists origen text not null default 'INSTALADOR';
+do $$ begin
+    alter table public.riteapp_memorias add constraint riteapp_memorias_origen_chk check (origen in ('INSTALADOR', 'BROKERGY'));
+exception when duplicate_object then null; end $$;
+-- Enlace para que el instalador COMPLETE la memoria sin cuenta (/completar/:token).
+alter table public.riteapp_memorias add column if not exists enlace_token text;
+alter table public.riteapp_memorias add column if not exists enlace_caduca_at timestamptz;
+alter table public.riteapp_memorias add column if not exists completada_at timestamptz;
+create unique index if not exists uq_riteapp_memorias_enlace on public.riteapp_memorias (enlace_token) where enlace_token is not null;
+-- Una memoria viva por CIT del CRM.
+create unique index if not exists uq_riteapp_memorias_informe on public.riteapp_memorias (informe_id)
+    where informe_id is not null and estado <> 'ANULADA';
 
 -- ── Movimientos de crédito ───────────────────────────────────────────
 create table if not exists public.riteapp_movimientos (

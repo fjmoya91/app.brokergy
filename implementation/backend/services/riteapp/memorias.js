@@ -144,6 +144,13 @@ async function obtener(id, cuentaId = null) {
     return data;
 }
 
+/** La memoria viva de un CIT del CRM, o null. */
+async function porInforme(informeId) {
+    const { data, error } = await supabase.from(TABLA).select('*').eq('informe_id', informeId).neq('estado', 'ANULADA').maybeSingle();
+    if (error) throw errorBd(error, 'memoria del CIT');
+    return data || null;
+}
+
 async function cuentaPorId(id) {
     const { data, error } = await supabase.from('riteapp_cuentas').select('*').eq('id', id).maybeSingle();
     if (error) throw errorBd(error, 'cuenta');
@@ -151,16 +158,20 @@ async function cuentaPorId(id) {
     return data;
 }
 
-async function crear(cuenta, datos = {}, { por = 'instalador' } = {}) {
+async function crear(cuenta, datos = {}, { por = 'instalador', origen = 'INSTALADOR', informeId = null } = {}) {
     const limpio = limpiarDatos(datos);
     const fila = {
         cuenta_id: cuenta.id, datos: limpio, nombre: nombreDeLista(limpio),
+        origen: origen === 'BROKERGY' ? 'BROKERGY' : 'INSTALADOR', informe_id: informeId || null,
         ref_catastral: limpio.vivienda.ref_catastral || null,
         provincia: limpio.vivienda.provincia || null, municipio: limpio.vivienda.municipio || null,
-        historial: [{ at: new Date().toISOString(), por, que: por === 'BROKERGY' ? 'CREADA POR BROKERGY' : 'CREADA' }],
+        historial: [{ at: new Date().toISOString(), por, que: origen === 'BROKERGY' ? 'CREADA POR BROKERGY' : 'CREADA' }],
     };
     const { data, error } = await supabase.from(TABLA).insert(fila).select('*').single();
-    if (error) throw errorBd(error, 'crear');
+    if (error) {
+        if (error.code === '23505' && informeId) throw fallo(409, 'Ese CIT ya tiene su memoria RITE.', 'CIT_YA_TIENE_MEMORIA');
+        throw errorBd(error, 'crear');
+    }
     return data;
 }
 
@@ -358,7 +369,8 @@ async function generar(memoria, cuenta, { origen = 'instalador', por = null } = 
 
     // Crédito: primero se gasta y, si el generador falla, se devuelve.
     let gastado = false;
-    if (origen !== 'BROKERGY' && !memoria.credito_consumido) {
+    const deBrokergy = origen === 'BROKERGY' || memoria.origen === 'BROKERGY';
+    if (!deBrokergy && !memoria.credito_consumido) {
         const { data: quedan, error } = await supabase.rpc('riteapp_consumir_credito_memoria', { p_memoria_id: memoria.id });
         if (error) throw errorBd(error, 'crédito');
         if (quedan === -1) throw fallo(402, 'No te quedan memorias disponibles.', 'SIN_CREDITOS');
@@ -378,6 +390,7 @@ async function generar(memoria, cuenta, { origen = 'instalador', por = null } = 
 
     const carpeta = await carpetaDe(memoria, cuenta);
     const subidos = {};
+    const bytes = {};
     for (const f of files) {
         const buffer = Buffer.from(f.base64, 'base64');
         const existente = await driveService.findFileByName(carpeta, f.name);
@@ -385,7 +398,7 @@ async function generar(memoria, cuenta, { origen = 'instalador', por = null } = 
         const res = await driveService.saveFileToFolder(carpeta, f.name, f.mimetype, buffer);
         if (!res) throw fallo(502, `No hemos podido guardar «${f.name}». Vuelve a intentarlo.`, 'DRIVE_FALLO');
         const c = claseDe(f.name);
-        if (c) subidos[c.clase] = { id: res.id, nombre: f.name, at: new Date().toISOString() };
+        if (c) { subidos[c.clase] = { id: res.id, nombre: f.name, at: new Date().toISOString() }; bytes[c.clase] = { buffer, nombre: f.name }; }
     }
     const ahora = new Date().toISOString();
     // Una memoria NUEVA deja sin efecto la firma de la anterior.
@@ -395,7 +408,61 @@ async function generar(memoria, cuenta, { origen = 'instalador', por = null } = 
     }).eq('id', memoria.id).select('*').single();
     if (error) throw errorBd(error, 'generar');
     await anotar(data, `MEMORIA GENERADA (${lista.datos?.estancias?.modo === 'extendido' ? 'EXTENDIDA' : 'RÁPIDA'})${origen === 'BROKERGY' ? ' POR BROKERGY' : ''}`, por || origen);
-    return { memoria: data, avisos: r.avisos, tabla: r.tabla, ficheros: subidos };
+    const cit = await alCit(data, bytes, por || origen);
+    return { memoria: data, avisos: r.avisos, tabla: r.tabla, ficheros: subidos, cit };
+}
+
+/**
+ * Una memoria de un CIT del CRM (`informe_id`): la memoria en PDF y en Word se
+ * suben al CIT como su VERSIÓN FINAL (clases FINAL_PDF / FINAL_WORD de
+ * informeService.subir, que archiva la anterior en OLD y deja el CIT pendiente
+ * de firma). Un fallo aquí NO deshace la generación: se anota y se dice.
+ */
+async function alCit(memoria, bytes, por) {
+    if (!memoria.informe_id) return null;
+    try {
+        const I = require('../informeService');
+        const row = await I.cargar(memoria.informe_id, { conRelaciones: false });
+        if (!row || row.anulado_at) return { ok: false, motivo: 'El CIT no existe o está anulado' };
+        if (bytes.MEMORIA_PDF) await I.subir(row, 'FINAL_PDF', { ...bytes.MEMORIA_PDF, usuario: por, origen: 'equipo' });
+        const fila = await I.cargar(memoria.informe_id, { conRelaciones: false });
+        if (bytes.MEMORIA_DOCX) await I.subir(fila, 'FINAL_WORD', { ...bytes.MEMORIA_DOCX, usuario: por, origen: 'equipo' });
+        await I.anotar(row.id, `Memoria RITE ${memoria.numero} generada en la app RITE: subida como versión final`, por);
+        return { ok: true, numero: row.numero };
+    } catch (e) {
+        console.error('[riteapp] No se pudo pasar la memoria al CIT:', e.message);
+        await anotar(memoria, `NO SE HA PODIDO PASAR AL CIT: ${e.message}`.slice(0, 300), 'sistema').catch(() => {});
+        return { ok: false, motivo: e.message };
+    }
+}
+
+// ── Enlace para que el INSTALADOR complete la memoria (sin cuenta) ──────────
+// `/completar/:token` en rite.brokergy.es. 32 hex aleatorios, caduca a los 30 días,
+// y uno nuevo anula el anterior. Solo lo crea el equipo (riteappAdmin).
+const crypto = require('crypto');
+const DIAS_ENLACE = 30;
+const urlApp = () => String(process.env.RITEAPP_URL || 'https://rite.brokergy.es').trim().replace(/\/+$/, '');
+
+async function crearEnlace(memoria, { por = 'BROKERGY' } = {}) {
+    if (memoria.estado === 'ANULADA') throw fallo(409, 'Esta memoria está anulada.', 'MEMORIA_ANULADA');
+    const token = crypto.randomBytes(16).toString('hex');
+    const caduca = new Date(Date.now() + DIAS_ENLACE * 86400000).toISOString();
+    const { data, error } = await supabase.from(TABLA).update({ enlace_token: token, enlace_caduca_at: caduca, completada_at: null })
+        .eq('id', memoria.id).select('*').single();
+    if (error) throw errorBd(error, 'enlace');
+    await anotar(data, 'ENLACE PARA EL INSTALADOR CREADO', por);
+    return { url: `${urlApp()}/completar/${token}`, caduca_at: caduca, memoria: data };
+}
+
+/** La memoria del enlace, o 404 (mal, caducado o anulada). Con la BD caída, 503 (regla 38). */
+async function porToken(token) {
+    const t = String(token || '').toLowerCase();
+    if (!/^[0-9a-f]{32}$/.test(t)) throw fallo(404, 'Este enlace no vale.', 'ENLACE_NO_VALIDO');
+    const { data, error } = await supabase.from(TABLA).select('*').eq('enlace_token', t).maybeSingle();
+    if (error) throw errorBd(error, 'enlace');
+    if (!data || data.estado === 'ANULADA') throw fallo(404, 'Este enlace no vale.', 'ENLACE_NO_VALIDO');
+    if (data.enlace_caduca_at && new Date(data.enlace_caduca_at) < new Date()) throw fallo(410, 'Este enlace ha caducado. Pide otro a BROKERGY.', 'ENLACE_CADUCADO');
+    return data;
 }
 
 async function devolverCredito(memoria, cuenta, motivo) {
@@ -412,5 +479,5 @@ module.exports = {
     ErrorRite, fallo, errorBd, responderError, esUuid, cuentaPublica, limpiarPerfil, limpiarDatos,
     listar, obtener, cuentaPorId, crear, guardarDatos, anotar,
     viviendaDelCatastro, buscarEquipos, buscarEquiposPorId, equipoDeCatalogo, proponerEstancias,
-    documentos, fichero, comprobar, generar, claseDe, CLASES,
+    documentos, fichero, comprobar, generar, claseDe, CLASES, crearEnlace, porToken, urlApp, porInforme,
 };

@@ -9,11 +9,11 @@
 // Lo que bloquea lo decide el servidor (`validateMemoriaRite`, la misma del CRM):
 // aquí no se repite ninguna regla de la memoria.
 // ─────────────────────────────────────────────────────────────────────────────
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { API, axios, errorDe, fecha, mensajeError, useCarga } from '../api';
 import { navegar } from '../../certificadores/router';
 import { Aviso, Campo, ErrorRed, Esqueleto, useToast } from '../../certificadores/ui/piezas';
-import { IcoAtras, IcoBuscar, IcoCheck, IcoFlecha, IcoRecargar, IcoUbicacion, Spinner } from '../../certificadores/ui/Iconos';
+import { IcoAtras, IcoBuscar, IcoCheck, IcoEnviar, IcoFlecha, IcoRecargar, IcoUbicacion, Spinner } from '../../certificadores/ui/Iconos';
 import { useRiteAuth } from '../auth/RiteAuth';
 import { PROVINCIAS_CLM } from '../marca';
 import { Marco } from '../ui/Marco';
@@ -37,6 +37,29 @@ const EMISORES = [
 ];
 const SITUADO = ['CUBIERTA', 'FACHADA', 'SUELO'];
 
+/**
+ * De dónde se lee y adónde se guarda la memoria. La MISMA pantalla sirve a tres:
+ *   cuenta — el instalador con su cuenta (/api/riteapp)
+ *   admin  — el equipo de BROKERGY (/api/riteapp-admin), sin créditos
+ *   enlace — el instalador con el enlace, sin cuenta (/api/public/riteapp/:token);
+ *            «Generar» es «Enviar a BROKERGY».
+ */
+export function fuenteDe(tipo, clave) {
+    const k = encodeURIComponent(clave);
+    if (tipo === 'enlace') {
+        const base = `/api/public/riteapp/${k}`;
+        return { tipo, base, guardar: base, generar: `${base}/enviar`, catastro: (rc) => `${base}/catastro/${encodeURIComponent(rc)}`, equipos: `${base}/equipos` };
+    }
+    if (tipo === 'admin') {
+        const base = `/api/riteapp-admin/memorias/${k}`;
+        return { tipo, base, guardar: `${base}/datos`, generar: `${base}/generar`, catastro: (rc) => `/api/riteapp-admin/catastro/${encodeURIComponent(rc)}`, equipos: '/api/riteapp-admin/equipos' };
+    }
+    const base = `${API}/memorias/${k}`;
+    return { tipo: 'cuenta', base, guardar: base, generar: `${base}/generar`, catastro: (rc) => `${API}/catastro/${encodeURIComponent(rc)}`, equipos: `${API}/equipos` };
+}
+const FuenteCtx = createContext(null);
+const useFuente = () => useContext(FuenteCtx);
+
 function conDefectos(d = {}) {
     return {
         titular: { es_empresa: false, misma_direccion: true, ...(d.titular || {}) },
@@ -58,12 +81,13 @@ function Txt({ valor, onCambio, etiqueta, opcional, mayus, id, ayuda, sufijo, ..
 
 /* ── 1 · Vivienda ─────────────────────────────────────────────────────────── */
 function PasoVivienda({ v, set }) {
+    const fuente = useFuente();
     const [rc, setRc] = useState(v.ref_catastral || '');
     const [estado, setEstado] = useState({ trayendo: false, error: null });
     const traer = async () => {
         setEstado({ trayendo: true, error: null });
         try {
-            const { data } = await axios.get(`${API}/catastro/${encodeURIComponent(rc.trim())}`);
+            const { data } = await axios.get(fuente.catastro(rc.trim()));
             const viv = data?.vivienda || {};
             set({ ...v, ...Object.fromEntries(Object.entries(viv).filter(([, x]) => x !== null && x !== '')) });
             setRc(viv.ref_catastral || rc);
@@ -166,6 +190,7 @@ function PasoTitular({ t, set }) {
 
 /* ── 3 · Instalación ──────────────────────────────────────────────────────── */
 function BuscarEquipo({ onElegir }) {
+    const fuente = useFuente();
     const [q, setQ] = useState('');
     const [res, setRes] = useState({ buscando: false, lista: null, error: null });
     useEffect(() => {
@@ -175,14 +200,14 @@ function BuscarEquipo({ onElegir }) {
         setRes(r => ({ ...r, buscando: true }));
         const timer = setTimeout(async () => {
             try {
-                const { data } = await axios.get(`${API}/equipos`, { params: { q: t } });
+                const { data } = await axios.get(fuente.equipos, { params: { q: t } });
                 if (vivo) setRes({ buscando: false, lista: data?.equipos || [], error: null });
             } catch (err) {
                 if (vivo) setRes({ buscando: false, lista: null, error: mensajeError(err, 'No hemos podido buscar en el catálogo.') });
             }
         }, 350);
         return () => { vivo = false; clearTimeout(timer); };
-    }, [q]);
+    }, [q, fuente.equipos]);
     return (
         <>
             <Campo etiqueta="Busca el equipo por marca o modelo" id="rt-q">
@@ -283,27 +308,37 @@ function PasoInstalacion({ i, f, setI, setF }) {
     );
 }
 
-/* ── 5 · Revisar y generar ────────────────────────────────────────────────── */
+/* ── 5 · Revisar y generar (o, con el enlace, «Enviar a BROKERGY») ──────── */
 function Revisar({ memoria, guardarYa, onGenerada, emisor }) {
+    const fuente = useFuente();
     const { cuenta, refrescar } = useRiteAuth();
     const toast = useToast();
     const [generando, setGenerando] = useState(false);
     const [errorGen, setErrorGen] = useState(null);
-    const r = useCarga(async () => { await guardarYa(); return (await axios.get(`${API}/memorias/${memoria.id}/comprobar`)).data; }, [memoria.id]);
+    const [enviada, setEnviada] = useState(null);   // con el enlace: { faltan } si se envió sin poder generarse
+    const r = useCarga(async () => { await guardarYa(); return (await axios.get(`${fuente.base}/comprobar`)).data; }, [fuente.base]);
+    const enlace = fuente.tipo === 'enlace';
     const creditos = Number(cuenta?.creditos) || 0;
-    const gratis = memoria.credito_consumido || memoria.origen === 'BROKERGY';
+    // Lo de BROKERGY (la administración y el enlace) no gasta memorias del instalador.
+    const gratis = fuente.tipo !== 'cuenta' || memoria.credito_consumido || memoria.origen === 'BROKERGY';
 
     const generar = async () => {
-        setGenerando(true); setErrorGen(null);
+        setGenerando(true); setErrorGen(null); setEnviada(null);
         try {
             await guardarYa();
-            const { data } = await axios.post(`${API}/memorias/${memoria.id}/generar`);
-            await refrescar();
-            toast('Memoria generada');
+            const { data } = await axios.post(fuente.generar);
+            if (fuente.tipo === 'cuenta') await refrescar();
+            if (enlace && !data.generada) {
+                setEnviada({ faltan: data.faltan || [] });
+                toast('Enviada a BROKERGY');
+                r.recargar({ silencioso: true });
+                return;
+            }
+            toast(enlace ? 'Enviada y generada' : 'Memoria generada');
             onGenerada(data.memoria);
         } catch (err) {
             const e = errorDe(err);
-            setErrorGen({ texto: mensajeError(err, 'No hemos podido generar la memoria.'), faltan: e.faltan || null });
+            setErrorGen({ texto: mensajeError(err, enlace ? 'No hemos podido enviarla.' : 'No hemos podido generar la memoria.'), faltan: e.faltan || null });
             r.recargar({ silencioso: true });
         } finally {
             setGenerando(false);
@@ -317,8 +352,9 @@ function Revisar({ memoria, guardarYa, onGenerada, emisor }) {
     return (
         <>
             {faltan.length > 0 ? (
-                <Aviso tono="fuerte" titulo={`Falta ${faltan.length === 1 ? 'una cosa' : `${faltan.length} cosas`} para generarla`}>
+                <Aviso tono="fuerte" titulo={faltan.length === 1 ? 'Falta una cosa para generarla' : `Faltan ${faltan.length} cosas para generarla`}>
                     <ul className="rt-lista-faltan">{faltan.map(x => <li key={x}>{x}</li>)}</ul>
+                    {enlace && <p className="ca-peq" style={{ marginTop: 6 }}>Si no lo sabes, envíala igual: BROKERGY lo completa.</p>}
                 </Aviso>
             ) : (
                 <Aviso tono="ok" titulo="Está todo">La memoria se puede generar.</Aviso>
@@ -355,29 +391,50 @@ function Revisar({ memoria, guardarYa, onGenerada, emisor }) {
                 </>
             )}
 
+            {enviada && (
+                <div style={{ marginTop: 12 }}>
+                    <Aviso tono="ok" titulo="Recibida en BROKERGY">
+                        Gracias. Con lo que falta no se puede generar todavía: lo completamos nosotros y te quedan aquí los documentos.
+                    </Aviso>
+                </div>
+            )}
             {errorGen && (
                 <div style={{ marginTop: 12 }}>
-                    <Aviso tono="fuerte" titulo="No se ha generado">
+                    <Aviso tono="fuerte" titulo={enlace ? 'No se ha enviado' : 'No se ha generado'}>
                         {errorGen.texto}
                         {errorGen.faltan?.length > 0 && <ul className="rt-lista-faltan">{errorGen.faltan.map(x => <li key={x}>{x}</li>)}</ul>}
                     </Aviso>
                 </div>
             )}
             <div className="ca-btns">
-                <button type="button" className="ca-btn ca-btn-pri" onClick={generar} disabled={generando || faltan.length > 0 || (!gratis && !creditos)}>
-                    {generando ? <><Spinner /> Generando (un minuto)…</> : memoria.generaciones ? <><IcoRecargar size={18} /> Volver a generar</> : <><IcoCheck size={18} sw={2.6} /> Generar la memoria</>}
-                </button>
+                {enlace ? (
+                    <button type="button" className="ca-btn ca-btn-pri" onClick={generar} disabled={generando}>
+                        {generando ? <><Spinner /> Enviando (un minuto)…</> : <><IcoEnviar size={18} /> {memoria.completada_at ? 'Enviar otra vez a BROKERGY' : 'Enviar a BROKERGY'}</>}
+                    </button>
+                ) : (
+                    <button type="button" className="ca-btn ca-btn-pri" onClick={generar} disabled={generando || faltan.length > 0 || (!gratis && !creditos)}>
+                        {generando ? <><Spinner /> Generando (un minuto)…</> : memoria.generaciones ? <><IcoRecargar size={18} /> Volver a generar</> : <><IcoCheck size={18} sw={2.6} /> Generar la memoria</>}
+                    </button>
+                )}
             </div>
             <p className="ca-peq" style={{ marginTop: 8, textAlign: 'center' }}>
-                {gratis ? 'Volver a generarla no gasta memorias.' : creditos ? `Gasta 1 memoria (te quedan ${creditos}). Si algo falla, no se gasta.` : 'No te quedan memorias: escríbenos y te cargamos más.'}
+                {enlace ? 'Si está todo, la memoria se genera al momento y te queda en «Documentos».'
+                    : fuente.tipo === 'admin' ? 'De BROKERGY: no gasta memorias del instalador.'
+                        : gratis ? 'Volver a generarla no gasta memorias.' : creditos ? `Gasta 1 memoria (te quedan ${creditos}). Si algo falla, no se gasta.` : 'No te quedan memorias: escríbenos y te cargamos más.'}
             </p>
         </>
     );
 }
 
 /* ── La pantalla ──────────────────────────────────────────────────────────── */
-export default function Memoria({ id, pasoInicial }) {
-    const carga = useCarga(() => axios.get(`${API}/memorias/${id}`).then(r => r.data.memoria), [id]);
+/**
+ * `fuente`: de `fuenteDe` (cuenta · admin · enlace). `Envoltorio`: el marco de la página
+ * (con el enlace no hay cuenta: lo pone App). `volver`: { txt, to } o nada.
+ * `extra({ memoria, info, recargar })`: lo que la administración pone encima de los pasos
+ * (el enlace para el instalador, el CIT). `info` es la respuesta entera del GET.
+ */
+export default function Memoria({ fuente, pasoInicial, Envoltorio = Marco, volver = { txt: 'Mis memorias', to: '/panel' }, extra }) {
+    const carga = useCarga(() => axios.get(fuente.base).then(r => r.data), [fuente.base]);
     const [memoria, setMemoria] = useState(null);
     const [datos, setDatos] = useState(null);
     const [paso, setPaso] = useState(pasoInicial || null);
@@ -396,11 +453,14 @@ export default function Memoria({ id, pasoInicial }) {
     }, [paso, hayMemoria]);
 
     useEffect(() => {
-        if (!carga.datos) return;
-        setMemoria(carga.datos);
-        setDatos(conDefectos(carga.datos.datos));
-        setPaso(p => p || (carga.datos.estado === 'BORRADOR' ? 'vivienda' : 'documentos'));
-    }, [carga.datos]);
+        const m = carga.datos?.memoria;
+        if (!m) return;
+        setMemoria(m);
+        setDatos(conDefectos(m.datos));
+        // Con el enlace, la vivienda y el titular ya los ha puesto BROKERGY: se empieza por la instalación.
+        const yaPuesto = fuente.tipo === 'enlace' && m.datos?.vivienda?.ref_catastral && m.datos?.titular?.nombre;
+        setPaso(p => p || (m.estado !== 'BORRADOR' ? 'documentos' : yaPuesto ? 'instalacion' : 'vivienda'));
+    }, [carga.datos, fuente.tipo]);
 
     const guardarYa = useCallback(async () => {
         clearTimeout(timer.current);
@@ -409,7 +469,7 @@ export default function Memoria({ id, pasoInicial }) {
         if (!d) return;
         pendiente.current = null;
         setGuardado({ estado: 'guardando', error: null });
-        const p = axios.put(`${API}/memorias/${id}`, { datos: d })
+        const p = axios.put(fuente.guardar, { datos: d })
             .then(({ data }) => {
                 setMemoria(m => ({ ...m, ...data.memoria, datos: m?.datos }));
                 setGuardado(g => (pendiente.current ? g : { estado: 'ok', error: null }));
@@ -421,7 +481,7 @@ export default function Memoria({ id, pasoInicial }) {
             });
         enCurso.current = p.catch(() => {});
         await p;
-    }, [id]);
+    }, [fuente.guardar]);
 
     const cambiar = useCallback((bloque, valor) => {
         setDatos(prev => {
@@ -443,27 +503,34 @@ export default function Memoria({ id, pasoInicial }) {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    if (carga.cargando && !memoria) return <Marco><Esqueleto alto={60} /><Esqueleto alto={320} /></Marco>;
-    if (carga.error && !memoria) return <Marco><ErrorRed error={carga.error} onReintentar={carga.recargar} /></Marco>;
-    if (!memoria || !datos) return <Marco><Esqueleto alto={320} /></Marco>;
+    if (carga.cargando && !memoria) return <Envoltorio><Esqueleto alto={60} /><Esqueleto alto={320} /></Envoltorio>;
+    if (carga.error && !memoria) return <Envoltorio><ErrorRed error={carga.error} onReintentar={carga.recargar} /></Envoltorio>;
+    if (!memoria || !datos) return <Envoltorio><Esqueleto alto={320} /></Envoltorio>;
 
     const iPaso = Math.max(0, PASOS.findIndex(p => p.id === paso));
     const titular = [datos.titular.nombre, datos.titular.apellidos].filter(Boolean).join(' ');
     const e = ESTADOS[memoria.estado] || ESTADOS.BORRADOR;
     const textoGuardado = { ok: 'Guardado', pendiente: 'Sin guardar…', guardando: 'Guardando…', error: 'Sin guardar' }[guardado.estado];
 
+    const origenTxt = fuente.tipo === 'enlace'
+        ? 'Te la ha preparado BROKERGY: completa lo que sepas y dale a «Enviar a BROKERGY» en «Revisar». No te gasta memorias.'
+        : fuente.tipo === 'admin' ? null
+            : memoria.origen === 'BROKERGY' ? 'Preparada por BROKERGY: no te gasta memorias.' : null;
+
     return (
-        <Marco>
-            <div className="ca-in" style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}>
-                <button type="button" className="ca-link ca-link-gris" onClick={() => navegar('/panel')}><IcoAtras size={16} /> Mis memorias</button>
+        <FuenteCtx.Provider value={fuente}>
+        <Envoltorio>
+            <div className="ca-in" style={{ display: 'flex', alignItems: 'center', gap: 10, justifyContent: volver ? 'space-between' : 'flex-end' }}>
+                {volver && <button type="button" className="ca-link ca-link-gris" onClick={() => navegar(volver.to)}><IcoAtras size={16} /> {volver.txt}</button>}
                 <span className="rt-guardado" aria-live="polite">{textoGuardado}</span>
             </div>
             <div className="ca-in" style={{ margin: '6px 2px 14px' }}>
                 <p className="ca-eyebrow">{memoria.numero} · <span className={`ca-chip ${e.chip}`} style={{ height: 20, verticalAlign: 'middle' }}>{e.txt}</span></p>
                 <h1 className="ca-display ca-h2" style={{ marginTop: 8 }}>{titular || 'Nueva memoria RITE'}</h1>
                 {datos.vivienda.direccion && <p className="ca-peq" style={{ marginTop: 6 }}><IcoUbicacion size={13} /> {datos.vivienda.direccion}{datos.vivienda.municipio ? `, ${datos.vivienda.municipio}` : ''}</p>}
-                {memoria.origen === 'BROKERGY' && <p className="ca-peq" style={{ marginTop: 6 }}>Preparada por BROKERGY: no te gasta memorias.</p>}
+                {origenTxt && <p className="ca-peq" style={{ marginTop: 6 }}>{origenTxt}</p>}
             </div>
+            {extra && extra({ memoria, info: carga.datos, recargar: () => carga.recargar({ silencioso: true }) })}
             {guardado.estado === 'error' && (
                 <div style={{ marginBottom: 12 }}>
                     <Aviso titulo="No se ha guardado">{guardado.error} <button type="button" className="ca-link" onClick={() => guardarYa().catch(() => {})}>Reintentar</button></Aviso>
@@ -499,8 +566,10 @@ export default function Memoria({ id, pasoInicial }) {
                 )}
                 {paso === 'documentos' && (
                     <>
-                        <p className="ca-txt">Fírmala con el certificado de la empresa (AutoFirma) y preséntala en eDICE (JCCM). Si cambias algo, vuelve a «Revisar» y genérala otra vez: la anterior queda guardada.</p>
-                        <div style={{ marginTop: 6 }}><Documentos memoriaId={memoria.id} version={versionDocs} /></div>
+                        <p className="ca-txt">{fuente.tipo === 'enlace'
+                            ? 'Fírmala con el certificado de la empresa (AutoFirma). Si algo no está bien, corrígelo y vuelve a enviarla desde «Revisar»: la anterior queda guardada.'
+                            : 'Fírmala con el certificado de la empresa (AutoFirma) y preséntala en eDICE (JCCM). Si cambias algo, vuelve a «Revisar» y genérala otra vez: la anterior queda guardada.'}</p>
+                        <div style={{ marginTop: 6 }}><Documentos base={fuente.base} version={versionDocs} /></div>
                     </>
                 )}
                 {iPaso < 4 && (
@@ -511,6 +580,7 @@ export default function Memoria({ id, pasoInicial }) {
                     </div>
                 )}
             </section>
-        </Marco>
+        </Envoltorio>
+        </FuenteCtx.Provider>
     );
 }

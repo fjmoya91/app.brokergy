@@ -2423,17 +2423,18 @@ function createMcpServer() {
 
     mcp.tool(
         'memoria_rite',
-        'Hace una MEMORIA TÉCNICA RITE SUELTA (sin expediente CAE) en la app RITE (rite.brokergy.es) para un instalador, y la deja en los Documentos de su app. Úsala cuando el usuario diga «hazme la memoria RITE de …», «memoria RITE suelta para el instalador X». Con la referencia catastral, el Catastro pone la dirección, la superficie, las plantas y la zona. El equipo se busca en el catálogo (si hay varios, devuelve opciones_equipo: PREGUNTA cuál). Estancias: modo "rapido" (se estiman por la superficie) o "extendido" (las que diga el usuario por planta, con los elementos de radiador de cada una: la potencia sale de elementos × W por elemento). Si falta algo, queda en borrador y devuelve faltan. No gasta créditos del instalador y no envía nada. Solo Castilla-La Mancha (plantilla JCCM).',
+        'Hace una MEMORIA TÉCNICA RITE SUELTA (sin expediente CAE) en la app RITE (rite.brokergy.es) para un instalador, y la deja en los Documentos de su app. Úsala cuando el usuario diga «hazme la memoria RITE de …», «memoria RITE suelta para el instalador X», «la memoria del CIT 2026CIT_7». Con `cit` (el nº de un CIT del CRM) toma de ese CIT el instalador, el cliente como titular y la referencia catastral, y lo generado sube al CIT como versión final; si el CIT ya tenía memoria, la completa con lo que se diga. Con la referencia catastral, el Catastro pone la dirección, la superficie, las plantas y la zona. El equipo se busca en el catálogo (si hay varios, devuelve opciones_equipo: PREGUNTA cuál). Estancias: modo "rapido" (se estiman por la superficie) o "extendido" (las que diga el usuario por planta, con los elementos de radiador de cada una: la potencia sale de elementos × W por elemento). Si falta algo, queda en borrador y devuelve faltan. No gasta créditos del instalador y no envía nada. Solo Castilla-La Mancha (plantilla JCCM).',
         {
             instalador: z.object({
                 cif: z.string().optional(), email: z.string().optional(),
                 prescriptor_id: z.string().optional(), cuenta_id: z.string().optional(),
-            }).describe('Quién firma la memoria: el CIF o el email de la empresa instaladora (partner o cuenta de la app).'),
-            ref_catastral: z.string().describe('Referencia catastral de la VIVIENDA (20 caracteres).'),
+            }).optional().describe('Quién firma la memoria: el CIF o el email de la empresa instaladora (partner o cuenta de la app). Con `cit`, no hace falta.'),
+            cit: z.string().optional().describe('Nº del CIT del CRM ({AAAA}CIT_{n}) al que pertenece la memoria.'),
+            ref_catastral: z.string().optional().describe('Referencia catastral de la VIVIENDA (20 caracteres). Con `cit`, la del CIT.'),
             titular: z.object({
                 nombre: z.string(), apellidos: z.string().optional(), nif: z.string().optional(),
                 sexo: z.enum(['H', 'M']).optional(), es_empresa: z.boolean().optional(), telefono: z.string().optional(),
-            }).describe('El titular de la instalación (el cliente del instalador).'),
+            }).optional().describe('El titular de la instalación (el cliente del instalador). Con `cit`, el cliente del CIT.'),
             equipo: z.object({
                 texto: z.string().optional().describe('Marca y modelo como lo diga el usuario, para buscar en el catálogo.'),
                 aerotermia_id: z.number().optional().describe('Id del catálogo, si ya se sabe (de opciones_equipo).'),
@@ -2456,7 +2457,20 @@ function createMcpServer() {
             }).optional(),
             generar: z.boolean().optional().describe('false = prepararla sin generar.'),
         },
-        async (args) => {
+        async ({ cit, ...args }) => {
+            if (cit) {
+                const { generar, ...extra } = args;
+                const r = await backendFetch('POST', `/api/riteapp-admin/desde-informe/${encodeURIComponent(cit.trim().toUpperCase())}`, { extra, generar: generar !== false });
+                if (r.httpError) return err(r.httpError);
+                if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}`, code: r.data?.code });
+                if (!r.data.existia || !Object.keys(extra).length) return ok({ ...vistaMemoriaRite(r.data), cit: r.data.cit, ya_existia: !!r.data.existia });
+                // El CIT ya tenía memoria: se completa con lo dicho.
+                const c = await backendFetch('PUT', `/api/riteapp-admin/memorias/${r.data.memoria.id}`, { ...extra, generar: generar !== false });
+                if (c.httpError) return err(c.httpError);
+                if (!c.okHttp) return ok({ ok: false, message: c.data?.error || `Error ${c.status}`, code: c.data?.code });
+                return ok({ ...vistaMemoriaRite(c.data), cit: r.data.cit, ya_existia: true });
+            }
+            if (!args.instalador || !args.ref_catastral || !args.titular) return ok({ ok: false, message: 'Sin `cit` hacen falta el instalador, la referencia catastral y el titular. Pregúntaselos al usuario.' });
             const r = await backendFetch('POST', '/api/riteapp-admin/memorias', args);
             if (r.httpError) return err(r.httpError);
             if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}`, code: r.data?.code, opciones: r.data?.opciones });
@@ -2496,7 +2510,33 @@ function createMcpServer() {
             const r = await backendFetch('GET', `/api/riteapp-admin/memorias${q ? `?q=${encodeURIComponent(q)}` : ''}`);
             if (r.httpError) return err(r.httpError);
             if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}` });
-            return ok({ ok: true, memorias: (r.data?.memorias || []).map(m => ({ id: m.id, numero: m.numero, titular: m.nombre, estado: m.estado, instalador: m.riteapp_cuentas?.empresa, municipio: m.municipio, generada_at: m.generada_at })) });
+            return ok({ ok: true, memorias: (r.data?.memorias || []).map(m => ({ id: m.id, numero: m.numero, titular: m.nombre, estado: m.estado, instalador: m.riteapp_cuentas?.empresa, municipio: m.municipio, generada_at: m.generada_at, de_brokergy: m.origen === 'BROKERGY', de_un_cit: !!m.informe_id, completada_por_instalador: m.completada_at || undefined })) });
+        }
+    );
+
+    mcp.tool(
+        'enlace_memoria_rite',
+        'Crea el ENLACE para que el INSTALADOR complete él mismo una memoria RITE (sin cuenta): el equipo y su nº de serie, las estancias y, en el modo extendido, los elementos de radiador de cada una, y la fecha de las pruebas. Cuando le da a «Enviar a BROKERGY» se genera sola (no gasta créditos) y, si es de un CIT, sube al CIT. Devuelve la URL y un MENSAJE en borrador. NO envía nada: enséñale al usuario el mensaje ENTERO y, solo con su «sí», mándalo por el canal que diga. Un enlace nuevo anula el anterior y caduca a los 30 días. Si la memoria aún no existe, créala antes con memoria_rite (con `cit` si es de un CIT) y generar=false.',
+        {
+            id: z.string().optional().describe('Id de la memoria (de memoria_rite o listar_memorias_rite).'),
+            cit: z.string().optional().describe('O el nº del CIT ({AAAA}CIT_{n}) cuya memoria es.'),
+            modo: z.enum(['rapido', 'extendido']).optional().describe('extendido = que meta los elementos de radiador de cada estancia.'),
+        },
+        async ({ id, cit, modo }) => {
+            let mid = id;
+            if (!mid && cit) {
+                const p = await backendFetch('GET', `/api/riteapp-admin/por-informe/${encodeURIComponent(cit.trim().toUpperCase())}`);
+                if (p.httpError) return err(p.httpError);
+                if (!p.okHttp) return ok({ ok: false, message: p.data?.error || `Error ${p.status}` });
+                if (!p.data?.memoria) return ok({ ok: false, message: `${p.data?.cit || cit} aún no tiene memoria RITE: créala con memoria_rite(cit, generar=false).` });
+                mid = p.data.memoria.id;
+            }
+            if (!mid) return ok({ ok: false, message: 'Dime de qué memoria (id) o de qué CIT.' });
+            const r = await backendFetch('POST', `/api/riteapp-admin/memorias/${encodeURIComponent(mid)}/enlace`, { modo });
+            if (r.httpError) return err(r.httpError);
+            if (!r.okHttp) return ok({ ok: false, message: r.data?.error || `Error ${r.status}` });
+            return ok({ ok: true, url: r.data.url, caduca: r.data.caduca_at, mensaje_borrador: r.data.mensaje, telefono_instalador: r.data.telefono_instalador,
+                aviso: 'NO enviado. Enséñale al usuario el mensaje ENTERO y a quién va; solo con su «sí», envíalo.' });
         }
     );
 

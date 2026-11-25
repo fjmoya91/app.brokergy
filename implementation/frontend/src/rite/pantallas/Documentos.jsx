@@ -6,15 +6,15 @@
 // la API: sin enlaces de Drive (regla 1).
 // ─────────────────────────────────────────────────────────────────────────────
 import { useState } from 'react';
-import { API, descargar, fecha, mensajeError, useCarga, axios } from '../api';
+import { descargar, fecha, mensajeError, useCarga, axios } from '../api';
 import { VisorPdf } from '../../certificadores/obra/VisorPdf';
 import { ErrorRed, Esqueleto, useToast } from '../../certificadores/ui/piezas';
 import { IcoDescarga, IcoDoc, Spinner } from '../../certificadores/ui/Iconos';
 
-function Fila({ d, memoriaId, onVer }) {
+function Fila({ d, base, onVer }) {
     const toast = useToast();
     const [bajando, setBajando] = useState(false);
-    const url = `${API}/memorias/${memoriaId}/documentos/${d.id}`;
+    const url = `${base}/documentos/${encodeURIComponent(d.id)}`;
     return (
         <li className="ca-doc">
             <span className={`ca-ico-tile ${d.actual ? 'ca-tile-naranja' : 'ca-tile-crema'}`}><IcoDoc size={19} /></span>
@@ -34,10 +34,11 @@ function Fila({ d, memoriaId, onVer }) {
     );
 }
 
-export default function Documentos({ memoriaId, version }) {
+/** `base`: la memoria en SU API (la cuenta, la administración o el enlace del instalador). */
+export default function Documentos({ base, version }) {
     const { datos, error, cargando, recargar } = useCarga(
-        () => axios.get(`${API}/memorias/${memoriaId}/documentos`).then(r => r.data || { actuales: [], anteriores: [] }),
-        [memoriaId, version],
+        () => axios.get(`${base}/documentos`).then(r => r.data || { actuales: [], anteriores: [] }),
+        [base, version],
     );
     const [visor, setVisor] = useState(null);
     const [verViejos, setVerViejos] = useState(false);
@@ -49,7 +50,7 @@ export default function Documentos({ memoriaId, version }) {
         <div>
             {!actuales.length && <p className="ca-txt">Aún no hay documentos: se generan en «Revisar».</p>}
             <ul className="ca-docs">
-                {actuales.map(d => <Fila key={d.id} d={d} memoriaId={memoriaId} onVer={setVisor} />)}
+                {actuales.map(d => <Fila key={d.id} d={d} base={base} onVer={setVisor} />)}
             </ul>
             {anteriores.length > 0 && (
                 <>
@@ -58,7 +59,7 @@ export default function Documentos({ memoriaId, version }) {
                     </button>
                     {verViejos && (
                         <ul className="ca-docs">
-                            {anteriores.map(d => <Fila key={d.id} d={d} memoriaId={memoriaId} onVer={setVisor} />)}
+                            {anteriores.map(d => <Fila key={d.id} d={d} base={base} onVer={setVisor} />)}
                         </ul>
                     )}
                 </>

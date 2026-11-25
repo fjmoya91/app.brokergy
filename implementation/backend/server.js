@@ -76,6 +76,7 @@ app.use('/api/public/marketplace', require('./routes/publicMarketplace'));
 app.use('/api/public/certapp', require('./routes/certappPublic'));
 // El enlace del CLIENTE de un informe técnico (2026INF_n): su token, sin sesión. ANTES de /api/public.
 app.use('/api/public/informe', require('./routes/informesPublic'));
+app.use('/api/public/riteapp', require('./routes/riteappPublic'));   // regla 245: el instalador completa la memoria con su enlace
 app.use('/api/public', require('./routes/public'));
 // Servlets de almacenamiento intermedio de Autofirma (@firma) para firmar/recuperar
 // ficheros GRANDES. Montados bajo /api para reutilizar el proxy nginx existente

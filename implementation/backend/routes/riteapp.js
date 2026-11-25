@@ -30,10 +30,16 @@ router.post('/alta', riteappSesion, async (req, res) => {
         if (e1) throw M.errorBd(e1, 'alta');
         let cuenta;
         if (previa) {
-            const { data, error } = await supabase.from('riteapp_cuentas').update({ ...perfil, auth_user_id: s.authId, estado: 'ACTIVA' })
+            // La primera memoria gratis vale también para la cuenta que le preparó BROKERGY
+            // (Fran, 25/11/2026: «la primera gratis»), una sola vez: si ya tuvo su ALTA, no.
+            const { data: yaAlta, error: e2 } = await supabase.from('riteapp_movimientos').select('id').eq('cuenta_id', previa.id).eq('tipo', 'ALTA').limit(1);
+            if (e2) throw M.errorBd(e2, 'alta (adoptar)');
+            const regalo = yaAlta?.length ? 0 : creditosAlta();
+            const { data, error } = await supabase.from('riteapp_cuentas').update({ ...perfil, auth_user_id: s.authId, estado: 'ACTIVA', creditos: (previa.creditos || 0) + regalo })
                 .eq('id', previa.id).select('*').single();
             if (error) throw M.errorBd(error, 'alta (adoptar)');
             cuenta = data;
+            if (regalo) await supabase.from('riteapp_movimientos').insert({ cuenta_id: cuenta.id, tipo: 'ALTA', creditos: regalo, saldo_despues: cuenta.creditos, concepto: 'Bienvenida', por: 'sistema' });
         } else {
             const creditos = creditosAlta();
             const { data, error } = await supabase.from('riteapp_cuentas')
@@ -86,7 +92,7 @@ const suya = (req) => M.obtener(req.params.id, req.riteapp.cuenta.id);
 const paraInstalador = (m) => ({
     id: m.id, numero: m.numero, nombre: m.nombre, estado: m.estado, datos: m.datos,
     generada_at: m.generada_at, generaciones: m.generaciones, credito_consumido: m.credito_consumido,
-    origen: (m.historial || [])[0]?.por === 'BROKERGY' ? 'BROKERGY' : 'instalador',
+    origen: m.origen === 'BROKERGY' ? 'BROKERGY' : 'instalador',
     created_at: m.created_at, updated_at: m.updated_at,
 });
 

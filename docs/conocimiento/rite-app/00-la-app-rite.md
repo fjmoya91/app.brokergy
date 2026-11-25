@@ -112,12 +112,58 @@ instalador (regla 1): se sirven los bytes por la API.
 Pruebas en seco de todo el circuito (Supabase, Drive y Catastro de mentira; el generador de verdad):
 `node implementation/backend/scripts/test_riteapp_encargo.js`.
 
+### Todo unificado: el CIT del CRM, el enlace al instalador, la administración y el precio (2026-11-25, tarde)
+
+Fran: «ponla en producción… la primera gratis y se les pueden añadir BONOS desde ADMIN. Desde ADMIN quiero
+tener acceso a la app de los CEE y la del RITE. También quiero que esté conectado a mi app maestra… una
+opción de que le llegue un mensaje con una URL al instalador para que complete los datos él mismo… y que
+desde un agente le diga "hazme la memoria técnica de tal sitio"».
+
+- **Una memoria por CIT** (`riteapp_memorias.informe_id`, índice único salvo ANULADA). En la ficha del CIT
+  del CRM (`InformeDetailView`, línea CIT) va la tarjeta **«Memoria RITE (app RITE)»**
+  ([MemoriaRiteCit.jsx](implementation/frontend/src/features/informes/components/MemoriaRiteCit.jsx)):
+  «Crear la memoria» (`POST /api/riteapp-admin/desde-informe/:id`, `encargo.desdeInforme`) la monta con lo
+  que el CIT sabe (el cliente como titular, su instalador —el prescriptor del CIT— como cuenta, la
+  referencia catastral o la dirección) y, si no falta nada, la genera. **Generada, la memoria en PDF y en
+  Word SUBE AL CIT como versión final** (`FINAL_PDF` / `FINAL_WORD` por `informeService.subir`, con su
+  nota): el circuito del CIT sigue igual (firmar, eDICE, facturar). Si la subida falla, se anota y la
+  memoria queda generada igual. Un CIT que ya tiene memoria devuelve la que hay (`existia: true`).
+- **`origen`** (`INSTALADOR` / `BROKERGY`): la de BROKERGY no gasta créditos la regenere quien la regenere.
+- **El enlace del instalador**: `rite.brokergy.es/completar/:token` (`crearEnlace`: 32 hex al azar, caduca a
+  los 30 días, uno nuevo anula el anterior). Sin cuenta: la MISMA pantalla de la memoria (fuente `enlace`,
+  `/api/public/riteapp/:token`, pública por diseño y en `ROUTERS_PUBLICOS`), empezando por la
+  Instalación si BROKERGY ya puso vivienda y titular, en el modo pedido (rápido o con radiadores, el
+  modo se cambia SIN tocar las estancias que haya). **«Enviar a BROKERGY»** la deja `completada_at` y, si
+  no falta nada, la genera (origen BROKERGY) y sube al CIT; si falta, la recibe igual y lo completa
+  BROKERGY. **REGLA — el enlace vale para UNA memoria**: solo lee, guarda y sirve ficheros de ESA (regla
+  232), con límites por IP y 503 con la BD caída. **El mensaje con el enlace nunca sale solo**: el CRM, la
+  administración y el MCP (`enlace_memoria_rite`) dan el BORRADOR; se copia o se abre en el WhatsApp de
+  quien lo prepara.
+- **La administración** (`rite.brokergy.es/admin`): una sesión con fila en `usuarios` (ADMIN o
+  TRABAJADOR; `GET /api/riteapp-admin/yo`, que `RiteAuth` pregunta cuando `/me` da SIN_CUENTA → `equipo`)
+  ve todas las memorias y abre cada una con la MISMA pantalla (fuente `admin`, no gasta) más la tarjeta
+  del enlace y su CIT. **Cuentas y bonos, solo ADMIN**: «Añadir memorias» (`POST /cuentas/:id/creditos`,
+  con concepto e importe, queda en `riteapp_movimientos`) y bloquear/activar.
+- **El precio** (Fran, 25/11/2026): **la primera memoria gratis** (`RITEAPP_CREDITOS_ALTA`, 1 por
+  defecto) y las demás por **bonos** desde la administración. La cuenta que le preparó BROKERGY también
+  recibe la gratis al adoptarla, una sola vez (si no tiene ya un movimiento `ALTA`).
+- **El CRM enlaza las dos apps**: «App CEE» y «App RITE» en el menú lateral del ADMIN (grupo «Apps»,
+  `utils/appsExternas.js`: en producción su subdominio; en local `cee.localhost` / `rite.localhost`).
+- **El agente**: `memoria_rite` acepta `cit` (con eso basta: instalador, titular y vivienda salen del
+  CIT; lo que se diga encima manda) o, sin CIT, instalador + referencia catastral + titular.
+  `enlace_memoria_rite({ id | cit, modo })` devuelve la URL y el borrador del mensaje, sin enviar.
+
+La pantalla de la memoria sirve a las tres fuentes (`fuenteDe('cuenta' | 'admin' | 'enlace', clave)` en
+`pantallas/Memoria.jsx`): de dónde lee, adónde guarda, cómo genera y de dónde trae el Catastro y el
+catálogo. Lo que bloquea lo sigue diciendo el servidor.
+
 ### Las pantallas (`rite.html` + `src/rite/`, 2026-11-25)
 
 Tercera entrada del build de Vite. Reutiliza de la app de certificadores el CSS `.ca-` (estilo «carta de
 pago»), `piezas.jsx`, `Iconos.jsx`, el router y el visor de PDF (`obra/VisorPdf.jsx`); lo propio va con
 prefijo `.rt-` en `src/rite/ui/estilo.js`. Rutas: `/` (portada y entrar), `/alta`, `/panel`,
-`/memoria/:id` (`?paso=` abre uno concreto) y `/perfil`.
+`/memoria/:id` (`?paso=` abre uno concreto), `/perfil`, `/completar/:token` (el enlace del instalador) y
+`/admin`, `/admin/cuentas`, `/admin/memoria/:id` (el equipo).
 
 - **Entrar**: Google (`signInWithOAuth`) o el enlace mágico de Supabase (`signInWithOtp`, sin
   contraseña). La sesión sin cuenta (`403 RITEAPP_SIN_CUENTA`) va a `/alta`; con el servidor caído se
@@ -132,12 +178,12 @@ prefijo `.rt-` en `src/rite/ui/estilo.js`. Rutas: `/` (portada y entrar), `/alta
   acabaría enseñando una tabla y firmando otra.
 - **El arranque del CRM no monta en `rite.html`**: `src/main.jsx` mira `data-app` (como con
   certificadores).
-- En desarrollo: `http://rite.localhost:5173/` o `/?app=rite` una vez (cookie por puerto,
-  `vite.config.js`). Producción: `nginx/rite.brokergy.es.conf` (con 300 s para `/generar`).
+- En desarrollo: `http://rite.localhost:5173/` (mejor que `/?app=rite`, que deja una cookie por puerto y
+  el CRM de ese puerto pasa a ser la app RITE; `vite.config.js`). Producción: `nginx/rite.brokergy.es.conf` (con 300 s para `/generar`).
 
 ### Para producción (lo de una vez, como cee.brokergy.es)
 
-SQL `riteapp_schema.sql` en Supabase (con el «sí» de Fran) · DNS `rite` → `187.77.93.213` · bloque de
+SQL `riteapp_schema.sql` en Supabase (Fran dio el «sí» el 25/11/2026) · DNS `rite` → `187.77.93.213` · bloque de
 nginx + certbot (copia de referencia en `nginx/`) · `RITEAPP_URL` en el `.env` del VPS y en `crearCors` ·
 Redirect URLs de Supabase Auth para Google · desplegar el backend y **el contenedor del rite-generator**
 (lleva el modo extendido).

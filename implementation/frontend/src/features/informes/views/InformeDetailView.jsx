@@ -18,6 +18,7 @@ import { useAuth } from '../../../context/AuthContext';
 import { lazyWithReload } from '../../../utils/lazyWithReload';
 import { SendActionOverlay } from '../../../components/SendActionOverlay';
 import { colorEstadoInforme } from '../logic/estados';
+import { MemoriaRiteCit } from '../components/MemoriaRiteCit';
 
 const FirmarConCertificadoModal = lazyWithReload(() => import('../../expedientes/components/FirmarConCertificadoModal'), { name: 'informe:firmar' });
 
@@ -324,6 +325,9 @@ export function InformeDetailView({ id, onBack }) {
                 )}
                 {esAdmin && inf.cobrado && <button onClick={() => confirmarCobro(false)} className="mt-3 text-[10px] text-white/30 hover:text-white/60 uppercase tracking-widest">Deshacer el cobro</button>}
             </Tarjeta>
+
+            {/* ── La memoria RITE, con la app RITE (regla 245) ─────── */}
+            {esCit && <MemoriaRiteCit informeId={inf.id} anulado={anulado} onCambio={cargar} />}
 
             {/* ── Documentos ───────────────────────────────────────── */}
             <Tarjeta titulo="Documentos" derecha={<button onClick={cargar} className="text-[10px] text-white/30 hover:text-white/70 uppercase tracking-widest">Recargar</button>}>

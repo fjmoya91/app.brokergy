@@ -139,7 +139,7 @@ async function hazMemoria(input = {}, { por = 'BROKERGY' } = {}) {
         fechas: { pruebas: input.fecha_pruebas || null, firma: input.fecha_firma || null },
         estancias,
     };
-    let memoria = await M.crear(cuenta, datos, { por });
+    let memoria = await M.crear(cuenta, datos, { por, origen: 'BROKERGY', informeId: input.informe_id || null });
     return terminar(memoria, cuenta, { generar: input.generar !== false, opciones, por });
 }
 
@@ -190,4 +190,42 @@ async function terminar(memoria, cuenta, { generar, opciones, por }) {
 
 const resumen = (m) => ({ id: m.id, numero: m.numero, nombre: m.nombre, estado: m.estado, generada_at: m.generada_at, modo: m.datos?.estancias?.modo || 'rapido' });
 
-module.exports = { hazMemoria, completar, resolverCuenta, resolverEquipo, camposDePrescriptor };
+/**
+ * La memoria RITE de un CIT del CRM (`{AAAA}CIT_{n}`, informes línea CIT): la
+ * crea con lo que el CIT ya sabe —su instalador (`prescriptor_id`), el cliente
+ * como titular y la referencia catastral— o devuelve la que ya tiene. Lo que se
+ * genere sube al CIT como versión final (memorias.alCit). No gasta créditos.
+ */
+async function desdeInforme(idONumero, { por = 'BROKERGY', extra = {}, generar = false } = {}) {
+    const I = require('../informeService');
+    const row = await I.cargar(idONumero);
+    if (!row) throw M.fallo(404, 'No encontramos ese CIT.', 'CIT_NO_ENCONTRADO');
+    if ((row.linea || 'INF') !== 'CIT') throw M.fallo(422, `${row.numero} no es un CIT (certificado de instalación térmica).`, 'NO_ES_CIT');
+    if (row.anulado_at) throw M.fallo(409, `${row.numero} está anulado.`, 'CIT_ANULADO');
+    const ya = await M.porInforme(row.id);
+    if (ya) {
+        const cuenta = await M.cuentaPorId(ya.cuenta_id);
+        return { ...(await terminar(ya, cuenta, { generar: false, opciones: [], por })), existia: true, cit: row.numero };
+    }
+    if (!row.prescriptor_id && !extra.instalador) throw M.fallo(422, `${row.numero} no tiene instalador: asígnaselo en la ficha del CIT (o dime cuál es).`, 'CIT_SIN_INSTALADOR');
+    const c = row.cliente || {};
+    const titular = {
+        es_empresa: !!c.es_empresa, nombre: c.nombre_razon_social || '', apellidos: c.apellidos || '',
+        nif: c.dni || c.dni_nie || c.nif || '', telefono: c.tlf || '', email: c.email || '',
+        ...(extra.titular || {}),
+    };
+    const r = await hazMemoria({
+        ...extra,
+        instalador: extra.instalador || { prescriptor_id: row.prescriptor_id },
+        ref_catastral: extra.ref_catastral || row.ref_catastral || undefined,
+        // Sin referencia catastral, la dirección que ya tiene el CIT (con ella, manda el Catastro).
+        ...(!(extra.ref_catastral || row.ref_catastral) && !extra.vivienda ? { vivienda: Object.fromEntries(Object.entries({
+            direccion: row.direccion, municipio: row.municipio, provincia: row.provincia, codigo_postal: row.codigo_postal,
+        }).filter(([, v]) => v)) } : {}),
+        titular, informe_id: row.id, generar,
+    }, { por });
+    await I.anotar(row.id, `Memoria RITE ${r.memoria.numero} creada en la app RITE`, por);
+    return { ...r, existia: false, cit: row.numero };
+}
+
+module.exports = { hazMemoria, completar, desdeInforme, resolverCuenta, resolverEquipo, camposDePrescriptor };

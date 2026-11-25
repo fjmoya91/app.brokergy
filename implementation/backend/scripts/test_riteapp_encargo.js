@@ -20,6 +20,7 @@ function consulta(tabla) {
     const q = {
         select() { return q; }, order() { return q; },
         eq(c, v) { filtros.push(r => String(r[c]) === String(v)); return q; },
+        neq(c, v) { filtros.push(r => String(r[c]) !== String(v)); return q; },
         ilike(c, v) { filtros.push(r => String(r[c] || '').toLowerCase() === String(v).toLowerCase().replace(/%/g, '')); return q; },
         is(c, v) { filtros.push(r => (r[c] ?? null) === v); return q; },
         in(c, vs) { filtros.push(r => vs.map(String).includes(String(r[c]))); return q; },
@@ -89,6 +90,15 @@ const poner = (rel, exp) => { const p = require.resolve(path.join(B, rel)); requ
 poner('services/supabaseClient', fakeSupabase);
 poner('services/driveService', fakeDrive);
 poner('services/catastroService', fakeCatastro);
+// Los CIT del CRM (informeService): lo justo que usan encargo.desdeInforme y memorias.alCit.
+const informes = [];
+const subidasCit = [];
+const notasCit = [];
+poner('services/informeService', {
+    async cargar(id) { return informes.find(i => i.id === id || i.numero === id) || null; },
+    async anotar(id, texto) { notasCit.push({ id, texto }); },
+    async subir(row, clase, { nombre, buffer }) { subidasCit.push({ informe: row.numero, clase, nombre, pdf: buffer.slice(0, 4).toString() }); return {}; },
+});
 process.env.RITEAPP_DRIVE_FOLDER_ID = 'raiz';
 drive.set('raiz', { id: 'raiz', name: 'raiz', mimeType: FOLDER });
 
@@ -195,6 +205,62 @@ const t = async (nombre, fn) => { await fn(); ok++; console.log(`  ✓ ${nombre}
             assert.strictEqual(c.creditos, 0);
             await M.generar(await M.obtener(m.id), c, { origen: 'instalador' });   // regenerar: gratis
             assert.strictEqual(c.creditos, 0);
+        });
+    }
+
+    // ── Unificación con el CRM: la memoria de un CIT ────────────────────────
+    const partner = tablas.prescriptores[0];
+    informes.push(
+        { id: uuid(), numero: '2026CIT_7', linea: 'CIT', prescriptor_id: partner.id_empresa, ref_catastral: '1234567VK1113A0001AB',
+            cliente: { nombre_razon_social: 'LUISA', apellidos: 'GÓMEZ RUIZ', dni: '00000002W', tlf: '600000000' } },
+        { id: uuid(), numero: '2026INF_3', linea: 'INF', prescriptor_id: partner.id_empresa, cliente: {} },
+    );
+    let delCit;
+    await t('desde un CIT: la crea con su instalador, el cliente como titular y el Catastro; una sola por CIT', async () => {
+        const r = await E.desdeInforme('2026CIT_7', { por: 'equipo@brokergy' });
+        assert.strictEqual(r.existia, false);
+        delCit = tablas.riteapp_memorias.find(m => m.id === r.memoria.id);
+        assert.strictEqual(delCit.informe_id, informes[0].id);
+        assert.strictEqual(delCit.origen, 'BROKERGY');
+        assert.strictEqual(delCit.datos.titular.nombre, 'LUISA');
+        assert.strictEqual(delCit.datos.titular.nif, '00000002W');
+        assert.strictEqual(delCit.datos.vivienda.superficie, 110);
+        assert.strictEqual(delCit.cuenta_id, tablas.riteapp_cuentas[0].id, 'la cuenta del partner, la misma');
+        const otra = await E.desdeInforme(informes[0].id);
+        assert.strictEqual(otra.existia, true);
+        assert.strictEqual(otra.memoria.id, delCit.id);
+        await assert.rejects(E.desdeInforme('2026INF_3'), e => e.code === 'NO_ES_CIT');
+    });
+
+    await t('el enlace del instalador: 32 hex, sirve para ESA memoria; mal o caducado, no', async () => {
+        const { url } = await M.crearEnlace(delCit);
+        const token = url.split('/completar/')[1];
+        assert.ok(/^[0-9a-f]{32}$/.test(token), url);
+        assert.strictEqual((await M.porToken(token)).id, delCit.id);
+        await assert.rejects(M.porToken('a'.repeat(32)), e => e.code === 'ENLACE_NO_VALIDO' && e.status === 404);
+        await assert.rejects(M.porToken('../x'), e => e.code === 'ENLACE_NO_VALIDO');
+        const viejo = tablas.riteapp_memorias.find(m => m.id === delCit.id).enlace_caduca_at;
+        tablas.riteapp_memorias.find(m => m.id === delCit.id).enlace_caduca_at = '2020-01-01T00:00:00Z';
+        await assert.rejects(M.porToken(token), e => e.code === 'ENLACE_CADUCADO' && e.status === 410);
+        tablas.riteapp_memorias.find(m => m.id === delCit.id).enlace_caduca_at = viejo;
+        const nuevo = (await M.crearEnlace(delCit)).url.split('/completar/')[1];
+        await assert.rejects(M.porToken(token), e => e.code === 'ENLACE_NO_VALIDO', 'uno nuevo anula el anterior');
+        assert.strictEqual((await M.porToken(nuevo)).id, delCit.id);
+    });
+
+    if (hayGenerador) {
+        await t('generada (aunque sea desde el enlace): no gasta y sube al CIT como VERSIÓN FINAL (PDF y Word)', async () => {
+            const c = tablas.riteapp_cuentas[0];
+            c.creditos = 0;
+            await M.guardarDatos(await M.obtener(delCit.id), { instalacion: { tipo_emisor: 'radiadores_convencionales', aerotermia_cal: { aerotermia_db_id: 901, marca: 'MARCAX', modelo: 'AIRE 8 MONO', potencia: 8, numero_serie: 'SN-9' } }, fechas: { pruebas: '2026-11-21' } });
+            const r = await M.generar(await M.obtener(delCit.id), c, { origen: 'instalador' });
+            assert.strictEqual(r.memoria.estado, 'GENERADA');
+            assert.strictEqual(c.creditos, 0);
+            assert.strictEqual(tablas.riteapp_memorias.find(m => m.id === delCit.id).credito_consumido, false);
+            assert.deepStrictEqual(subidasCit.map(x => x.clase), ['FINAL_PDF', 'FINAL_WORD']);
+            assert.strictEqual(subidasCit[0].pdf, '%PDF');
+            assert.ok(r.cit.ok && r.cit.numero === '2026CIT_7');
+            assert.ok(notasCit.some(n => /generada en la app RITE/.test(n.texto)));
         });
     }
 

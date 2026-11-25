@@ -34,9 +34,11 @@ const GUARDIANES = new Set([
 //   la obra, y miniaturas/ficheros con firma HMAC que caduca.
 // · informesPublic (/api/public/informe): el enlace del cliente de un informe, con su portal_token (32 hex),
 //   límite por IP; el firmado solo se descarga cobrado.
+// · riteappPublic (/api/public/riteapp/:token): el instalador completa SU memoria RITE con el enlace
+//   (token de 32 hex que caduca a los 30 días; solo ficheros de esa memoria; límites por IP). Regla 245.
 // · facturaInstalador (/api/public/factura-instalador): la factura que el instalador hace en la
 //   app, con el upload_token de la oportunidad (el de su enlace de subida); 403 sin él o con otro.
-const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic', 'informesPublic', 'facturaInstalador']);
+const ROUTERS_PUBLICOS = new Set(['public', 'portal', 'publicMarketplace', 'landing', 'afirmaStorage', 'acciones', 'certappPublic', 'informesPublic', 'facturaInstalador', 'riteappPublic']);
 
 // Rutas sueltas abiertas a propósito, con el motivo.
 const ABIERTAS = {

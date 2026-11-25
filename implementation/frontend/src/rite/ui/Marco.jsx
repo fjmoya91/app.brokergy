@@ -35,23 +35,46 @@ export function Pie() {
     );
 }
 
-/** Las pantallas con cuenta: cabecera con el saldo y el perfil. */
+/** Las pantallas con cuenta: cabecera con el saldo y el perfil. Con una sesión del EQUIPO, «Administración». */
 export function Marco({ children, ancho = false }) {
-    const { cuenta, signOut } = useRiteAuth();
+    const { cuenta, equipo, signOut } = useRiteAuth();
     const creditos = Number(cuenta?.creditos) || 0;
+    const salir = async () => { await signOut(); navegar('/', { replace: true }); };
     return (
         <Papel>
             <div className={ancho ? 'ca-col-ancha' : 'ca-col'} style={ancho ? { maxWidth: 760 } : undefined}>
-                <Cabecera enlace="/panel" etiquetaSoloPc={!!cuenta} derecha={cuenta && (
+                <Cabecera enlace={equipo && !cuenta ? '/admin' : '/panel'} etiquetaSoloPc={!!cuenta || !!equipo} derecha={equipo && !cuenta ? (
+                    <div className="rt-nav">
+                        <Enlace to="/admin" className="ca-chip ca-chip-tinta" style={{ height: 30 }}>Administración</Enlace>
+                        <button type="button" className="ca-icobtn" aria-label="Salir" onClick={salir}><IcoSalir size={19} /></button>
+                    </div>
+                ) : cuenta && (
                     <div className="rt-nav">
                         <Enlace to="/panel" className={`ca-creditos${creditos ? '' : ' ca-creditos-cero'}`} title="Memorias que te quedan">
                             <b>{creditos}</b> {creditos === 1 ? 'memoria' : 'memorias'}
                         </Enlace>
                         <Enlace to="/perfil" className="ca-icobtn" aria-label="Mi empresa"><IcoUsuario size={19} /></Enlace>
-                        <button type="button" className="ca-icobtn ca-solo-pc" aria-label="Salir"
-                            onClick={async () => { await signOut(); navegar('/', { replace: true }); }}><IcoSalir size={19} /></button>
+                        <button type="button" className="ca-icobtn ca-solo-pc" aria-label="Salir" onClick={salir}><IcoSalir size={19} /></button>
                     </div>
                 )} />
+                {children}
+                <Pie />
+            </div>
+        </Papel>
+    );
+}
+
+/** La página del ENLACE del instalador (sin cuenta): logo, sin menú, sin saldo. */
+export function MarcoEnlace({ children }) {
+    return (
+        <Papel>
+            <div className="ca-col">
+                <header className="ca-head">
+                    <span className="ca-marca" aria-label={NOMBRE_APP}>
+                        <img className="ca-logo" src={LOGO} alt="BROKERGY" width="130" height="26" />
+                        <EtiquetaRite />
+                    </span>
+                </header>
                 {children}
                 <Pie />
             </div>

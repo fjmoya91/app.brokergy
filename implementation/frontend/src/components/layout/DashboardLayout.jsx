@@ -9,6 +9,7 @@ import { ThemeToggle } from '../ThemeToggle';
 import { UserMenu } from './UserMenu';
 import { getRoleFlags } from '../../utils/roleFlags';
 import { BarraMovil, ICONOS_NAV } from './BarraMovil';
+import { urlAppExterna } from '../../utils/appsExternas';
 
 /**
  * @param onNueva     abre «Nueva simulación» (el ＋ de la barra de abajo del móvil)
@@ -317,6 +318,15 @@ export function DashboardLayout({ children, activeTab, onTabChange, onNueva = nu
 
                             { id: 'usuarios', grupo: 'ajustes', label: 'Usuarios', ver: isAdmin,
                               d: 'M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z' },
+
+                            // Las apps hermanas (Fran, 25/11/2026: «desde ADMIN quiero tener acceso
+                            // a la app de los CEE y la del RITE»): su administración, en otra pestaña.
+                            { id: 'app-cee', grupo: 'apps', label: 'App CEE', ver: isAdmin, externa: () => urlAppExterna('cee', '/admin'),
+                              title: 'cee.brokergy.es: la administración de la app de certificadores (cuentas, créditos, obras)',
+                              d: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z' },
+                            { id: 'app-rite', grupo: 'apps', label: 'App RITE', ver: isAdmin, externa: () => urlAppExterna('rite', '/admin'),
+                              title: 'rite.brokergy.es: las memorias RITE, las cuentas de los instaladores y sus bonos',
+                              d: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
                         ].filter(e => e.ver);
 
                         const GRUPOS = [
@@ -324,6 +334,7 @@ export function DashboardLayout({ children, activeTab, onTabChange, onNueva = nu
                             { id: 'cartera', rotulo: 'Cartera' },
                             { id: 'fichas', rotulo: 'Fichas' },
                             { id: 'ajustes', rotulo: 'Ajustes' },
+                            { id: 'apps', rotulo: 'Apps' },
                         ];
 
                         // Con pocas entradas los rótulos son ruido: un partner ve tres
@@ -351,7 +362,7 @@ export function DashboardLayout({ children, activeTab, onTabChange, onNueva = nu
                                         return (
                                             <button
                                                 key={e.id}
-                                                onClick={() => (e.nuevaPestana ? goNewTab(e.id) : go(e.id))}
+                                                onClick={() => (e.externa ? window.open(e.externa(), '_blank', 'noopener') : e.nuevaPestana ? goNewTab(e.id) : go(e.id))}
                                                 title={e.title || e.label}
                                                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all ${
                                                     activo
@@ -369,7 +380,7 @@ export function DashboardLayout({ children, activeTab, onTabChange, onNueva = nu
                                                             <span className="ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-bkg-deep text-[10px] font-black grid place-items-center"
                                                                 title={`${e.n} ${e.nTitulo || ''}`} aria-label={`${e.n} ${e.nTitulo || ''}`}>{e.n}</span>
                                                         )}
-                                                        {e.nuevaPestana && (
+                                                        {(e.nuevaPestana || e.externa) && (
                                                             <svg className="w-3 h-3 flex-shrink-0 opacity-50 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                                                             </svg>
