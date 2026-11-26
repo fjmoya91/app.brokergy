@@ -13,7 +13,7 @@
 | `cee-directos` | CEE directos — el segundo negocio: alta, encargo, entrega, oferta y factura | `.claude/rules/cee-directos.md` · 11,6 KB | 27 |
 | `cee-generacion` | Generación del CEE — .cex inicial/final y previsto RES080, instalaciones y medidas de mejora, CE3X 2.3/3.1/3.2, oráculo y PDF sin CE3X, skills CEE | `.claude/rules/cee-generacion.md` · 59,3 KB | 20 |
 | `certificadores-app` | App de certificadores — cee.brokergy.es: lista de espera, obras, cuestionario, generar con IA, entrega | `.claude/rules/certificadores-app.md` · 10,7 KB | 16 |
-| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 24,6 KB | 6 |
+| `claude-automatizacion` | Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento | `.claude/rules/claude-automatizacion.md` · 29,1 KB | 7 |
 | `clientes` | Clientes y partners — fichas, propietarios y cedentes, contactos comercial/técnico, cobro y venta cruzada | `.claude/rules/clientes.md` · 27,1 KB | 9 |
 | `consultas` | _(sin regla de nivel 2: lo que vale siempre está en CLAUDE.md)_ | — | 11 |
 | `cuadro-mando` | Cuadro de mando de dirección — EBITDA, caja, salud, previsión y negocio de toda la empresa | `.claude/rules/cuadro-mando.md` · 6,5 KB | 2 |
@@ -33,7 +33,7 @@
 | `oportunidades` | Oportunidades — estados, IDs, funnel, nueva simulación, aceptación y alta desde WhatsApp | `.claude/rules/oportunidades.md` · 39,3 KB | 13 |
 | `placas-catalogos` | Placas y catálogos — lectura de placas, nº de serie, aerotermia (EPREL, conjuntos), ventanas, fichas técnicas | `.claude/rules/placas-catalogos.md` · 33,8 KB | 11 |
 | `propuesta` | Propuesta — versiones, envío programado, presupuesto estimado/leído, portada, comisión y enlace de aceptación | `.claude/rules/propuesta.md` · 30,7 KB | 11 |
-| `rite-app` | App RITE — rite.brokergy.es: la memoria RITE suelta de un instalador, rápida o extendida | `.claude/rules/rite-app.md` · 4,6 KB | 1 |
+| `rite-app` | App RITE — rite.brokergy.es: la memoria RITE suelta de un instalador, rápida o extendida | `.claude/rules/rite-app.md` · 4,8 KB | 1 |
 | `seguimiento` | Seguimiento — parte diario, radar de bloques, enlaces de acción y envío en bloque | `.claude/rules/seguimiento.md` · 5,2 KB | 8 |
 | `transversal-backend` | Backend — lo que vale para CUALQUIER ruta o servicio | `.claude/rules/transversal-backend.md` · 14,6 KB | 4 |
 | `transversal-frontend` | Frontend — lo que vale para CUALQUIER pantalla | `.claude/rules/transversal-frontend.md` · 17,3 KB | 7 |
@@ -336,6 +336,7 @@
 - **243** → `.claude/rules/instalador-app.md` — La PORTADA de la ficha de brokergy.es la elige el instalador entre sus fotos PUBLICADAS, sin otra revisión, …
 - **244** → `.claude/rules/oportunidades.md` — Varios INSTALADORES pueden pedir la MISMA obra: la oportunidad sigue siendo UNA y el bono CAE es el MISMO pa…
 - **245** → `.claude/rules/rite-app.md` — La memoria RITE SUELTA de la app RITE (rite.brokergy.es, `{AAAA}RIT_{n}`) pasa por las MISMAS funciones que …
+- **246** → `.claude/rules/claude-automatizacion.md` — El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase, y el dueño lo decide el CÓDIGO
 
 ## Documentos por área
 
@@ -467,6 +468,7 @@
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05)
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19)
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19)
+- `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md` — El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase y un tablero (2026-11-26)
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08)
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19)
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22)

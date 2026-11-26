@@ -53,7 +53,7 @@ paths:
 - `docs/conocimiento/whatsapp/bot-de-whatsapp-contesta-a-los-chats-etiquetados.md` — Bot de WhatsApp — contesta a los chats ETIQUETADOS (2026-08-25) · 13,2 KB
 - `docs/conocimiento/whatsapp/como-se-prueba-sin-gastar-mensajes.md` — Cómo se prueba SIN gastar mensajes · 0,7 KB
 - `docs/conocimiento/whatsapp/coste-medido.md` — Coste medido (2026-08-25) · 0,8 KB
-- `docs/conocimiento/whatsapp/el-agente-de-whatsapp-y-el-director-comercial.md` — El AGENTE de WhatsApp y el DIRECTOR comercial — diseño (PROPUESTA, 17/11/2026, sin construir) · 13,8 KB
+- `docs/conocimiento/whatsapp/el-agente-de-whatsapp-y-el-director-comercial.md` — El AGENTE de WhatsApp y el DIRECTOR comercial — diseño (PROPUESTA, 17/11/2026, sin construir) · 14,3 KB
 - `docs/conocimiento/whatsapp/el-contestador-contesta-como-fran.md` — El CONTESTADOR: contesta por WhatsApp como Fran a quien tiene algo vivo (2026-11-10) · 66,0 KB
 - `docs/conocimiento/whatsapp/el-seguimiento-que-no-se-quede-nada-pendiente.md` — El SEGUIMIENTO: que no se quede nada pendiente — propuestas y material del CEE inicial (2026-11-15) · 9,3 KB
 - `docs/conocimiento/whatsapp/escalado.md` — Escalado · 1,0 KB

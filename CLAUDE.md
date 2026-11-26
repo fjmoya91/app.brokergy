@@ -62,6 +62,7 @@ Si el usuario dice "no veo el cambio", lo primero es: **¿hemos hecho el deploy 
 | Fotos o documentación que falta | `docs/conocimiento/documentacion-fotos/` |
 | Lotes, verificación, Sujeto Obligado, pago al cliente | `docs/conocimiento/lotes/` y `clientes/` |
 | Un CEE suelto, no CAE | `docs/conocimiento/cee-directos/` |
+| De quién es una obra ahora (comercial, técnico, responsable técnico, dirección) y qué le toca | `node implementation/backend/scripts/equipo.js obra <nº>` y la ficha de ese papel en `.claude/agents/` (regla 246) |
 | Cómo va la empresa: EBITDA, margen, caja, previsión, cierre del año | El cuadro de mando: `docs/conocimiento/cuadro-mando/` y `cuadroDireccion.js` (`check_cuadro_mando.js` lo imprime) |
 | Una consulta de normativa, trámites, fiscalidad o ayudas de un cliente o instalador (boletines, legalizar placas, IRPF…) | **Primero** `docs/conocimiento/consultas/` (lo ya contestado); si no está, se investiga y se añade ahí una ficha |
 

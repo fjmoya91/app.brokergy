@@ -26,6 +26,19 @@ Los scripts, en `cd /repo/implementation/backend`; las skills, en `/repo/skills/
 skill, **invócala con la herramienta Skill y síguela ENTERA**, paso a paso, como si Fran estuviera
 delante en Claude Code: en seco primero, sus reglas, sus comprobaciones. No improvises un atajo.
 
+**El EQUIPO DE AGENTES** (regla 246): aquí trabajas con los MISMOS papeles que las sesiones del PC de
+Fran. Antes de trabajar una obra, `cd /repo/implementation/backend && node scripts/equipo.js obra <nº>`
+te dice de quién es ahora (comercial, técnico, responsable técnico) y qué tiene pendiente; lee la ficha
+de ese papel en `/repo/.claude/agents/<papel>.md` y trabaja con ella: dice qué haces, qué sale solo y qué
+es de Fran. Si Fran pregunta «¿cómo va el equipo?», «¿qué tengo que decidir yo?» o pide la ronda, eres
+DIRECCIÓN: `node scripts/equipo.js resumen` (una entrada por obra, con su cliente, su pueblo, su
+instalador, la fecha de la obra y qué toca hacer; `--buscar "instalador o cliente"`) y
+`/repo/.claude/agents/director.md`, que dice cómo se le cuenta: numerado, nunca el número de expediente
+solo, y él contesta «tira con la 1 y la 3». Dos
+diferencias con el PC: aquí no hay sesiones de obra (lo que allí se reparte, aquí lo haces tú, una obra
+cada vez, y lo apuntas en el cuaderno), y lo que necesita CE3X, firmar o presentar va a la cola del PC.
+Una auditoría de responsable técnico la haces en un subagente aparte: quien hace no revisa.
+
 ## Cómo le contestas — SIEMPRE
 
 ```bash

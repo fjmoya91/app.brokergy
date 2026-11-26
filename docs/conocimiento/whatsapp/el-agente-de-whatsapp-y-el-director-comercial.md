@@ -134,6 +134,12 @@ Tabla nueva `wa_memoria`, **una fila por teléfono y obra** (`tel9`, `oportunida
 
 ## 6. El DIRECTOR comercial (PC)
 
+> **26/11/2026** — el director se ha concretado como DIRECCIÓN del equipo de agentes (regla 246):
+> su ficha es `.claude/agents/director.md` y reparte por el tablero de `scripts/equipo.js`, con un
+> dueño por fase (comercial, técnico, responsable técnico). Ver
+> `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md`. De esta
+> sección sigue pendiente la cola `wa_encargos` (lo que el agente del VPS le encarga al PC).
+
 Una sesión fija del Code tab, **«DIRECTOR COMERCIAL»**, que sustituye a «CENTRO DE OBRAS» y a lo que hoy
 hace a mano «Simulaciones de oportunidades pendientes». **El protocolo vive en una skill
 (`director-comercial`) y el estado en la BD**, no en la memoria de la sesión: se puede vaciar o recrear sin

@@ -10,6 +10,9 @@ paths:
   - ".claude/hooks/**"
   - "scripts/{skills,conocimiento}.mjs"
   - "scripts/conocimiento/**"
+  - ".claude/agents/**"
+  - "implementation/backend/scripts/{equipo,test_equipo_roles}.js"
+  - "implementation/backend/utils/equipoRoles.js"
 ---
 # Claude y automatización — asistente por WhatsApp, llave de Claude, hooks y scripts de mantenimiento (nivel 2)
 
@@ -36,6 +39,8 @@ paths:
 
 242. **Una OPORTUNIDAD con el bono bajo se califica en el PC con un trabajo FIJO y el instalador recibe la cifra SOLO** (2026-11-23, Fran: «que le llegue al instalador sin que tengamos nosotros que actuar»; caso 26RES060_OP445). `asistente_pc.js ce3x <OP> --trabajo calificar [--avisar-instalador] --enviar` encola `calificar_op` (`encolarCalificarOp`): sin Claude ni Chrome, el PC lanza `cee_inicial.js calificar <OP> --escribir`, y solo está bien si su salida dice «XML del CEE inicial CARGADO en la SIMULACIÓN» sin «CERTIFICADO INCOMPLETO» (`resultadoCalificarOp`); el mensaje a Fran lo manda la vuelta, bien o mal. **`--avisar-instalador` abre la MISMA `inputs.peticion_revision` que el botón «Solicitar revisión» del partner** (regla 217; `por: 'ALTA AUTOMÁTICA'`), así que al cargarse el XML `cerrarRevision` le escribe UNA vez con el bono nuevo y el enlace, **por el chat donde pidió el presupuesto** (`chat_id`: presupuesto enlazado → pedido de WhatsApp, o el pedido del mismo instalador con la RC de la casa) y, sin chat, a sus contactos comerciales. **Un `calificar_op` no se empieza fuera de la franja de la casa** (regla 205). En el alta automática con el bono < 3.000 € el asistente no pregunta (Street View, valores por defecto) y avisa a Fran con `avisar --solo-informa`; con ≥ 3.000 €, el ENVÍALA de siempre. `deploy.sh` reconstruye el contenedor del asistente solo si el vigía dice que está libre. **En el PC, antes de cada trabajo, `asegurarDependencias` hace `npm install` en el backend o el frontend si les falta una dependencia** (el 23/11 el frontend sin `axios` dejó la OP445 y la OP448 calificadas pero sin cargar). Tras tocarlo: `node implementation/backend/scripts/test_calificar_op.js`, `test_revision_partner.js`, `test_pc_destino.js` y `ce3x <OP> --trabajo calificar --avisar-instalador` en seco. Ver "La oportunidad con el bono bajo".
 
+246. **El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase, y el dueño lo decide el CÓDIGO** (2026-11-26, Fran). Las fichas están en `.claude/agents/`: `comercial` (de la petición a la aceptación), `tecnico` (de la aceptación a tenerlo todo firmado), `responsable-tecnico` (audita antes de DOC. COMPLETA y revisa los CEE entregados) y `director` (reparte y le lleva a Fran lo suyo). **De quién es una obra sale de [utils/equipoRoles.js](implementation/backend/utils/equipoRoles.js) con los hechos de la BD** —captación sin expediente → comercial; cada bloque del radar del parte (`seguimientoRadar.BLOQUES`) con UN dueño en `ROL_DE_BLOQUE`; REQUERIMIENTO → técnico; «listo para auditar» = Anexo I, Convenio y CIFO firmados + CEE final registrado, sin lote— y se consulta con [scripts/equipo.js](implementation/backend/scripts/equipo.js) `tablero` / `obra <nº>`, que **solo lee**. No se guarda una «fase» en ningún sitio. Un bloque nuevo del radar sin dueño hace fallar la prueba. **Quien hace no revisa**: el responsable técnico corre como subagente o en su sesión, parte de cero, no corrige ni envía, y va con Opus; comercial, técnico y dirección, con Sonnet (los CEE, con Opus: «esta skill, con OPUS y esfuerzo ALTO»). **Lo que el equipo hace sin el «sí» de Fran es una lista CERRADA** (sus decisiones del 26/11/2026), y cada cosa va por la ruta de la app que ya lleva los topes, nunca por un mensaje suelto: (a) pedir el material del CEE inicial (regla 158); (b) reclamar una firma que no vuelve o un CEE que el certificador no entrega o no registra, por el envío en bloque del parte (`/api/seguimiento/lote/:clave/enviar`: agrupa por persona, plazo, ventana de reinsistencia, sello); (c) recordar una propuesta ENVIADA, solo por la escalera de seguimiento del VPS (regla 217) cuando esté en real; (d) **el visto bueno de un CEE que sale LIMPIO** de `revisar-cee` (`APTO` sin avisos y la fecha de firma del expediente), por `approve-cee`: lo dudoso sigue siendo de Fran; (e) **APTO → DOC. COMPLETA**, validando antes cada documento, y un 409 de firma rota PARA. Todo lo demás —propuesta, mandar a firma, cualquier otro mensaje, firmar, presentar, pagar, lote, verificador— con su «sí» para ESE envío. **El comercial guarda en la obra TODO lo que llega por WhatsApp o email antes de simular o contestar. Cada incidencia del responsable lleva su SOLUCIÓN, y el técnico la aplica y vuelve a pedir la auditoría hasta el APTO (tope: 3 vueltas, después a Fran).** **Fran habla con UNA sesión, DIRECCIÓN** (fijada, con Remote Control para el móvil), no con una por papel: ella reparte y, cuando algo es de Fran, le AVISA (notificación al móvil y una línea a su grupo de WhatsApp, una por ronda). En el VPS el Claude del WhatsApp trabaja con las mismas fichas (`asistente_instrucciones.md`). **Dirección no produce**: una sesión por obra (la que ya existe), como mucho 6 obras por ronda y 3 sesiones trabajando a la vez, y UN mensaje a Fran con todo lo que tiene que decidir y su borrador entero. No toca el contestador del VPS (sesión «CHATBOT WHATSAPP»). Tras tocarlo: `node implementation/backend/scripts/test_equipo_roles.js` y `equipo.js tablero`. Ver "El EQUIPO DE AGENTES".
+
 <!-- generado:inicio — no se edita a mano: `node scripts/conocimiento.mjs regenerar` -->
 
 ## Documentos del área (nivel 3)
@@ -43,6 +48,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 15,0 KB
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 13,5 KB
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 4,1 KB
+- `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md` — El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase y un tablero (2026-11-26) · 13,3 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 20,4 KB
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22) · 13,0 KB
@@ -72,6 +78,20 @@ documento.**
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md`
   - **REGLA — el banco va EN SECO y A CIEGAS.**
   - **REGLA — esta skill, con OPUS y esfuerzo ALTO**
+- `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md`
+  - **REGLA — el dueño de una obra lo decide el CÓDIGO con los hechos de la BD, nunca el modelo.**
+  - **REGLA — un bloque del radar sin dueño hace fallar la prueba.**
+  - **REGLA — «listo para auditar» son HECHOS: Anexo I, Convenio y CIFO firmados y el CEE final
+registrado, sin lote y sin estar ya en DOC. COMPLETA**
+  - **REGLA — quien hace no revisa.**
+  - **REGLA — lo que el equipo hace sin el «sí» de Fran es una lista CERRADA, y cada cosa va por la
+ruta de la app que ya lleva los topes**
+  - **REGLA — el comercial guarda TODO lo que llega, antes de simular o de contestar**
+  - **REGLA — cada incidencia del responsable lleva su SOLUCIÓN, y el bucle no se suelta hasta el
+APTO.**
+  - **REGLA — cuando algo es de Fran, se le AVISA; no se espera a que entre a mirar.**
+  - **REGLA — a Fran una obra se le cuenta con su gente y su fecha, nunca con el número solo**
+  - **REGLA — dirección no produce.**
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md`
   - **REGLA — por la MISMA ruta que la pantalla, con la cuenta de CLAUDE.**
   - **REGLA — nada sale a terceros.**

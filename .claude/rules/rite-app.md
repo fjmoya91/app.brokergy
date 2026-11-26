@@ -25,7 +25,7 @@ paths:
 
 ## Documentos del área (nivel 3)
 
-- `docs/conocimiento/rite-app/00-la-app-rite.md` — La app RITE — rite.brokergy.es (2026-11-25) · 14,6 KB
+- `docs/conocimiento/rite-app/00-la-app-rite.md` — La app RITE — rite.brokergy.es (2026-11-25) · 16,2 KB
 
 ## Las «REGLA —» que contienen esos documentos
 
@@ -40,5 +40,8 @@ CARGA de cálculo sigue siendo m² × W/m² de la zona.**
   - **REGLA — un fichero solo se sirve si es de ESA memoria**
   - **REGLA — el enlace vale para UNA memoria**
   - **REGLA — la pantalla de estancias no calcula potencias.**
+  - **REGLA — el equipo del
+catálogo lleva sus `litros_acs` a la memoria solo si trae el depósito incluido (`deposito_acs_incluido`)
+o es un termo/acumulador**
 
 <!-- generado:fin -->
