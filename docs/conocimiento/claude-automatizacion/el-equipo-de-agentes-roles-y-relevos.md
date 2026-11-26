@@ -160,9 +160,9 @@ para auditar), dirección 14 (completos y sin lotear).
 
 | Fase | Qué | Estado |
 |---|---|---|
-| 0 | Fichas de los cuatro papeles, reparto por código, tablero y prueba | hecho en local el 26/11/2026, sin commit |
+| 0 | Fichas de los cuatro papeles, reparto por código, tablero, resumen y prueba | hecho el 26/11/2026 (80bee34e) |
 | 1 | Sesión fija «DIRECCIÓN» en el PC, con Remote Control, y su primera ronda | arrancada el 26/11/2026 |
-| 2 | Commit y despliegue: el Claude del WhatsApp del VPS trabaja con las fichas y el tablero (`asistente_instrucciones.md`, ya escrito en local) | pendiente del «sí» de Fran |
+| 2 | El Claude del WhatsApp del VPS trabaja con las fichas y el tablero (`asistente_instrucciones.md`) | en el VPS desde el 26/11/2026. Bastó el `git pull`: el commit no toca código del backend ni del frontend, y el vigilante lee las instrucciones en cada trabajo. Probado en el contenedor `brokergy-asistente`: `equipo.js obra` y `resumen` |
 | 3 | La ronda de dirección como tarea programada de la app (hora y tamaño) | pendiente de Fran |
 | 4 | Cola de decisiones compartida PC ↔ VPS, para contestar los «sí» por WhatsApp | por construir |
 | 5 | La escalera de recordatorios de propuestas, de copia a real | lo lleva la sesión «CHATBOT WHATSAPP», con el «sí» de Fran |

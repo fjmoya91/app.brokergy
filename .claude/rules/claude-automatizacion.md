@@ -48,7 +48,7 @@ paths:
 - `docs/conocimiento/claude-automatizacion/el-asistente-de-fran-por-whatsapp-canal-siempre-abierto.md` — El ASISTENTE de Fran por WhatsApp — canal siempre abierto (2026-10-05) · 15,0 KB
 - `docs/conocimiento/claude-automatizacion/el-asistente-dentro-de-la-app.md` — El ASISTENTE dentro de la app — botón flotante, API de Anthropic y encargos al Claude del WhatsApp (2026-10-19) · 13,5 KB
 - `docs/conocimiento/claude-automatizacion/el-cee-inicial-por-la-api-banco-de-pruebas-y-coste.md` — El CEE inicial por la API de Claude: banco de pruebas y coste medido (2026-10-19) · 4,1 KB
-- `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md` — El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase y un tablero (2026-11-26) · 13,3 KB
+- `docs/conocimiento/claude-automatizacion/el-equipo-de-agentes-roles-y-relevos.md` — El EQUIPO DE AGENTES: cuatro papeles, un dueño por fase y un tablero (2026-11-26) · 13,5 KB
 - `docs/conocimiento/claude-automatizacion/justificar-un-expediente-al-terminar-la-obra.md` — JUSTIFICAR un expediente al terminar la obra — skill `justificar-expediente` (2026-10-08) · 9,1 KB
 - `docs/conocimiento/claude-automatizacion/presentar-desde-el-whatsapp-con-el-pc.md` — «Preséntalo» por WhatsApp: el Claude del servidor pregunta, el PC de Fran presenta (2026-10-19) · 20,4 KB
 - `docs/conocimiento/claude-automatizacion/tras-la-aceptacion-el-agente-revisa-y-pide-lo-que-falta.md` — Tras la ACEPTACIÓN, el agente revisa la documentación y pide lo que falta, o hace el CEE inicial (2026-10-22) · 13,0 KB
