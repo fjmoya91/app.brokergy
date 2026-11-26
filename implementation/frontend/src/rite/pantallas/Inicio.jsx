@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Aviso, Campo, Papel } from '../../certificadores/ui/piezas';
 import { IcoCasa, IcoCheck, IcoChispa, IcoDoc, IcoEnviar, Spinner } from '../../certificadores/ui/Iconos';
+import { Enlace } from '../../certificadores/router';
 import { useRiteAuth } from '../auth/RiteAuth';
 import { Cabecera, Pie } from '../ui/Marco';
 
@@ -73,6 +74,7 @@ export default function Inicio({ query }) {
                         </>
                     )}
                     {estado.error && <div style={{ marginTop: 12 }}><Aviso className="ca-in" titulo="No ha podido ser">{estado.error}</Aviso></div>}
+                    <p className="ca-peq" style={{ marginTop: 12 }}>¿Ya tienes cuenta con contraseña? <Enlace to="/entrar" className="ca-link">Entrar</Enlace></p>
                 </section>
 
                 <p className="ca-sec">Cómo funciona</p>

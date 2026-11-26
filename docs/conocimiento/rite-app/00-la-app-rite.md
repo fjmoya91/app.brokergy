@@ -199,3 +199,14 @@ catálogo lleva sus `litros_acs` a la memoria solo si trae el depósito incluido
 o es un termo/acumulador**, igual que la precarga del CRM (`InstalacionModule.jsx`). La «POTENCIA ACS» se
 queda en blanco cuando la misma bomba hace calefacción y ACS (no se duplican los kW): solo se rellena con
 una resistencia de apoyo (`potencia_resistencia_acs`). Es lógica del generador, la misma que en las obras CAE.
+
+### Entrar como en cee.brokergy.es: `/entrar` con email y contraseña (2026-11-26)
+
+Fran no tenía cómo entrar en la administración: la portada solo ofrecía Google y el enlace al email,
+y su usuario del CRM es de email y contraseña. Fran: «quiero que sea como la app cee.brokergy». Ahora
+hay **`/entrar`** ([pantallas/Entrar.jsx](implementation/frontend/src/rite/pantallas/Entrar.jsx)), la
+misma tarjeta que la de cee.brokergy.es: «Continuar con Google» (solo si Google está activo en Supabase),
+email y **contraseña** (`entrarConPassword` de `RiteAuth`, `signInWithPassword`: la MISMA cuenta que el
+CRM, así que el equipo entra con su usuario de app.brokergy.es y va a `/admin`) y «Entrar sin contraseña»
+(el enlace al email). Una ruta con sesión obligatoria, sin sesión, lleva a `/entrar?vuelta=…`; «App RITE»
+del menú del CRM abre `/admin` y acaba ahí. La portada sigue siendo el alta de los instaladores.

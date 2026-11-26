@@ -147,6 +147,33 @@ export function RiteAuthProvider({ children }) {
         }
     }, []);
 
+    /**
+     * Email y contraseña, como cee.brokergy.es: la MISMA cuenta de Supabase que el CRM,
+     * así que el equipo de BROKERGY entra con su usuario de app.brokergy.es (Fran, 26/11/2026).
+     */
+    const entrarConPassword = useCallback(async (email, password) => {
+        const correo = String(email || '').trim().toLowerCase();
+        if (!correo || !password) return { ok: false, error: 'Escribe tu email y tu contraseña.' };
+        try {
+            const { data, error } = await supabase.auth.signInWithPassword({ email: correo, password });
+            if (error) {
+                const msg = /invalid login|invalid credentials/i.test(error.message)
+                    ? 'El email o la contraseña no son correctos. Si no tienes contraseña, pide el enlace a tu email.'
+                    : /email not confirmed/i.test(error.message)
+                        ? 'Tu cuenta aún no está activada. Pide el enlace a tu email.'
+                        : 'No hemos podido entrar. Vuelve a intentarlo.';
+                return { ok: false, error: msg };
+            }
+            ponerToken(data.session?.access_token);
+            userIdRef.current = data.session?.user?.id || null;
+            setSession(data.session);
+            await cargarMe();
+            return { ok: true };
+        } catch {
+            return { ok: false, error: 'No hemos podido conectar. Revisa la conexión y vuelve a intentarlo.' };
+        }
+    }, [cargarMe, ponerToken]);
+
     /** Enlace para entrar al email (sirve para darse de alta y para volver). */
     const entrarConEmail = useCallback(async (email, vuelta = '/panel') => {
         const correo = String(email || '').trim().toLowerCase();
@@ -179,10 +206,11 @@ export function RiteAuthProvider({ children }) {
         sinCuenta: !!session && !cuenta && !equipo && errorMe?.code === 'RITEAPP_SIN_CUENTA',
         entrarConGoogle,
         entrarConEmail,
+        entrarConPassword,
         signOut,
         refrescar,
         ponerCuenta: setCuenta,
-    }), [session, cuenta, equipo, loading, errorMe, entrarConGoogle, entrarConEmail, signOut, refrescar]);
+    }), [session, cuenta, equipo, loading, errorMe, entrarConGoogle, entrarConEmail, entrarConPassword, signOut, refrescar]);
 
     return <Ctx.Provider value={valor}>{children}</Ctx.Provider>;
 }

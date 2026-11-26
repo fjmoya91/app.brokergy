@@ -1,5 +1,7 @@
 // ─── App.jsx — las pantallas de la app RITE, por ruta (regla 245) ───────────
-//   PÚBLICA   /            portada y entrar (Google o enlace al email)
+//   PÚBLICA   /            portada y alta (Google o enlace al email)
+//             /entrar      entrar como en cee.brokergy.es: Google o email y contraseña
+//                          (el equipo, con su usuario del CRM), o el enlace al email
 //   SESIÓN    /alta        los datos de la empresa (la primera vez)
 //   CUENTA    /panel · /memoria/:id · /perfil
 //   ENLACE    /completar/:token   el instalador completa, sin cuenta, la memoria que le
@@ -16,6 +18,7 @@ import { tituloPestana } from './marca';
 import { CSS_RITE } from './ui/estilo';
 import { Cabecera } from './ui/Marco';
 import Inicio from './pantallas/Inicio';
+import Entrar from './pantallas/Entrar';
 import Panel from './pantallas/Panel';
 import Memoria, { fuenteDe } from './pantallas/Memoria';
 import { Alta, Perfil } from './pantallas/Empresa';
@@ -53,7 +56,7 @@ function Protegida({ acceso, children }) {
     const { session, cuenta, equipo, loading, errorMe, sinCuenta, refrescar, signOut, email } = useRiteAuth();
     const { completa } = useRuta();
     if (loading) return <Cargando />;
-    if (!session) return <Redirigir to={`/?vuelta=${encodeURIComponent(completa)}`} />;
+    if (!session) return <Redirigir to={`/entrar?vuelta=${encodeURIComponent(completa)}`} />;
     if (errorMe && errorMe.status !== 403) {
         return (
             <Papel><div className="ca-col"><Cabecera />
@@ -69,7 +72,7 @@ function Protegida({ acceso, children }) {
                 {email && <p className="ca-peq" style={{ marginTop: 10 }}>Has entrado como <b>{email}</b>.</p>}
                 <div className="ca-btns">
                     {cuenta && <Enlace to="/panel" className="ca-btn ca-btn-pri">Ir a mis memorias</Enlace>}
-                    <button type="button" className="ca-btn ca-btn-sec" onClick={async () => { await signOut(); navegar('/'); }}>Salir y entrar con otra cuenta</button>
+                    <button type="button" className="ca-btn ca-btn-sec" onClick={async () => { await signOut(); navegar('/entrar'); }}>Salir y entrar con otra cuenta</button>
                 </div>
             </Tarjeta>
         );
@@ -83,7 +86,7 @@ function Protegida({ acceso, children }) {
                 <p className="ca-txt">{errorMe?.mensaje || 'Tu usuario no tiene una cuenta activa en la app RITE.'}</p>
                 {email && <p className="ca-peq" style={{ marginTop: 10 }}>Has entrado como <b>{email}</b>.</p>}
                 <div className="ca-btns">
-                    <button type="button" className="ca-btn ca-btn-sec" onClick={async () => { await signOut(); navegar('/'); }}>Salir y entrar con otra cuenta</button>
+                    <button type="button" className="ca-btn ca-btn-sec" onClick={async () => { await signOut(); navegar('/entrar'); }}>Salir y entrar con otra cuenta</button>
                 </div>
             </Tarjeta>
         );
@@ -94,6 +97,7 @@ function Protegida({ acceso, children }) {
 function resolver(path) {
     let p;
     if (path === '/') return { id: 'inicio' };
+    if (path === '/entrar') return { id: 'entrar', titulo: 'Entrar' };
     if (path === '/alta') return { id: 'alta', acceso: 'sesion', titulo: 'Alta' };
     if (path === '/panel') return { id: 'panel', acceso: 'cuenta', titulo: 'Mis memorias' };
     if (path === '/perfil') return { id: 'perfil', acceso: 'cuenta', titulo: 'Mi empresa' };
@@ -121,6 +125,7 @@ export default function App() {
     let pantalla;
     switch (ruta.id) {
         case 'inicio': pantalla = <PortadaOPanel query={query} />; break;
+        case 'entrar': pantalla = <Entrar query={query} />; break;
         case 'alta': pantalla = <Alta />; break;
         case 'panel': pantalla = <Panel />; break;
         case 'perfil': pantalla = <Perfil />; break;
