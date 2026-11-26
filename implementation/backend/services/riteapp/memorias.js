@@ -225,7 +225,7 @@ async function viviendaDelCatastro(rc) {
 }
 
 // ── Equipos del catálogo de aerotermia ───────────────────────────────────────
-const SEL_EQUIPO = 'id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, tipo, potencia_calefaccion, potencia_frigorifica, refrigerante, litros_acs';
+const SEL_EQUIPO = 'id, marca, modelo_comercial, modelo_conjunto, modelo_ud_exterior, tipo, potencia_calefaccion, potencia_frigorifica, refrigerante, litros_acs, deposito_acs_incluido';
 async function buscarEquipos(q) {
     const t = String(q || '').trim().replace(/[%,()]/g, ' ').slice(0, 60);
     if (t.length < 2) return [];
@@ -245,14 +245,20 @@ function equipoPublico(m) {
     return ({
         id: m.id, marca: m.marca, modelo: m.modelo_comercial || m.modelo_conjunto, modelo_ud_exterior: m.modelo_ud_exterior,
         tipo: m.tipo, potencia: Number(m.potencia_calefaccion) || null, potencia_frio: Number(m.potencia_frigorifica) || null,
-        refrigerante: m.refrigerante, litros_acs: m.litros_acs,
+        refrigerante: m.refrigerante, litros_acs: m.litros_acs, deposito_acs_incluido: !!m.deposito_acs_incluido,
     });
 }
 /** Un modelo del catálogo → el bloque `aerotermia_cal` de la memoria. */
 function equipoDeCatalogo(m, numero_serie = '') {
+    // Los litros de ACS, como la precarga del CRM (InstalacionModule): solo si el
+    // equipo trae el depósito incluido (o es un termo/acumulador). Sin ellos la
+    // casilla «ACUMULACIÓN (L)» de la memoria sale en blanco (2026RIT_1, 26/11/2026).
+    const conDeposito = m.deposito_acs_incluido || /termo|acumul/i.test(String(m.tipo || ''));
+    const litros = conDeposito ? Number(m.litros_acs) || null : null;
     return {
         aerotermia_db_id: m.id, marca: m.marca, modelo: m.modelo, modelo_ud_exterior: m.modelo_ud_exterior || undefined,
         potencia: m.potencia || null, refrigerante: m.refrigerante || undefined, numero_serie: numero_serie || '',
+        ...(litros ? { litros_acs: litros } : {}),
     };
 }
 

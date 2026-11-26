@@ -190,3 +190,12 @@ Redirect URLs de Supabase Auth para Google · desplegar el backend y **el conten
 
 Tras tocarlo: `node implementation/backend/scripts/test_riteapp_payload.js` (con el generador levantado,
 `--generar <carpeta>` hace los ficheros de verdad).
+
+### Los litros de ACS del equipo del catálogo (2026-11-26)
+
+En la primera memoria real (2026RIT_1, THERMOR AUREA DUO 11 con depósito de 190 L) la casilla
+«ACUMULACIÓN (L)» salió en blanco: `equipoDeCatalogo` no pasaba `litros_acs`. **REGLA — el equipo del
+catálogo lleva sus `litros_acs` a la memoria solo si trae el depósito incluido (`deposito_acs_incluido`)
+o es un termo/acumulador**, igual que la precarga del CRM (`InstalacionModule.jsx`). La «POTENCIA ACS» se
+queda en blanco cuando la misma bomba hace calefacción y ACS (no se duplican los kW): solo se rellena con
+una resistencia de apoyo (`potencia_resistencia_acs`). Es lógica del generador, la misma que en las obras CAE.
